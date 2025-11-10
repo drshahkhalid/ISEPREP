@@ -982,7 +982,7 @@ class StockDispatchKit(tk.Frame):
                 "editable_types": {"Item"}
             })
         return rules
-    
+
 
     def initialize_quantities_and_highlight(self):
         """
@@ -1058,8 +1058,8 @@ class StockDispatchKit(tk.Frame):
             else:
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
-                
-                            
+
+
     def _derive_modules_from_Kits(self):
         """
         Derive Module quantities from Kit quantities (case-insensitive).
@@ -1093,7 +1093,7 @@ class StockDispatchKit(tk.Frame):
                 vals[8] = str(base_qty)
                 self.tree.item(iid, values=vals)
 
-    
+
     def _reapply_editable_icons(self, rules):
         """
         Reapply star and highlight after propagation; case-insensitive.
@@ -1217,7 +1217,7 @@ class StockDispatchKit(tk.Frame):
     # ------------------------------------------------------------------
     # Event Handlers / Loading
     # ------------------------------------------------------------------
-        
+
     def on_Kit_selected(self, event=None):
         """
         When a Kit code is selected, enable and populate the Kit number list.
@@ -1372,7 +1372,7 @@ class StockDispatchKit(tk.Frame):
                        f"Showing {len(display_rows)} rows (incl. headers)")
             )
 
-            
+
         # Header tag styles
         self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
@@ -1387,7 +1387,7 @@ class StockDispatchKit(tk.Frame):
         else:
             self.status_var.set(lang.t("dispatch_Kit.showing_rows",
                                        f"Showing {len(display_rows)} rows (incl. headers)"))
-            
+
     def get_selected_unique_ids(self):
         uids = []
         for iid in self.tree.selection():
@@ -1564,7 +1564,7 @@ class StockDispatchKit(tk.Frame):
         entry.bind("<FocusOut>", save)
         entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self, "editing_cell", None)))
 
-        
+
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
@@ -1715,7 +1715,7 @@ class StockDispatchKit(tk.Frame):
         self.current_document_number = document_number
         return document_number
 
-    
+
     # ------------------------------------------------------------------
     # Save (Issue)
     # ------------------------------------------------------------------
@@ -1925,7 +1925,7 @@ class StockDispatchKit(tk.Frame):
 
         custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
                      lang.t("dispatch_Kit.issue_failed", "Issue failed: database remained locked."), "error")
-            
+
 
     # ------------------------------------------------------------------
     # Utility / Clear / Export
@@ -2174,7 +2174,7 @@ class StockDispatchKit(tk.Frame):
                          lang.t("dialog_titles.error", "Error"),
                          lang.t("dispatch_kit.export_failed", f"Export failed: {str(e)}"),
                          "error")
-            
+
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Dispatch")

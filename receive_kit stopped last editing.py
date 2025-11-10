@@ -811,7 +811,7 @@ class StockReceiveKit(tk.Frame):
         self.recompute_exp_groups()
         self.status_var.set(f"Loaded {len(self.tree.get_children())} records for module number {module_number}")
 
-    
+
 
     def update_mode(self, event=None):
         mode_key = self.current_mode_key()
@@ -2317,7 +2317,7 @@ class StockReceiveKit(tk.Frame):
         if L == 11:
             return "ITEM"
         return None
-    
+
     def generate_unique_id(self, scenario_id, kit, module, item, std_qty, exp_date, kit_number, module_number):
         return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
 
@@ -2762,7 +2762,7 @@ class StockReceiveKit(tk.Frame):
 
         return changed
 
-            
+
 
     def _recalc_after_quantity_edit(self, edited_iid, was_structural):
         """
@@ -2853,7 +2853,7 @@ class StockReceiveKit(tk.Frame):
             # Simpler approach: temporarily compute all (small overhead) for consistency.
             changed = self._compute_multiplicative_quantities()
             if changed > 0:
-                self.status_var.set("Qty updated.")        
+                self.status_var.set("Qty updated.")
 
     def update_row_comment(self, iid, force=False, sticky_mode=True):
         """
@@ -2940,7 +2940,7 @@ class StockReceiveKit(tk.Frame):
             rd['sticky_comment'] = new_comment
             if vals[11] != new_comment:
                 vals[11] = new_comment
-                self.tree.item(iid, values=tuple(vals))    
+                self.tree.item(iid, values=tuple(vals))
 
     # -----------------------------------------------------------------
     # Group expiry computation + auto-fill + comments
@@ -3079,7 +3079,7 @@ class StockReceiveKit(tk.Frame):
 
         # Pass 7: Refresh unique IDs
         self.update_unique_ids_and_column()
-        
+
 
     def _auto_fill_expiry_with_precedence(self):
         """
@@ -3963,4 +3963,4 @@ if __name__ == "__main__":
     app = tk.Toplevel(root)
     app.role = "admin"
     StockReceiveKit(app, app, role="admin")
-    root.mainloop()                                                                                                                
+    root.mainloop()

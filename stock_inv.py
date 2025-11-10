@@ -555,9 +555,9 @@ class StockInventory(tk.Frame):
             else:
                 phys_to_insert = phys
                 base_ph_to_insert = base_ph
-            
+
             iid = self._insert_from_state(item, phys_to_insert, upd, disc, remarks, base_ph_to_insert)
-            
+
             # If we forced a zero, also update the stored user state
             if is_complete_inventory:
                 uid = item['unique_id']
@@ -567,7 +567,7 @@ class StockInventory(tk.Frame):
 
         # The recompute function will handle all final calculations and discrepancies
         self.recompute_all_physical_quantities()
-        
+
         self.status_var.set(
             lang.t("stock_inv.loaded_records", "Loaded {count} records")
             .format(count=len(self.tree.get_children()))
@@ -618,28 +618,28 @@ class StockInventory(tk.Frame):
         # --- Phase 1: Calculate all final quantities ---
         kit_factors = {}
         module_factors = {}
-        
+
         all_iids = self.tree.get_children()
 
         # First pass: Identify all KIT/MODULE rows and calculate their factors (0 or 1)
         for iid in all_iids:
             vals = self.tree.item(iid, "values")
             if not vals: continue
-            
+
             unique_id = vals[0]
             is_physical = unique_id and unique_id.count('/') == 7
             if not is_physical: continue
 
             row_type = (vals[3] or "").upper()
             base_input = self.base_physical_inputs.get(iid, 0)
-            
+
             if row_type == "KIT":
                 kit_number = vals[5]
                 if kit_number and kit_number != "-----":
                     final_qty = 1 if base_input > 0 else 0
                     kit_factors[kit_number] = final_qty
                     self.tree.set(iid, "physical_qty", str(final_qty))
-            
+
             elif row_type == "MODULE":
                 module_number = vals[6]
                 kit_number = vals[5]
@@ -672,10 +672,10 @@ class StockInventory(tk.Frame):
             if is_physical and row_type == "ITEM":
                 kit_number = vals[5]
                 module_number = vals[6]
-                
+
                 parent_kit_factor = kit_factors.get(kit_number, 1)
                 parent_module_factor = module_factors.get(module_number, 1)
-                
+
                 final_qty = base_input * parent_kit_factor * parent_module_factor
                 self.tree.set(iid, "physical_qty", str(final_qty))
 
@@ -685,13 +685,13 @@ class StockInventory(tk.Frame):
                         reason = f"module number {module_number}"
                     elif parent_kit_factor == 0:
                         reason = f"kit number {kit_number}"
-                    
+
                     if reason:
                         custom_popup(self, lang.t("dialog_titles.info", "Info"),
                                      f"{vals[1]} {vals[2]} quantity will remain 0 as the {reason} has 0 quantity.", "info")
                         # State Synchronization: Reset base input
                         self.base_physical_inputs[iid] = 0
-            
+
             elif not is_physical:
                 self.tree.set(iid, "physical_qty", str(final_qty))
 
@@ -699,17 +699,17 @@ class StockInventory(tk.Frame):
         for iid in all_iids:
             vals = self.tree.item(iid, "values")
             if not vals: continue
-            
+
             current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
             physical_qty = int(vals[9]) if str(vals[9]).isdigit() else 0
             discrepancy = physical_qty - current_stock
-            
+
             self.tree.set(iid, "discrepancy", "" if discrepancy == 0 else str(discrepancy))
             self._update_state_from_row(iid)
-        
+
         # --- Phase 3: Re-apply all visual highlights ---
         self._highlight_missing_required_expiry()
-        
+
 
     # ---------- Document number generation ----------
     def generate_document_number(self):
@@ -1319,7 +1319,7 @@ class StockInventory(tk.Frame):
             return
         x, y, w, h = bbox
         current_val = self.tree.set(row_id, col_key)
-        
+
         entry = tk.Entry(self.tree)
         entry.place(x=x, y=y, width=w, height=h)
         if current_val:
@@ -1333,7 +1333,7 @@ class StockInventory(tk.Frame):
                 # Store the user's raw input as the base for calculations
                 base_qty = int(new_val) if new_val.isdigit() else 0
                 self.base_physical_inputs[row_id] = base_qty
-                
+
                 # ALWAYS trigger the single, correct recalculation function
                 self.recompute_all_physical_quantities()
 
@@ -1941,7 +1941,7 @@ class StockInventory(tk.Frame):
         finally:
             cur.close()
             conn.close()
-                    
+
     # ---------- Clear form ----------
     def clear_form(self):
         self.tree.delete(*self.tree.get_children())

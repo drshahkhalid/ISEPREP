@@ -118,7 +118,7 @@ def fetch_module_numbers(scenario_name: str | None = None,
         cur.close()
         conn.close()
 
-        
+
 class StockCard(tk.Frame):
     def __init__(self, parent: tk.Widget, root: tk.Tk, role: str = "supervisor") -> None:
         super().__init__(parent)

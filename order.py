@@ -12,7 +12,7 @@ Adjustments from v1.0:
   * ADDED: Auto refresh also on leaving (FocusOut) of lead/cover/buffer months
            and immediate refresh on <<ComboboxSelected>> (instead of needing
            manual Refresh).
-  * EDIT: Editing while in Simple mode: only columns present are editable. 
+  * EDIT: Editing while in Simple mode: only columns present are editable.
           Remarks only editable in Detailed mode (column not shown in Simple).
   * SAFETY: qty_to_order when blank defaults to qty_needed (already) AFTER clamp.
   * TAG: Rows with remarks use italic font (tag 'remarks_italic').

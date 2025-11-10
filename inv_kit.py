@@ -156,8 +156,8 @@ class InventoryKit(tk.Frame):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                SELECT DISTINCT kit AS kit_code 
-                FROM kit_items 
+                SELECT DISTINCT kit AS kit_code
+                FROM kit_items
                 WHERE scenario_id = ? AND kit IS NOT NULL AND level = 'primary'
             """, (scenario_id,))
             kits = [row['kit_code'] for row in cursor.fetchall()]
@@ -187,15 +187,15 @@ class InventoryKit(tk.Frame):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                SELECT ki.item, ki.module, ki.code, ki.treecode, ki.level, ki.std_qty, 
+                SELECT ki.item, ki.module, ki.code, ki.treecode, ki.level, ki.std_qty,
                        sd.unique_id, sd.kit_number, sd.module_number, sd.final_qty, sd.exp_date
                 FROM kit_items ki
-                LEFT JOIN stock_data sd 
-                ON ki.code = sd.item 
-                AND ki.kit = sd.kit 
-                AND ki.module = sd.module 
+                LEFT JOIN stock_data sd
+                ON ki.code = sd.item
+                AND ki.kit = sd.kit
+                AND ki.module = sd.module
                 AND ki.scenario_id = sd.scenario
-                WHERE ki.scenario_id = ? AND ki.kit = ? 
+                WHERE ki.scenario_id = ? AND ki.kit = ?
                 AND ki.treecode >= ? AND ki.treecode < ?
                 AND (sd.final_qty > 0 OR sd.final_qty IS NULL)
             """, (scenario_id, kit_code, '01001000000', '01002000000'))
@@ -256,7 +256,7 @@ class InventoryKit(tk.Frame):
 
             cols = ("unique_id", "type", "kit_number", "module_number", "item", "description", "final_qty", "exp_date")
             self.tree = ttk.Treeview(main_frame, columns=cols, show="headings", height=20)
-            
+
             headers = {
                 "unique_id": lang.t("inv_kit.unique_id", "Unique ID"),
                 "type": lang.t("inv_kit.type", "Type"),
@@ -267,7 +267,7 @@ class InventoryKit(tk.Frame):
                 "final_qty": lang.t("inv_kit.final_qty", "Final Qty"),
                 "exp_date": lang.t("inv_kit.exp_date", "Expiry Date")
             }
-            
+
             widths = {
                 "unique_id": 160,
                 "type": 130,
@@ -278,11 +278,11 @@ class InventoryKit(tk.Frame):
                 "final_qty": 130,
                 "exp_date": 160
             }
-            
+
             for col in cols:
                 self.tree.heading(col, text=headers[col])
                 self.tree.column(col, width=widths.get(col, 130), anchor="center", stretch=True)
-            
+
             self.tree.grid(row=2, column=0, columnspan=2, pady=10, sticky="nsew")
             self.tree.bind("<Double-1>", self.start_edit)
             logging.debug("Created Treeview")

@@ -46,7 +46,7 @@ def create_backup_zip():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     project_code = get_project_code()
     default_filename = f"iseprep_backup_{project_code}_{timestamp}.zip"
-    
+
     # Prompt user for save location
     zip_filename = filedialog.asksaveasfilename(
         defaultextension=".zip",

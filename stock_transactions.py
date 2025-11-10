@@ -158,7 +158,7 @@ class StockTransactions(tk.Frame):
 
         try:
             cursor.execute("""
-                SELECT 
+                SELECT
                     Date, Time, unique_id, code, Description,
                     Expiry_date, Batch_Number, Scenario, Kit, Module,
                     Qty_IN, IN_Type, Qty_Out, Out_Type,
@@ -201,7 +201,7 @@ class StockTransactions(tk.Frame):
 
         try:
             cursor.execute("""
-                SELECT 
+                SELECT
                     Date, Time, unique_id, code, Description,
                     Expiry_date, Batch_Number, Scenario, Kit, Module,
                     Qty_IN, IN_Type, Qty_Out, Out_Type,

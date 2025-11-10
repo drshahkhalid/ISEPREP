@@ -59,7 +59,7 @@ def _apply_style(context: tk.Toplevel):
     style.configure("Popup.Icon.TLabel", background=_BG_MAIN, font=(_FONT_FAMILY, 30, "bold"))
     style.configure("Popup.Title.TLabel", background=_BG_MAIN, foreground=_TEXT_COLOR, font=(_FONT_FAMILY, 13, "bold"))
     style.configure("Popup.Msg.TLabel", background=_BG_MAIN, foreground=_TEXT_COLOR, font=(_FONT_FAMILY, 10))
-    
+
     # Generic button style
     style.configure("Popup.TButton", font=(_FONT_FAMILY, 10), padding=(14, 6))
     style.map("Popup.TButton", background=[("active", "#F1F4F8")])
@@ -75,7 +75,7 @@ def _apply_style(context: tk.Toplevel):
 def _center_window(win: tk.Toplevel, parent: tk.Widget = None):
     win.update_idletasks()
     w, h = win.winfo_width(), win.winfo_height()
-    
+
     if parent and parent.winfo_exists():
         try:
             px, py = parent.winfo_rootx(), parent.winfo_rooty()
@@ -88,7 +88,7 @@ def _center_window(win: tk.Toplevel, parent: tk.Widget = None):
     else:
         sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
         x, y = (sw // 2) - (w // 2), (sh // 2) - (h // 2)
-    
+
     win.geometry(f"+{max(0, x)}+{max(0, y)}")
 
 def _auto_size(top: tk.Toplevel, container: ttk.Frame, text_widgets):
@@ -108,9 +108,9 @@ def _auto_size(top: tk.Toplevel, container: ttk.Frame, text_widgets):
 
 def custom_popup(parent, title, message, kind="info"):
     if kind not in _ACCENTS: kind = "info"
-    
+
     buttons = [{"key": "ok", "text": "OK", "style": "Primary.Popup.TButton"}]
-    
+
     custom_dialog(parent, title, message, buttons, kind=kind)
 
 def custom_askyesno(parent, title, message):
@@ -148,7 +148,7 @@ def custom_dialog(parent, title, message, buttons, kind="question"):
 
     container = ttk.Frame(top, style="Popup.TFrame", padding=(_PADDING_X, _PADDING_Y))
     container.pack(fill="both", expand=True)
-    
+
     content_frame = ttk.Frame(container, style="Popup.TFrame")
     content_frame.pack(fill="x", expand=True, pady=(0, 18))
 
@@ -171,7 +171,7 @@ def custom_dialog(parent, title, message, buttons, kind="question"):
             top.bind("<Return>", lambda e, v=btn_info["key"]: _finish(v))
 
     top.bind("<Escape>", lambda e: _close())
-    
+
     _auto_size(top, container, [title_lbl, msg_lbl])
     _center_window(top, parent)
     top.deiconify()

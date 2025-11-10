@@ -1417,4 +1417,4 @@ if __name__ == "__main__":
     StockOutKit(root, app, role="admin")
     root.geometry("1400x850")
     root.mainloop()
-                                                   
+

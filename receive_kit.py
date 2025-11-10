@@ -801,7 +801,7 @@ class StockReceiveKit(tk.Frame):
             }
         self.recompute_exp_groups()
         self.status_var.set(f"Loaded {len(self.tree.get_children())} records for module number {module_number}")
-   
+
     def update_mode(self, event=None):
         mode_key = self.current_mode_key()
         scenario_module_mode = (mode_key == "add_module_scenario")
@@ -2214,7 +2214,7 @@ class StockReceiveKit(tk.Frame):
         if L == 11:
             return "ITEM"
         return None
-   
+
     def generate_unique_id(self, scenario_id, kit, module, item, std_qty, exp_date, kit_number, module_number):
         return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
     def ensure_module_number_consistency(self):
@@ -3402,7 +3402,7 @@ class StockReceiveKit(tk.Frame):
         except Exception as e:
             logging.error(f"save_subtree error iid={iid}: {e}", exc_info=True)
             return False
-       
+
     # -----------------------------------------------------------------
     # Export
     # -----------------------------------------------------------------

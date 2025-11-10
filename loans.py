@@ -10,7 +10,7 @@ New in v1.1:
   * Context menu 'Turn to Donation' now converts only the rows for the selected (code, third_party) pair.
   * Excel export updated to include Third Party column in detailed mode.
   * Filter summary includes Third Party.
-  * If multiple third parties exist for same code, simple mode will show several rows (same code) with different third-party groupings (third party not shown in simple mode to match original request). 
+  * If multiple third parties exist for same code, simple mode will show several rows (same code) with different third-party groupings (third party not shown in simple mode to match original request).
     NOTE: This can look like duplicates; consider adding Third Party to simple mode later if needed.
 
 Carry‑over (v1.0):
