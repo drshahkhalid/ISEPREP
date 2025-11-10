@@ -48,16 +48,16 @@
       "inventory_kit": "Inventaire Kits/Modules"
     },
     "reports": {
-    "menu": "Rapports",
-    "stock_statement": "État du stock",
-    "stock_summary": "Résumé du stock",
-    "stock_expiry": "Péremption du stock",
-    "stock_availability": "Disponibilité du stock",
-    "consumption": "Consommation/Réceptions",
-    "loans": "Prêts",
-    "donations": "Dons",
-    "losses": "Pertes",
-    "order_needs": "Commande/Besoins"
+      "menu": "Rapports",
+      "stock_statement": "État du stock",
+      "stock_summary": "Résumé du stock",
+      "stock_expiry": "Péremption du stock",
+      "stock_availability": "Disponibilité du stock",
+      "consumption": "Consommation/Réceptions",
+      "loans": "Prêts",
+      "donations": "Dons",
+      "losses": "Pertes",
+      "order_needs": "Commande/Besoins"
     },
     "tools": {
       "menu": "Outils",
@@ -138,20 +138,16 @@
     },
     "debug_panel": "Lignes de stock : {total_stock_rows} | Candidats article : {candidate_item_rows} | Lignes d'action : {qualifying_action_rows} (expirés {expired_count}, bientôt {soon_count}) | Format de date incorrect : {bad_date_format} | Orphelins inclus : {orphan_rows_included}"
   },
-
-  
   "out_kit": {
     "dialog_titles.success": "Succès",
     "dialog_titles.error": "Erreur",
     "dialog_titles.warning": "Avertissement",
     "dialog_titles.confirm": "Confirmer",
-
     "popup.yes": "Oui",
     "popup.no": "Non",
     "popup.ok": "OK",
     "popup.cancel": "Annuler",
     "popup.close": "Fermer",
-
     "receive_Kit.scenario": "Scénario :",
     "receive_Kit.movement_type": "Type de mouvement :",
     "receive_Kit.select_Kit": "Sélectionner le Kit :",
@@ -164,14 +160,11 @@
     "receive_Kit.clear": "Effacer",
     "receive_Kit.export": "Exporter",
     "receive_Kit.ready": "Prêt",
-
     "dispatch_Kit.out_type": "Type SORTIE :",
-
     "break_kit.title": "Casser Kit/Module",
     "break_kit.mode_break_kit": "Casser Kit",
     "break_kit.ready": "Prêt",
     "break_kit.out_type_fixed": "Mouvement interne depuis articles en boîte",
-
     "break_kit.loaded_kit_number": "{count} lignes chargées pour le numéro de Kit {kit_number}",
     "break_kit.loaded_module_number": "{count} lignes chargées pour le numéro de module {module_number}",
     "break_kit.loaded_standalone": "{count} lignes autonomes chargées",
@@ -191,7 +184,6 @@
     "break_kit.export_cancelled": "Export annulé",
     "break_kit.export_success": "Export réussi : {path}",
     "break_kit.export_failed": "Échec de l'export : {error}",
-
     "break_kit.headers.code": "Code",
     "break_kit.headers.description": "Description",
     "break_kit.headers.type": "Type",
@@ -203,25 +195,21 @@
     "break_kit.headers.qty_out": "Qté cassée (Sortie)",
     "break_kit.headers.qty_in": "Qté Entrée (Miroir)",
     "break_kit.headers.qty_to_break": "Qté à casser",
-
     "break_kit.tooltip.header_kit": "Ligne d'en-tête de kit",
     "break_kit.tooltip.header_module": "Ligne d'en-tête de module",
     "break_kit.tooltip.kit_data": "Ligne de données de kit",
     "break_kit.tooltip.module_data": "Ligne de données de module",
     "break_kit.tooltip.item_row": "Ligne de données d'article",
     "break_kit.tooltip.qty_cell": "Saisir la quantité ici (★ signifie modifiable)",
-
     "break_kit.status.initializing": "Initialisation...",
     "break_kit.status.loading": "Chargement des lignes...",
     "break_kit.status.ready": "Prêt",
     "break_kit.status.completed": "Terminé",
     "break_kit.status.pending": "En attente",
-
     "break_kit.validation.invalid_number": "Nombre invalide – défini à 0.",
     "break_kit.validation.exceeded_stock": "Stock dépassé – limité.",
     "break_kit.validation.only_zero_one": "Seulement 0 ou 1 autorisé – autocorrigé.",
     "break_kit.validation.negative_not_allowed": "Négatif non autorisé – défini à 0.",
-
     "generic.operation_cancelled": "Opération annulée",
     "generic.continue": "Continuer",
     "generic.cancel": "Annuler",
@@ -230,19 +218,15 @@
     "generic.total": "Total",
     "generic.loading": "Chargement...",
     "generic.please_wait": "Veuillez patienter...",
-
     "errors.no_rows": "Aucune ligne disponible.",
     "errors.no_export_rows": "Aucune ligne à exporter.",
     "errors.file_write": "Impossible d'écrire le fichier : {error}",
     "errors.db_connection": "Échec de la connexion à la base de données",
     "errors.insufficient_role": "Seuls les rôles admin ou manager peuvent enregistrer des modifications.",
-
     "document.generated": "Numéro de document généré : {doc}",
     "document.not_generated": "Numéro de document non généré",
-
     "file.saved_to": "Enregistré dans {path}",
     "file.not_saved": "Fichier non enregistré",
-
     "log.updating_stock_out": "Mise à jour du stock (SORTIE) pour {code}",
     "log.updating_stock_in": "Mise à jour du stock (ENTRÉE miroir) pour {code}",
     "log.commit_success": "Validation en base réussie",
@@ -290,7 +274,6 @@
     "export_success": "Export réussi : {path}",
     "export_failed": "Échec de l'export : {error}",
     "export_cancelled": "Export annulé",
-
     "dialog_titles.error": "Erreur",
     "dialog_titles.success": "Succès",
     "dialog_titles.warning": "Avertissement",
@@ -299,7 +282,6 @@
     "dialog_buttons.cancel": "Annuler",
     "dialog_buttons.yes": "Oui",
     "dialog_buttons.no": "Non",
-
     "receive_kit.title": "Réception Kit-Module",
     "receive_kit.ready": "Prêt",
     "receive_kit.scenario": "Scénario :",
@@ -327,14 +309,12 @@
     "receive_kit.clear": "Effacer",
     "receive_kit.export": "Exporter",
     "receive_kit.unknown": "Inconnu",
-
     "receive_kit.mode_generate_kit": "Générer Kit",
     "receive_kit.mode_add_standalone": "Ajouter article(s) autonome(s) dans {scenario}",
     "receive_kit.mode_add_module_scenario": "Ajouter module à {scenario}",
     "receive_kit.mode_add_module_kit": "Ajouter module à un kit",
     "receive_kit.mode_add_items_kit": "Ajouter articles à un kit",
     "receive_kit.mode_add_items_module": "Ajouter articles à un module",
-
     "receive_kit.found_items": "{count} articles trouvés",
     "receive_kit.no_items": "Aucun article pour {kit_code}",
     "receive_kit.no_items_found": "Aucun article trouvé",
@@ -352,7 +332,6 @@
     "receive_kit.document_number_generated": "{rows} lignes enregistrées (transactions : {transactions}). Numéro de document : {doc}",
     "receive_kit.export_cancelled": "Export annulé",
     "receive_kit.export_success": "Export réussi : {path}",
-
     "receive_kit.kit_number": "Numéro de Kit",
     "receive_kit.module_number": "Numéro de Module",
     "receive_kit.enter_kit_number_for": "Saisir le numéro de Kit pour {kit_code}",
@@ -361,37 +340,29 @@
     "receive_kit.duplicate_module_number": "Le numéro de Module '{module_number}' existe déjà.",
     "receive_kit.enter_new_kit_number": "Numéro de Kit en double '{kit_number}'. Saisir un nouveau numéro de Kit :",
     "receive_kit.enter_new_module_number": "Numéro de Module en double '{module_number}'. Saisir un nouveau numéro de Module :",
-
     "receive_kit.coverage_failure": "Au moins 70% des articles doivent avoir suffisamment de stock. Actuel : {percent}% ({covered}/{total}). Le {context} ne peut pas être créé.\n\nSous le standard (échantillon) :\n{sample}{more}",
     "receive_kit.coverage_context.kit": "kit",
     "receive_kit.coverage_context.module": "module",
     "receive_kit.coverage_context.operation": "opération",
-
     "receive_kit.prompt.module_number": "Saisir le numéro de Module",
     "receive_kit.prompt.kit_number": "Saisir le numéro de Kit",
     "receive_kit.prompt.add_missing_item": "Ajouter article manquant",
     "receive_kit.prompt.search_item": "Rechercher Kit/Module/Article",
-
     "receive_kit.internal_move_type": "Mouvement interne depuis articles en étagère",
-
     "receive_kit.validation.negative_not_allowed": "Quantité négative non autorisée.",
     "receive_kit.validation.expiry_required": "Date de péremption requise pour l'article {code}.",
     "receive_kit.validation.quantity_zero": "La quantité doit être supérieure à zéro.",
     "receive_kit.validation.module_number_exists": "Le numéro de Module '{value}' existe déjà.",
     "receive_kit.validation.kit_number_exists": "Le numéro de Kit '{value}' existe déjà.",
-
     "receive_kit.transaction.incoming_logged": "Transaction d'entrée enregistrée pour {code}.",
     "receive_kit.transaction.outgoing_logged": "Transaction miroir de sortie enregistrée pour {code}.",
     "receive_kit.transaction.skipped_outgoing": "Transaction de sortie ignorée pour {code} (pas de qty_out).",
-
     "receive_kit.labels.line_id_hidden": "line_id (caché)",
     "receive_kit.labels.qty_out_hidden": "qty_out (caché)",
-
     "receive_kit.buttons.close": "Fermer",
     "receive_kit.buttons.proceed": "Continuer",
     "receive_kit.buttons.retry": "Réessayer",
     "receive_kit.buttons.ignore": "Ignorer",
-
     "receive_kit.msg.processing": "Traitement en cours, veuillez patienter...",
     "receive_kit.msg.completing": "Finalisation de l'opération...",
     "receive_kit.msg.done": "Terminé.",
@@ -1068,7 +1039,6 @@
     "manual_section4_title": "Enregistrement et export",
     "manual_section4_content": "Cliquez sur Enregistrer pour stocker les données. Exportez vers Excel pour les archives."
   },
-
   "dispatch_kit": {
     "mode_dispatch_kit": "Expédition de kit",
     "title": "Expédier Kit-Module",
@@ -1372,21 +1342,43 @@
     "no_data": "Aucune donnée pour les filtres sélectionnés (vérifiez la correspondance id/nom du scénario ou stock vide)."
   },
   "stock_availability": {
-    "title": "Disponibilité du stock",
+    "title": "Disponibilité du Stock",
     "header": "Tableau de bord - Disponibilité du stock",
-    "management_mode": "Mode de gestion",
+    "management_mode": "Mode de Gestion",
     "treecode": "Code arborescent",
     "available_stock": "Stock disponible",
     "allocated_stock": "Stock alloué",
     "reserved_stock": "Stock réservé",
     "total_stock": "Stock total",
     "loaded_status": "{rows} lignes chargées. rôle={role}",
-    "kit_number": "Numéro de Kit :",
-    "module_number": "Numéro de Module :",
+    "kit_number": "Numéro de Kit",
+    "module_number": "Numéro de Module",
     "kit_number_header": "Numéro de Kit",
     "module_number_header": "Numéro de Module",
     "management_modes": "Mode(s) de gestion",
-    "no_data": "Aucune donnée pour les filtres sélectionnés (vérifiez la correspondance id/nom du scénario ou stock vide)."
+    "no_data": "Aucune donnée pour les filtres sélectionnés (vérifiez la correspondance id/nom du scénario ou stock vide).",
+    "scenario": "Scénario",
+    "item_search": "Recherche d'Article",
+    "type": "Type",
+    "expiry_period": "Horizon d'Expiration (Mois)",
+    "amc_months": "Période CMM (Mois)",
+    "simple": "Simple",
+    "detailed": "Détaillé",
+    "refresh": "Actualiser",
+    "clear": "Effacer les Filtres",
+    "export": "Exporter",
+    "all": "Tous",
+    "code": "Code",
+    "description": "Description",
+    "quantity": "Quantité",
+    "expiry_date": "Date de Péremption",
+    "amc": "CMM",
+    "ready": "Prêt",
+    "loaded": "{n} lignes chargées",
+    "no_data_export": "Rien à exporter.",
+    "export_fail": "Échec de l'export : {err}",
+    "export_success": "Export terminé : {f}",
+    "export_title": "Enregistrer Rapport Disponibilité du Stock"
   },
   "inventory_kit": {
     "title": "Inventaire Kit",
@@ -1688,5 +1680,147 @@
       "11": "Novembre",
       "12": "Décembre"
     }
+  },
+  "consumption": {
+    "chart_title_dynamic": "{project} Consommation par mois (nombre d'articles)"
+  },
+  "donations": {
+    "detailed": "Détaillé",
+    "expiry_dates": "Date(s) de Péremption",
+    "export_fail": "Échec de l'export : {err}",
+    "export_success": "Export terminé : {f}",
+    "export_title": "Enregistrer Rapport Donations",
+    "in_donations": "Dons Entrants",
+    "item_search": "Recherche d'Article",
+    "loaded": "{n} lignes chargées",
+    "no_data_export": "Rien à exporter.",
+    "out_donations": "Dons Sortants",
+    "ready": "Prêt",
+    "remarks": "Remarques",
+    "simple": "Simple",
+    "third_party": "Tiers",
+    "title": "Donations"
+  },
+  "expiry_data": {
+    "amc": "CMM",
+    "code": "Code",
+    "comments": "Commentaires",
+    "description": "Description",
+    "expired_qty": "Déjà Périmé",
+    "this_month": "Ce Mois",
+    "total": "Total"
+  },
+  "generic": {
+    "clear": "Effacer",
+    "code": "Code",
+    "date": "Date",
+    "description": "Description",
+    "document_number": "Numéro de Document",
+    "error": "Erreur",
+    "export": "Exporter",
+    "filters_used": "Filtres Utilisés",
+    "from_date": "Date de Début",
+    "generated": "Généré",
+    "info": "Info",
+    "kit_number": "Numéro de Kit",
+    "module_number": "Numéro de Module",
+    "refresh": "Actualiser",
+    "scenario": "Scénario",
+    "success": "Succès",
+    "to_date": "Date de Fin",
+    "type": "Type"
+  },
+  "loans": {
+    "balance": "Solde",
+    "detailed": "Détaillé",
+    "export_fail": "Échec de l'export : {err}",
+    "export_success": "Export terminé : {f}",
+    "export_title": "Enregistrer Rapport Prêts",
+    "item_search": "Recherche d'Article",
+    "loaded": "{n} lignes chargées",
+    "no_data_export": "Rien à exporter.",
+    "qty_given": "Quantité Donnée",
+    "qty_received": "Quantité Reçue",
+    "ready": "Prêt",
+    "simple": "Simple",
+    "status": "Statut",
+    "status_settled": "Réglé",
+    "status_to_give": "à donner",
+    "status_to_receive": "à recevoir",
+    "third_party": "Tiers",
+    "turn_confirm_tp": "Convertir lignes de prêt/emprunt pour code {code}{tp_part} en Donation ?",
+    "turn_none": "Aucune ligne de prêt/emprunt trouvée à mettre à jour.",
+    "turn_success_tp": "{n} lignes mises à jour en Donation pour {code}{tp_part}",
+    "turn_to_donation": "Transformer en Donation"
+  },
+  "losses": {
+    "detailed": "Détaillé",
+    "expiry_dates": "Date(s) de Péremption",
+    "export_fail": "Échec de l'export : {err}",
+    "export_success": "Export terminé : {f}",
+    "export_title": "Enregistrer Rapport Pertes",
+    "item_search": "Recherche d'Article",
+    "loaded": "{n} lignes chargées",
+    "no_data_export": "Rien à exporter.",
+    "quantity": "Quantité",
+    "ready": "Prêt",
+    "remarks": "Remarques",
+    "simple": "Simple",
+    "type_of_loss": "Type de Pertes"
+  },
+  "order_needs": {
+    "account_code": "Code Comptable",
+    "amount": "Montant (€)",
+    "back_orders": "Commandes en Attente",
+    "buffer": "Stock de Sécurité (tampon, mois)",
+    "cover_period": "Période de Couverture (mois)",
+    "current_stock": "Stock Actuel",
+    "detailed": "Détaillé",
+    "dons_receive": "Donations à Recevoir",
+    "export_fail": "Échec de l'export : {err}",
+    "export_success": "Export terminé : {f}",
+    "export_title": "Enregistrer Rapport Commande/Besoins",
+    "invalid_int": "Saisir un entier.",
+    "item_search": "Recherche d'Article",
+    "lead_time": "Délai de Livraison (mois)",
+    "loaded": "{n} lignes chargées",
+    "loan_balance": "Solde Prêt/Emprunt",
+    "missing_prices": "{n} articles ont un prix manquant (0€ utilisé)",
+    "no_data_export": "Rien à exporter.",
+    "pack_size": "Taille du Paquet",
+    "planned_dons_give": "Donations Prévues (Donner)",
+    "price_per_pack": "Prix/Paquet (€)",
+    "qty_expiring": "Qté Expirant",
+    "qty_needed": "Qté Nécessaire",
+    "qty_to_order": "Qté à Commander",
+    "qty_to_order_rounded": "Commande Arrondie",
+    "ready": "Prêt",
+    "remarks": "Remarques",
+    "simple": "Simple",
+    "standard_qty": "Qté Standard",
+    "total_amount": "Montant Total (€) :",
+    "total_volume": "Volume Total (m3) :",
+    "total_weight": "Poids Total (kg) :",
+    "volume_m3": "Volume (m3)",
+    "volume_per_pack": "Volume/Paquet (dm3)",
+    "weight": "Poids (kg)",
+    "weight_per_pack": "Poids/Paquet (kg)"
+  },
+  "common": {
+    "all": "Tous"
+  },
+  "month": {
+    "january": "Janvier",
+    "february": "Février",
+    "march": "Mars",
+    "april": "Avril",
+    "may": "Mai",
+    "june": "Juin",
+    "july": "Juillet",
+    "august": "Août",
+    "september": "Septembre",
+    "october": "Octobre",
+    "november": "Novembre",
+    "december": "Décembre"
   }
 }
