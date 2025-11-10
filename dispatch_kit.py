@@ -17,7 +17,6 @@ from popup_utils import custom_popup
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 def fetch_end_users():
     conn = connect_db()
     if conn is None:
@@ -34,7 +33,6 @@ def fetch_end_users():
         cur.close()
         conn.close()
 
-
 def fetch_third_parties():
     conn = connect_db()
     if conn is None:
@@ -50,7 +48,6 @@ def fetch_third_parties():
     finally:
         cur.close()
         conn.close()
-
 
 def fetch_project_details():
     conn = connect_db()
@@ -69,7 +66,6 @@ def fetch_project_details():
     finally:
         cur.close()
         conn.close()
-
 
 def log_transaction(unique_id, code, description, expiry_date, batch_number,
                     scenario, Kit, module, qty_out, out_type,
@@ -708,8 +704,6 @@ class StockDispatchKit(tk.Frame):
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
 
-
-
         # Scenario
         tk.Label(main, text=lang.t("receive_Kit.scenario", "Scenario:"), bg="#F0F4F8")\
             .grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -809,7 +803,6 @@ class StockDispatchKit(tk.Frame):
         self.search_entry = tk.Entry(main, textvariable=self.search_var, width=40)
         self.search_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
         self.search_entry.bind("<KeyRelease>", self.search_items)
-
 
         tk.Button(main, text=lang.t("receive_Kit.clear_search", "Clear Search"),
                   bg="#7F8C8D", fg="white", command=self.clear_search)\
@@ -983,7 +976,6 @@ class StockDispatchKit(tk.Frame):
             })
         return rules
 
-
     def initialize_quantities_and_highlight(self):
         """
         Force Kit data rows to default to 1 in dispatch_Kit mode (even if stock 0).
@@ -1059,7 +1051,6 @@ class StockDispatchKit(tk.Frame):
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
 
-
     def _derive_modules_from_Kits(self):
         """
         Derive Module quantities from Kit quantities (case-insensitive).
@@ -1092,7 +1083,6 @@ class StockDispatchKit(tk.Frame):
                     base_qty = stock
                 vals[8] = str(base_qty)
                 self.tree.item(iid, values=vals)
-
 
     def _reapply_editable_icons(self, rules):
         """
@@ -1128,7 +1118,6 @@ class StockDispatchKit(tk.Frame):
             else:
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
-
 
     def _derive_items_from_modules(self):
         """
@@ -1171,7 +1160,6 @@ class StockDispatchKit(tk.Frame):
                 desired = stock
             vals[8] = str(desired)
             self.tree.item(iid, values=vals)
-
 
     # ------------------------------------------------------------------
     # Out Type Dependents
@@ -1372,7 +1360,6 @@ class StockDispatchKit(tk.Frame):
                        f"Showing {len(display_rows)} rows (incl. headers)")
             )
 
-
         # Header tag styles
         self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
@@ -1564,7 +1551,6 @@ class StockDispatchKit(tk.Frame):
         entry.bind("<FocusOut>", save)
         entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self, "editing_cell", None)))
 
-
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
@@ -1714,7 +1700,6 @@ class StockDispatchKit(tk.Frame):
         document_number = f"{prefix}/{serial_num:04d}"
         self.current_document_number = document_number
         return document_number
-
 
     # ------------------------------------------------------------------
     # Save (Issue)
@@ -1925,7 +1910,6 @@ class StockDispatchKit(tk.Frame):
 
         custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
                      lang.t("dispatch_Kit.issue_failed", "Issue failed: database remained locked."), "error")
-
 
     # ------------------------------------------------------------------
     # Utility / Clear / Export

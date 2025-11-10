@@ -196,7 +196,6 @@ def format_expiry_display(iso: str) -> str:
     except Exception:
         return iso
 
-
 # ---------------------------------------------------------------------
 # DATABASE HELPERS
 # ---------------------------------------------------------------------
@@ -620,7 +619,6 @@ class StockReceiveKit(tk.Frame):
 
         self.load_scenarios()
 
-
     # ----------------- Scenario Handling -----------------
     def load_scenarios(self):
         scens = self.fetch_scenarios()
@@ -655,7 +653,6 @@ class StockReceiveKit(tk.Frame):
         self.search_var.set(""); self.search_listbox.delete(0, tk.END)
 
         self.update_mode()
-
 
     def on_kit_selected(self, event=None):
         kit_code = self.kit_var.get()
@@ -811,8 +808,6 @@ class StockReceiveKit(tk.Frame):
         self.recompute_exp_groups()
         self.status_var.set(f"Loaded {len(self.tree.get_children())} records for module number {module_number}")
 
-
-
     def update_mode(self, event=None):
         mode_key = self.current_mode_key()
         scenario_module_mode = (mode_key == "add_module_scenario")
@@ -871,7 +866,6 @@ class StockReceiveKit(tk.Frame):
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
         self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
-
 
     def ensure_mode_ready(self):
         if not hasattr(self, "mode_definitions") or not self.mode_definitions:
@@ -1264,8 +1258,6 @@ class StockReceiveKit(tk.Frame):
             return []
         finally:
             cur.close(); conn.close()
-
-
 
     def fetch_stock_data_for_kit_number(self, scenario_id, kit_number, kit_code=None):
         conn = connect_db()
@@ -2762,8 +2754,6 @@ class StockReceiveKit(tk.Frame):
 
         return changed
 
-
-
     def _recalc_after_quantity_edit(self, edited_iid, was_structural):
         """
         Recalculate quantities after a user edits one row's quantity.
@@ -2782,7 +2772,6 @@ class StockReceiveKit(tk.Frame):
         else:
             if changed > 0:
                 self.status_var.set("Qty updated.")
-
 
     def _auto_fill_expiry_with_precedence(self):
         """
@@ -2830,7 +2819,6 @@ class StockReceiveKit(tk.Frame):
             if changed:
                 vals[7] = format_expiry_display(rd["expiry_iso"])
                 self.tree.item(iid, values=tuple(vals))
-
 
     def _recalc_after_quantity_edit(self, edited_iid, was_structural):
         """
@@ -3080,7 +3068,6 @@ class StockReceiveKit(tk.Frame):
         # Pass 7: Refresh unique IDs
         self.update_unique_ids_and_column()
 
-
     def _auto_fill_expiry_with_precedence(self):
         """
         Improved precedence logic:
@@ -3143,7 +3130,6 @@ class StockReceiveKit(tk.Frame):
         for iid in self._gather_full_tree_nodes():
             self.update_row_comment(iid, force=force, sticky_mode=sticky_mode)
 
-
     def _auto_adopt_mandatory_item_expiries(self):
         """
         For items requiring expiry (DB flag) that still have no expiry_iso,
@@ -3180,7 +3166,6 @@ class StockReceiveKit(tk.Frame):
             adopted += 1
         self._rederive_comments()
         return adopted
-
 
     def _prompt_for_structural_expiries(self):
         structural = self._collect_structural_nodes()
@@ -3241,7 +3226,6 @@ class StockReceiveKit(tk.Frame):
                 self.tree.set(iid, "expiry_date", format_expiry_display(parsed))
         return True
 
-
     def _propagate_structural_expiries_top_down(self):
         """
         Propagate structural (KIT / MODULE) expiries to descendant ITEM rows that
@@ -3300,7 +3284,6 @@ class StockReceiveKit(tk.Frame):
                 propagate_from(iid, iso, is_module=False)
         self._rederive_comments()
 
-
     def _ensure_expiry_when_no_structurals(self) -> bool:
         """
         If there are no KIT/MODULE structural rows, ensure every row has an expiry.
@@ -3358,7 +3341,6 @@ class StockReceiveKit(tk.Frame):
                         self.tree.item(iid, values=tuple(new_vals))
             self._rederive_comments()
             return True
-
 
     # -----------------------------------------------------------------
     # Duplicate Row (Add New Row)
@@ -3438,7 +3420,6 @@ class StockReceiveKit(tk.Frame):
         self.tree.selection_set(new_iid)
         self.tree.focus(new_iid)
         self.status_var.set(f"Duplicated {code} below selected row")
-
 
     # -----------------------------------------------------------------
     # Dropdown visibility
