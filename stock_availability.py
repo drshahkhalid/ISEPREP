@@ -424,11 +424,26 @@ class StockAvailability(tk.Frame):
         # Tree
         outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
         outer.pack(fill="both", expand=True, padx=12, pady=(0,12))
-        self.tree = ttk.Treeview(outer, columns=(), show="headings", height=24)
+        
+        # Create frame for horizontal scrollbar at bottom
+        h_scroll_frame = tk.Frame(outer)
+        h_scroll_frame.pack(side="bottom", fill="x")
+        
+        # Horizontal scrollbar
+        hsb = ttk.Scrollbar(h_scroll_frame, orient="horizontal")
+        hsb.pack(side="bottom", fill="x")
+        
+        self.tree = ttk.Treeview(outer, columns=(), show="headings", height=24,
+                                  xscrollcommand=hsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
+        
+        # Vertical scrollbar
         vsb = ttk.Scrollbar(outer, orient="vertical", command=self.tree.yview)
         vsb.pack(side="right", fill="y")
+        
+        # Configure scrollbars  
         self.tree.configure(yscrollcommand=vsb.set)
+        hsb.configure(command=self.tree.xview)
 
         style = ttk.Style()
         try: style.theme_use("clam")
