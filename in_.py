@@ -194,7 +194,12 @@ class StockIn(tk.Frame):
         project_name, project_code = fetch_project_details()
         project_code = (project_code or "PRJ").strip().upper()
 
-        base_map = {
+        # Build comprehensive mapping including all language variations
+        # Key is the normalized string, value is the abbreviation
+        normalized_map = {}
+        
+        # English base
+        base_translations = {
             "In MSF": "IMSF",
             "In Local Purchase": "ILP",
             "In from Quarantine": "IFQ",
@@ -205,17 +210,55 @@ class StockIn(tk.Frame):
             "In Return of Loan": "IRL",
             "In Correction of Previous Transaction": "ICOR"
         }
+        
+        # Add normalized English keys
+        for en_key, abbr in base_translations.items():
+            norm_key = re.sub(r'[^a-z0-9]+', '', en_key.lower())
+            normalized_map[norm_key] = abbr
+        
+        # Add French translations
+        french_translations = {
+            "En MSF": "IMSF",
+            "En achat local": "ILP",
+            "Depuis la quarantaine": "IFQ",
+            "En don": "IDN",
+            "Retour utilisateur final": "IREU",
+            "En approvisionnement non-MSF": "ISNM",
+            "En emprunt": "IBR",
+            "En retour de prêt": "IRL",
+            "En correction de transaction précédente": "ICOR"
+        }
+        
+        for fr_key, abbr in french_translations.items():
+            norm_key = re.sub(r'[^a-z0-9]+', '', fr_key.lower())
+            normalized_map[norm_key] = abbr
+        
+        # Add Spanish translations
+        spanish_translations = {
+            "En MSF": "IMSF",
+            "En Compra Local": "ILP",
+            "Desde Cuarentena": "IFQ",
+            "En Donación": "IDN",
+            "Devolución de Usuario Final": "IREU",
+            "En Suministro No-MSF": "ISNM",
+            "En Préstamo": "IBR",
+            "En Devolución de Préstamo": "IRL",
+            "En Corrección de Transacción Anterior": "ICOR"
+        }
+        
+        for es_key, abbr in spanish_translations.items():
+            norm_key = re.sub(r'[^a-z0-9]+', '', es_key.lower())
+            normalized_map[norm_key] = abbr
+        
+        # Normalize input and lookup
         raw = (in_type_text or "").strip()
-        import re
         norm = re.sub(r'[^a-z0-9]+', '', raw.lower())
-        abbr = None
-        for k, v in base_map.items():
-            if re.sub(r'[^a-z0-9]+', '', k.lower()) == norm:
-                abbr = v
-                break
+        abbr = normalized_map.get(norm)
+        
+        # Fallback logic if not found in map
         if not abbr:
             tokens = re.split(r'\s+', raw.upper())
-            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES"}
+            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES", "A"}
             parts = []
             for t in tokens:
                 if not t or t in stop:
