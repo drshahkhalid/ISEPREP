@@ -17,6 +17,22 @@ import os
 from popup_utils import custom_popup, custom_askyesno
 
 # ---------------------- Utility / Parsing ---------------------- #
+def safe_get_column(row, column_name, default=None):
+    """
+    Safely get a column value from a database row (sqlite3.Row or dict).
+    Returns default if column doesn't exist.
+    Handles both sqlite3.Row (IndexError) and dict (KeyError).
+    """
+    try:
+        if row is None:
+            return default
+        # Check if column exists in row keys
+        if hasattr(row, 'keys') and column_name not in row.keys():
+            return default
+        return row[column_name]
+    except (KeyError, IndexError, TypeError):
+        return default
+
 def parse_expiry(date_str):
     """
     Parse various date formats; for MM/YYYY or YYYY/MM return last day of month.
@@ -307,7 +323,13 @@ class StockIn(tk.Frame):
         try:
             cur.execute(sql, params)
             rows = cur.fetchall()
-            return [{'code': r['code'], 'description': get_active_designation(r['code'])} for r in rows]
+            # Robust column access with validation
+            results = []
+            for r in rows:
+                code = safe_get_column(r, 'code')
+                if code:
+                    results.append({'code': code, 'description': get_active_designation(code)})
+            return results
         finally:
             cur.close()
             conn.close()
@@ -334,17 +356,22 @@ class StockIn(tk.Frame):
             rows = cur.fetchall()
             out = []
             for r in rows:
-                code = r['code']
-                scenario_name = r['scenario_name']
+                # Robust column access with validation
+                code = safe_get_column(r, 'code')
+                if not code:
+                    continue  # Skip rows without valid code
+                scenario_name = safe_get_column(r, 'scenario_name', 'Unknown')
+                scenario_id = safe_get_column(r, 'scenario_id')
+                quantity = safe_get_column(r, 'quantity', 0)
                 out.append({
                     'unique_id': f"{scenario_name}/None/-----/{code}",
                     'unique_id_2': f"{scenario_name}/None/-----/{code}",
-                    'scenario_id': r['scenario_id'],
+                    'scenario_id': scenario_id,
                     'scenario_name': scenario_name,
                     'kit_code': '-----',
                     'module_code': '-----',
                     'code': code,
-                    'quantity': r['quantity'],
+                    'quantity': quantity,
                     'description': get_active_designation(code)
                 })
             return out
@@ -374,16 +401,23 @@ class StockIn(tk.Frame):
             rows = cur.fetchall()
             out = []
             for r in rows:
+                # Robust column access with validation
+                row_code = safe_get_column(r, 'code')
+                if not row_code:
+                    continue  # Skip rows without valid code
+                scenario_name = safe_get_column(r, 'scenario_name', 'Unknown')
+                scenario_id = safe_get_column(r, 'scenario_id')
+                quantity = safe_get_column(r, 'quantity', 0)
                 out.append({
-                    'unique_id': f"{r['scenario_name']}/None/-----/{r['code']}",
-                    'unique_id_2': f"{r['scenario_name']}/None/-----/{r['code']}",
-                    'scenario_id': r['scenario_id'],
-                    'scenario_name': r['scenario_name'],
+                    'unique_id': f"{scenario_name}/None/-----/{row_code}",
+                    'unique_id_2': f"{scenario_name}/None/-----/{row_code}",
+                    'scenario_id': scenario_id,
+                    'scenario_name': scenario_name,
                     'kit_code': '-----',
                     'module_code': '-----',
-                    'code': r['code'],
-                    'quantity': r['quantity'],
-                    'description': get_active_designation(r['code'])
+                    'code': row_code,
+                    'quantity': quantity,
+                    'description': get_active_designation(row_code)
                 })
             return out
         finally:
@@ -629,7 +663,10 @@ class StockIn(tk.Frame):
             return
         results = self.fetch_search_results(query)
         for r in results:
-            display = f"{r['code']} - {r['description'] or lang.t('stock_in.no_description', 'No Description')}"
+            # Robust column access
+            code = r.get('code', '')
+            description = r.get('description') or lang.t('stock_in.no_description', 'No Description')
+            display = f"{code} - {description}"
             self.search_listbox.insert(tk.END, display)
         self.status_var.set(
             lang.t("stock_in.found_items", "Found {size} items").format(size=self.search_listbox.size())
@@ -665,15 +702,20 @@ class StockIn(tk.Frame):
             )
         else:
             for row in data:
-                unique_id = row['unique_id']
-                unique_id_2 = row['unique_id_2']
-                scenario_name = row['scenario_name']
-                kit_code = row['kit_code']
-                module_code = row['module_code']
-                code_ = row['code']
-                description = row['description']
-                std_qty = int(row['quantity']) if row['quantity'] and str(row['quantity']).isdigit() else 0
-                qty_needed = fetch_qty_needed(self, code_, scenario_name, row['scenario_id'], std_qty)
+                # Robust column access with validation
+                unique_id = row.get('unique_id', '')
+                unique_id_2 = row.get('unique_id_2', '')
+                scenario_name = row.get('scenario_name', 'Unknown')
+                kit_code = row.get('kit_code', '-----')
+                module_code = row.get('module_code', '-----')
+                code_ = row.get('code')
+                if not code_:
+                    continue  # Skip rows without valid code
+                description = row.get('description', lang.t("stock_in.no_description", "No Description"))
+                quantity = row.get('quantity', 0)
+                std_qty = int(quantity) if quantity and str(quantity).isdigit() else 0
+                scenario_id = row.get('scenario_id')
+                qty_needed = fetch_qty_needed(self, code_, scenario_name, scenario_id, std_qty)
                 input_key = f"{scenario_name}/{code_}/{std_qty}"
                 user_input = self.user_inputs.get(input_key, {"qty_in": "", "expiry_date": "", "batch_no": ""})
                 values = (
@@ -709,15 +751,20 @@ class StockIn(tk.Frame):
         self.row_data.clear()
         data = self.fetch_all_compositions()
         for row in data:
-            unique_id = row['unique_id']
-            unique_id_2 = row['unique_id_2']
-            scenario_name = row['scenario_name']
-            kit_code = row['kit_code']
-            module_code = row['module_code']
-            code = row['code']
-            description = row['description']
-            std_qty = int(row['quantity']) if row['quantity'] and str(row['quantity']).isdigit() else 0
-            qty_needed = fetch_qty_needed(self, code, scenario_name, row['scenario_id'], std_qty)
+            # Robust column access with validation
+            unique_id = row.get('unique_id', '')
+            unique_id_2 = row.get('unique_id_2', '')
+            scenario_name = row.get('scenario_name', 'Unknown')
+            kit_code = row.get('kit_code', '-----')
+            module_code = row.get('module_code', '-----')
+            code = row.get('code')
+            if not code:
+                continue  # Skip rows without valid code
+            description = row.get('description', lang.t("stock_in.no_description", "No Description"))
+            quantity = row.get('quantity', 0)
+            std_qty = int(quantity) if quantity and str(quantity).isdigit() else 0
+            scenario_id = row.get('scenario_id')
+            qty_needed = fetch_qty_needed(self, code, scenario_name, scenario_id, std_qty)
             key = f"{scenario_name}/{code}/{std_qty}"
             user_input = self.user_inputs.get(key, {"qty_in": "", "expiry_date": "", "batch_no": ""})
             values = (
@@ -1188,24 +1235,43 @@ class StockIn(tk.Frame):
             start_row = ws.max_row + 1
             for offset, r in enumerate(rows_data):
                 row_idx = start_row + offset
+                # Robust column access
+                code = r.get('code', '')
+                description = r.get('description', '')
+                scenario_name = r.get('scenario_name', '')
+                kit_code = r.get('kit_code', '-----')
+                module_code = r.get('module_code', '-----')
+                std_qty = r.get('std_qty', '')
+                qty_needed = r.get('qty_needed', '')
+                qty_in = r.get('qty_in', '')
+                expiry_date = r.get('expiry_date', '')
+                batch_no = r.get('batch_no', '')
+                
                 ws.append([
-                    r['code'], r['description'], r['scenario_name'], r['kit_code'], r['module_code'],
-                    r['std_qty'], r['qty_needed'], r['qty_in'], r['expiry_date'], r['batch_no']
+                    code, description, scenario_name, kit_code, module_code,
+                    std_qty, qty_needed, qty_in, expiry_date, batch_no
                 ])
                 # Type highlight
                 conn = connect_db()
-                cur = conn.cursor()
-                cur.execute("SELECT type FROM items_list WHERE code=?", (r['code'],))
-                type_row = cur.fetchone()
-                cur.close()
                 if conn:
-                    conn.close()
-                item_type = type_row[0].upper() if type_row and type_row[0] else None
-                if r['kit_code'] != '-----' and item_type == "KIT":
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("SELECT type FROM items_list WHERE code=?", (code,))
+                        type_row = cur.fetchone()
+                        item_type = type_row[0].upper() if type_row and type_row[0] else None
+                    except Exception:
+                        item_type = None
+                    finally:
+                        cur.close()
+                        conn.close()
+                else:
+                    item_type = None
+                    
+                if kit_code != '-----' and item_type == "KIT":
                     for col_cells in ws[f"A{row_idx}:J{row_idx}"]:
                         for cell in col_cells:
                             cell.fill = kit_fill
-                elif r['module_code'] != '-----' and item_type == "MODULE":
+                elif module_code != '-----' and item_type == "MODULE":
                     for col_cells in ws[f"A{row_idx}:J{row_idx}"]:
                         for cell in col_cells:
                             cell.fill = module_fill
