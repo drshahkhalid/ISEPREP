@@ -24,7 +24,9 @@ class LanguageManager:
         Load translation JSON for given language code.
         Falls back to empty dict if file not found.
         """
-        file_path = os.path.join("data", "translations", f"{lang_code}.json")
+        # Get the directory where this script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(script_dir, f"{lang_code}.json")
 
         if os.path.exists(file_path):
             try:
