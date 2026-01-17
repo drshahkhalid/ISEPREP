@@ -63,6 +63,27 @@ def _center_child(win: tk.Toplevel, parent: tk.Widget | None):
         win.geometry(f"+{x}+{y}")
     except Exception:
         pass
+# Center simpledialog askstring
+import tkinter.simpledialog as _sd
+if not hasattr(_sd, "_CenteredQueryString"):
+    _OrigQ = _sd._QueryString
+    class _CenteredQueryString(_OrigQ):
+        def body(self, master):
+            r = super().body(master)
+            try: _center_child(self, self.parent)
+            except Exception: pass
+            return r
+    _sd._QueryString = _CenteredQueryString
+# Simple wrappers
+def win_popup(kind: str, title: str, message: str):
+    if kind == "error":
+        mb.showerror(title, message)
+    elif kind == "warning":
+        mb.showwarning(title, message)
+    else:
+        mb.showinfo(title, message)
+def win_confirm(title: str, message: str) -> bool:
+    return mb.askyesno(title, message)
 # ---------------------------------------------------------------------
 # EXPIRY PARSING
 # ---------------------------------------------------------------------
@@ -147,8 +168,8 @@ def strict_parse_expiry(user_text: str) -> str | None:
                 y, mo = map(int, m.groups()); ld = _cal.monthrange(y, mo)[1]
                 return f"{y:04d}-{mo:02d}-{ld:02d}"
         except Exception:
-            raise ValueError(lang.t("receive_kit.invalid_expiry_msg", "Invalid date values."))
-    raise ValueError(lang.t("receive_kit.invalid_expiry_msg", "Unrecognized expiry date format."))
+            raise ValueError("Invalid date values.")
+    raise ValueError("Unrecognized expiry date format.")
 def format_expiry_display(iso: str) -> str:
     """
     Always returns a plain formatted date (DD-Mon-YYYY) without any '(adopted)' suffix.
@@ -180,15 +201,15 @@ def check_expiry_required(code: str) -> bool:
 def fetch_project_details():
     conn = connect_db()
     if conn is None:
-        return (lang.t("receive_kit.unknown_project", "Unknown Project"), lang.t("receive_kit.unknown_code", "Unknown Code"))
+        return ("Unknown Project","Unknown Code")
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         row = cur.fetchone()
-        return (row[0] if row and row[0] else lang.t("receive_kit.unknown_project", "Unknown Project"),
-                row[1] if row and row[1] else lang.t("receive_kit.unknown_code", "Unknown Code"))
+        return (row[0] if row and row[0] else "Unknown Project",
+                row[1] if row and row[1] else "Unknown Code")
     except sqlite3.Error:
-        return (lang.t("receive_kit.unknown_project", "Unknown Project"), lang.t("receive_kit.unknown_code", "Unknown Code"))
+        return ("Unknown Project","Unknown Code")
     finally:
         cur.close(); conn.close()
 def fetch_third_parties():
@@ -230,7 +251,7 @@ class StockData:
         """
         conn = connect_db()
         if conn is None:
-            raise ValueError(lang.t("receive_kit.db_error", "Database connection failed"))
+            raise ValueError("Database connection failed")
 
         cur = conn.cursor()
         try:
@@ -336,19 +357,6 @@ class StockData:
 # MAIN UI CLASS
 # ---------------------------------------------------------------------
 class StockReceiveKit(tk.Frame):
-
-    # ---------- Canonical IN Types (class-level constant) ----------  
-    IN_TYPE_CANONICAL = [
-        "In MSF",
-        "In Local Purchase",
-        "In from Quarantine",
-        "In Donation",
-        "Return from End User",
-        "In Supply Non-MSF",
-        "In Borrowing",
-        "In Return of Loan",
-        "In Correction of Previous Transaction",
-    ]    
     def __init__(self, parent, app, role: str = "supervisor"):
         super().__init__(parent)
         self.parent = parent
@@ -389,43 +397,6 @@ class StockReceiveKit(tk.Frame):
         if self.parent and self.parent.winfo_exists():
             self.pack(fill="both", expand=True)
             self.after(120, self.initialize_ui)
-
-
-
-
-    def get_canonical_in_type(self) -> str:
-        """
-        Convert the currently selected display label to canonical English
-        using translations section 'stock_in.in_types_map'.
-        Returns a canonical English string (e.g., 'In MSF').
-        """
-        display_val = (self.trans_type_var.get() or "").strip()
-        return lang.enum_to_canonical("stock_in.in_types_map", display_val).strip()
-
-    def get_display_in_type_list(self):
-        """
-        Return localized display list for IN types from the canonical list.
-        These are shown in the combobox, but will be converted back to
-        canonical English for DB writes.
-        """
-        return lang.enum_to_display_list("stock_in.in_types_map", self.IN_TYPE_CANONICAL)
-
-
-    # Ensure popups are adapted (already mostly there, but confirm):
-    def show_error(self, msg_key_default, default_text, **fmt):
-        custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                    lang.t(msg_key_default, default_text, **fmt), "error")
-
-    def show_info(self, msg_key_default, default_text, **fmt):
-        custom_popup(self, lang.t("dialog_titles.success", "Success"),
-                    lang.t(msg_key_default, default_text, **fmt), "info")
-
-    def ask_yes_no(self, msg_key_default, default_text, **fmt):
-        return custom_askyesno(self, lang.t("dialog_titles.confirm", "Confirm"),
-                            lang.t(msg_key_default, default_text, **fmt)) == "yes"
-    
-
-
     # ----------------- Scenario / init -----------------
     def fetch_scenario_map(self):
         conn = connect_db()
@@ -458,7 +429,7 @@ class StockReceiveKit(tk.Frame):
             self.render_ui()
         except tk.TclError as e:
             logging.error(f"UI render error: {e}")
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"), f"Failed to render UI: {e}", "error")
+            custom_popup(self.parent, "Error", f"Failed to render UI: {e}", "error")
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
@@ -479,45 +450,45 @@ class StockReceiveKit(tk.Frame):
         for w in self.parent.winfo_children():
             try: w.destroy()
             except Exception: pass
-        tk.Label(self.parent, text=lang.t("receive_kit.title", "Receive Kit-Module"),
+        tk.Label(self.parent, text=lang.t("receive_kit.title","Receive Kit-Module"),
                  font=("Helvetica", 20, "bold"), bg="#F0F4F8").pack(pady=10)
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
         # Scenario
-        tk.Label(main, text=lang.t("receive_kit.scenario", "Scenario:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("receive_kit.scenario","Scenario:"), bg="#F0F4F8")\
             .grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.scenario_var = tk.StringVar()
         self.scenario_cb = ttk.Combobox(main, textvariable=self.scenario_var, state="readonly", width=40)
         self.scenario_cb.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_scenario_selected)
         # Movement Type
-        tk.Label(main, text=lang.t("receive_kit.movement_type", "Movement Type:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("receive_kit.movement_type","Movement Type:"), bg="#F0F4F8")\
             .grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.mode_var = tk.StringVar()
         self.mode_cb = ttk.Combobox(main, textvariable=self.mode_var, state="readonly", width=40)
         self.mode_cb.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.mode_cb.bind("<<ComboboxSelected>>", self.update_mode)
         # Kit selectors
-        self.kit_label = tk.Label(main, text=lang.t("receive_kit.select_kit", "Select Kit:"), bg="#F0F4F8")
+        self.kit_label = tk.Label(main, text=lang.t("receive_kit.select_kit","Select Kit:"), bg="#F0F4F8")
         self.kit_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.kit_var = tk.StringVar()
         self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=40)
         self.kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
-        self.kit_number_label = tk.Label(main, text=lang.t("receive_kit.select_kit_number", "Select Kit Number:"), bg="#F0F4F8")
+        self.kit_number_label = tk.Label(main, text=lang.t("receive_kit.select_kit_number","Select Kit Number:"), bg="#F0F4F8")
         self.kit_number_label.grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.kit_number_var = tk.StringVar()
         self.kit_number_cb = ttk.Combobox(main, textvariable=self.kit_number_var, state="disabled", width=20)
         self.kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
         # Module selectors
-        self.module_label = tk.Label(main, text=lang.t("receive_kit.select_module", "Select Module:"), bg="#F0F4F8")
+        self.module_label = tk.Label(main, text=lang.t("receive_kit.select_module","Select Module:"), bg="#F0F4F8")
         self.module_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_var = tk.StringVar()
         self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
-        self.module_number_label = tk.Label(main, text=lang.t("receive_kit.select_module_number", "Select Module Number:"), bg="#F0F4F8")
+        self.module_number_label = tk.Label(main, text=lang.t("receive_kit.select_module_number","Select Module Number:"), bg="#F0F4F8")
         self.module_number_label.grid(row=3, column=2, padx=5, pady=5, sticky="w")
         self.module_number_var = tk.StringVar()
         self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, state="disabled", width=20)
@@ -526,48 +497,50 @@ class StockReceiveKit(tk.Frame):
         # IN Type / End User / Third Party / Remarks
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
-        tk.Label(type_frame, text=lang.t("receive_kit.in_type", "IN Type:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("receive_kit.in_type","IN Type:"), bg="#F0F4F8")\
             .grid(row=0, column=0, padx=5, sticky="w")
         self.trans_type_var = tk.StringVar()
-
-    # updated the trans_type_cb to use the localized display list:
         self.trans_type_cb = ttk.Combobox(
             type_frame, textvariable=self.trans_type_var, state="readonly", width=30,
-            values=self.get_display_in_type_list()  # Use this for localized display
+            values=[
+                lang.t("receive_kit.in_msf","In MSF"),
+                lang.t("receive_kit.in_local_purchase","In Local Purchase"),
+                lang.t("receive_kit.in_from_quarantine","In from Quarantine"),
+                lang.t("receive_kit.in_donation","In Donation"),
+                lang.t("receive_kit.return_from_end_user","Return from End User"),
+                lang.t("receive_kit.in_supply_non_msf","In Supply Non-MSF"),
+                lang.t("receive_kit.in_borrowing","In Borrowing"),
+                lang.t("receive_kit.in_return_loan","In Return of Loan"),
+                lang.t("receive_kit.in_correction","In Correction of Previous Transaction")
+            ]
         )
         self.trans_type_cb.grid(row=0, column=1, padx=5, pady=5)
         self.trans_type_cb.bind("<<ComboboxSelected>>", self.update_dropdown_visibility)
-
-    #upto here.............................
-
-
-        self.trans_type_cb.grid(row=0, column=1, padx=5, pady=5)
-        self.trans_type_cb.bind("<<ComboboxSelected>>", self.update_dropdown_visibility)
-        tk.Label(type_frame, text=lang.t("receive_kit.end_user", "End User:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("receive_kit.end_user","End User:"), bg="#F0F4F8")\
             .grid(row=0, column=2, padx=5, sticky="w")
         self.end_user_var = tk.StringVar()
         self.end_user_cb = ttk.Combobox(type_frame, textvariable=self.end_user_var, state="disabled", width=30)
         self.end_user_cb['values'] = fetch_end_users()
         self.end_user_cb.grid(row=0, column=3, padx=5, pady=5)
-        tk.Label(type_frame, text=lang.t("receive_kit.third_party", "Third Party:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("receive_kit.third_party","Third Party:"), bg="#F0F4F8")\
             .grid(row=0, column=4, padx=5, sticky="w")
         self.third_party_var = tk.StringVar()
         self.third_party_cb = ttk.Combobox(type_frame, textvariable=self.third_party_var, state="disabled", width=30)
         self.third_party_cb['values'] = fetch_third_parties()
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
-        tk.Label(type_frame, text=lang.t("receive_kit.remarks", "Remarks:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("receive_kit.remarks","Remarks:"), bg="#F0F4F8")\
             .grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
         # Search
-        tk.Label(main, text=lang.t("receive_kit.item", "Kit/Module/Item:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("receive_kit.item","Kit/Module/Item:"), bg="#F0F4F8")\
             .grid(row=5, column=0, padx=5, pady=5, sticky="w")
         self.search_var = tk.StringVar()
         self.search_entry = tk.Entry(main, textvariable=self.search_var, width=40)
         self.search_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
         self.search_entry.bind("<KeyRelease>", self.search_items)
         self.search_entry.bind("<Return>", self.select_first_result)
-        tk.Button(main, text=lang.t("receive_kit.clear_search", "Clear Search"),
+        tk.Button(main, text=lang.t("receive_kit.clear_search","Clear Search"),
                   bg="#7F8C8D", fg="white", command=self.clear_search)\
             .grid(row=5, column=2, padx=5, pady=5)
         self.search_listbox = tk.Listbox(main, height=5, width=60)
@@ -586,19 +559,19 @@ class StockReceiveKit(tk.Frame):
         self.tree.tag_configure("module", background="#ADD8E6", font=self.font_bold)
         self.tree.tag_configure("auto_expiry_gray", foreground="#666666")
         headers = {
-                "code": lang.t("receive_kit.code", "Code"),
-                "description": lang.t("receive_kit.description", "Description"),
-                "type": lang.t("receive_kit.type", "Type"),
-                "kit": lang.t("receive_kit.kit", "Kit"),
-                "module": lang.t("receive_kit.module", "Module"),
-                "std_qty": lang.t("receive_kit.std_qty", "Std Qty"),
-                "qty_to_receive": lang.t("receive_kit.qty_to_receive", "Qty to Receive"),
-                "expiry_date": lang.t("receive_kit.expiry_date", "Expiry Date"),
-                "batch_no": lang.t("receive_kit.batch_no", "Batch No"),
-                "exp_module": lang.t("receive_kit.exp_module", "Exp Module"),
-                "exp_kit": lang.t("receive_kit.exp_kit", "Exp Kit"),
-                "comments": lang.t("receive_kit.comments", "Comments"),
-                "unique_id": lang.t("receive_kit.unique_id", "Unique ID")
+                "code": "Code",
+                "description": "Description",
+                "type": "Type",
+                "kit": "Kit",
+                "module": "Module",
+                "std_qty": "Std Qty",
+                "qty_to_receive": "Qty to Receive",
+                "expiry_date": "Expiry Date",
+                "batch_no": "Batch No",
+                "exp_module": "Exp Module",
+                "exp_kit": "Exp Kit",
+                "comments": "Comments",
+                "unique_id": "Unique ID"
         }
         widths = {
                 "code": 160,
@@ -647,16 +620,16 @@ class StockReceiveKit(tk.Frame):
         # Buttons
         btn_frame = tk.Frame(main, bg="#F0F4F8")
         btn_frame.grid(row=9, column=0, columnspan=4, pady=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.add_missing", "Add Missing Item"),
+        tk.Button(btn_frame, text=lang.t("receive_kit.add_missing","Add Missing Item"),
                   bg="#FFA500", fg="white", command=self.add_missing_item).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.save", "Save"),
+        tk.Button(btn_frame, text=lang.t("receive_kit.save","Save"),
                   bg="#27AE60", fg="white", command=self.save_all,
                   state="normal" if self.role in ["admin","manager"] else "disabled").pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.clear", "Clear"),
+        tk.Button(btn_frame, text=lang.t("receive_kit.clear","Clear"),
                   bg="#7F8C8D", fg="white", command=self.clear_form).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.export", "Export"),
+        tk.Button(btn_frame, text=lang.t("receive_kit.export","Export"),
                   bg="#2980B9", fg="white", command=self.export_data).pack(side="left", padx=5)
-        self.status_var = tk.StringVar(value=lang.t("receive_kit.ready", "Ready"))
+        self.status_var = tk.StringVar(value=lang.t("receive_kit.ready","Ready"))
         tk.Label(main, textvariable=self.status_var, relief="sunken",
                  anchor="w", bg="#F0F4F8").grid(row=10, column=0, columnspan=4, sticky="ew")
         self.load_scenarios()
@@ -895,10 +868,6 @@ class StockReceiveKit(tk.Frame):
             self.mode_var.set(first_label)
             key = self.mode_definitions[0][0]
         return key
-    # ... (rest of the code remains unchanged as it's not UI-related)
-    # The code was cut off in your original message, but assuming the rest is intact.
-    # For brevity, I'm not including the full remaining code here, but ensure all popups and UI strings are translated as above.
-    # If you have the full code, apply the same pattern.
     # -----------------------------------------------------------------
     # Unique ID refresh
     # -----------------------------------------------------------------
@@ -2498,103 +2467,77 @@ class StockReceiveKit(tk.Frame):
         document_number = f"{prefix}/{serial:04d}"
         self.current_document_number = document_number
         return document_number
-    def log_transaction(
-        *,
-        unique_id=None,
-        code=None,
-        Description=None,
-        Expiry_date=None,
-        Batch_Number=None,
-        Scenario=None,
-        Kit=None,
-        Module=None,
-        Qty_IN=None,
-        IN_Type=None,
-        Qty_Out=None,
-        Out_Type=None,
-        Third_Party=None,
-        End_User=None,
-        Discrepancy=None,
-        Remarks=None,
-        Movement_Type=None,
-        document_number=None,        # NEW OPTIONAL PARAM
-        comments=None,               # NEW OPTIONAL PARAM for Adopted comments (English in DB)
-        conn=None
-    ):
+    def log_transaction(self,
+                        unique_id,
+                        code,
+                        description,
+                        expiry_date,
+                        batch_number,
+                        scenario,
+                        kit,
+                        module,
+                        qty_in,
+                        in_type,
+                        qty_out,
+                        out_type,
+                        third_party,
+                        end_user,
+                        remarks,
+                        movement_type,
+                        document_number,
+                        comments=None):
         """
-        Insert a new transaction row into stock_transactions.
-        - Auto-generates Date and Time.
-        - Reuses provided connection if supplied; otherwise creates & closes one.
-        - Automatically includes document_number if the column exists; otherwise logs a warning once.
-        - Includes comments if provided (assumed to be in English for DB storage).
-        - Backward compatible: callers not passing params are unaffected.
+        Insert a transaction row. Extended to persist 'comments' (Adopted …) into
+        stock_transactions.Comments (column must exist).
         """
-        now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")
-        time_str = now.strftime("%H:%M:%S")
-
-        created_locally = False
+        conn = connect_db()
         if conn is None:
-            conn = connect_db()
-            if conn is None:
-                raise ValueError("Database connection failed in log_transaction")
-            created_locally = True
-
+            raise ValueError("Database connection failed")
+        cur = conn.cursor()
         try:
-            cols = _get_stock_transaction_columns(conn)  # Assumes this function exists (plural)
-            has_doc_col = "document_number" in cols
-            has_comments_col = "comments" in cols
+            # Detect if Comments column exists (case-insensitive)
+            cur.execute("PRAGMA table_info(stock_transactions)")
+            cols = {row[1].lower(): row[1] for row in cur.fetchall()}
+            has_comments = 'comments' in cols
 
-            base_fields = [
-                "Date", "Time", "unique_id", "code", "Description", "Expiry_date",
-                "Batch_Number", "Scenario", "Kit", "Module",
-                "Qty_IN", "IN_Type", "Qty_Out", "Out_Type",
-                "Third_Party", "End_User", "Discrepancy", "Remarks", "Movement_Type"
-            ]
-            base_values = [
-                date_str, time_str, unique_id, code, Description, Expiry_date,
-                Batch_Number, Scenario, Kit, Module,
-                Qty_IN, IN_Type, Qty_Out, Out_Type,
-                Third_Party, End_User, Discrepancy, Remarks, Movement_Type
-            ]
-
-            if has_doc_col and has_comments_col:
-                field_list = base_fields + ["document_number", "Comments"]
-                values = base_values + [document_number, comments]
-            elif has_doc_col:
-                field_list = base_fields + ["document_number"]
-                values = base_values + [document_number]
-            elif has_comments_col:
-                field_list = base_fields + ["Comments"]
-                values = base_values + [comments]
+            if has_comments:
+                cur.execute(f"""
+                    INSERT INTO stock_transactions
+                    (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
+                     Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
+                     Third_Party, End_User, Remarks, Movement_Type, document_number, Comments)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    _dt.today().strftime('%Y-%m-%d'),
+                    _dt.now().time().strftime('%H:%M:%S'),
+                    unique_id, code, description, expiry_date, batch_number,
+                    scenario, kit, module, qty_in, in_type, qty_out, out_type,
+                    third_party, end_user, remarks, movement_type, document_number, comments
+                ))
             else:
-                field_list = base_fields
-                values = base_values
+                # Backward compatibility if Comments column missing
+                cur.execute(f"""
+                    INSERT INTO stock_transactions
+                    (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
+                     Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
+                     Third_Party, End_User, Remarks, Movement_Type, document_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    _dt.today().strftime('%Y-%m-%d'),
+                    _dt.now().time().strftime('%H:%M:%S'),
+                    unique_id, code, description, expiry_date, batch_number,
+                    scenario, kit, module, qty_in, in_type, qty_out, out_type,
+                    third_party, end_user, remarks, movement_type, document_number
+                ))
 
-            placeholders = ", ".join(["?"] * len(field_list))
-            cols_sql = ", ".join(field_list)
-
-            sql = f"INSERT INTO stock_transactions ({cols_sql}) VALUES ({placeholders})"
-
-            cur = conn.cursor()
-            cur.execute(sql, values)
             conn.commit()
-            logging.info(f"Logged transaction unique_id={unique_id} doc={document_number}")
-            cur.close()
-
         except sqlite3.Error as e:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            logging.error(f"Error logging transaction for unique_id {unique_id}: {e}")
+            conn.rollback()
+            logging.error(f"Error logging transaction: {e}")
             raise
         finally:
-            if created_locally:
-                try:
-                    conn.close()
-                except:
-                    pass
+            cur.close()
+            conn.close()
     # -----------------------------------------------------------------
     # Tree iteration helpers
     # -----------------------------------------------------------------
@@ -2629,32 +2572,7 @@ class StockReceiveKit(tk.Frame):
             walk(top)
         return structural
 
-    def _compute_row_comment_text(self, rd):
-        """
-        Returns localized adopted expiry comment.
 
-        Logic:
-        - Blank if no expiry_iso or user_manual_expiry is True.
-        - If expiry_iso equals exp_module_iso -> adopted module message.
-        - Else if expiry_iso equals exp_kit_iso -> adopted kit message.
-        - Else blank.
-
-        Translation keys:
-        receive_kit.comment.adopted_module
-        receive_kit.comment.adopted_kit
-        """
-        if not rd:
-            return ""
-        expiry_iso = rd.get("expiry_iso")
-        if not expiry_iso or rd.get("user_manual_expiry"):
-            return ""
-        exp_mod_iso = rd.get("exp_module_iso")
-        exp_kit_iso = rd.get("exp_kit_iso")
-        if exp_mod_iso and expiry_iso == exp_mod_iso:
-            return lang.t("receive_kit.comment.adopted_module", fallback="Adopted Module expiry")
-        if exp_kit_iso and expiry_iso == exp_kit_iso:
-            return lang.t("receive_kit.comment.adopted_kit", fallback="Adopted Kit expiry")
-        return ""
 
 
     def update_row_comment(self, iid, force=False, sticky_mode=True):
@@ -3421,24 +3339,23 @@ class StockReceiveKit(tk.Frame):
                     comments=comments_col or None
                 )
                 # Transaction log
-                in_type_canonical = self.get_canonical_in_type()
                 self.log_transaction(
                     unique_id=unique_id,
                     code=code,
-                    Description=desc,
-                    Expiry_date=final_expiry,
-                    Batch_Number=batch_no or None,
-                    Scenario=scenario_name,
-                    Kit=kit_number,
-                    Module=module_number,
-                    Qty_IN=qty_to_receive,
-                    IN_Type=in_type_canonical,
-                    Qty_Out=None,
-                    Out_Type=None,
-                    Third_Party=self.third_party_var.get() or None,
-                    End_User=self.end_user_var.get() or None,
-                    Remarks=self.remarks_entry.get().strip() or None,
-                    Movement_Type=self.mode_var.get() or "stock_in",
+                    description=desc,
+                    expiry_date=final_expiry,
+                    batch_number=batch_no or None,
+                    scenario=scenario_name,
+                    kit=kit_number,
+                    module=module_number,
+                    qty_in=qty_to_receive,
+                    in_type=self.trans_type_var.get() or "stock_in",
+                    qty_out=None,
+                    out_type=None,
+                    third_party=self.third_party_var.get() or None,
+                    end_user=self.end_user_var.get() or None,
+                    remarks=self.remarks_entry.get().strip() or None,
+                    movement_type=self.mode_var.get() or "stock_in",
                     document_number=document_number,
                     comments=comments_col or None
                 )
@@ -3640,25 +3557,23 @@ class StockReceiveKit(tk.Frame):
     # Save Workflow
     # -----------------------------------------------------------------
     def save_all(self):
-        if self.role.lower() not in ("admin", "manager"):
+        if self.role.lower() not in ("admin","manager"):
             custom_popup(self.parent,
-                        lang.t("receive_kit.perm_error_title", "Permission Denied"),
-                        lang.t("receive_kit.perm_error_msg", "Only admin or manager can save."),
-                        "error")
+                         lang.t("receive_kit.perm_error_title","Permission Denied"),
+                         lang.t("receive_kit.perm_error_msg","Only admin or manager can save."),
+                         "error")
             return
         if not self.tree.get_children():
             custom_popup(self.parent,
-                        lang.t("receive_kit.no_rows_title", "Nothing to Save"),
-                        lang.t("receive_kit.no_rows_msg", "No rows present."),
-                        "error")
+                         lang.t("receive_kit.no_rows_title","Nothing to Save"),
+                         lang.t("receive_kit.no_rows_msg","No rows present."),
+                         "error")
             return
-        # Use canonical English for IN_Type validation/saves
-        canonical_in_type = self.get_canonical_in_type()
-        if not canonical_in_type:
+        if not self.trans_type_var.get():
             custom_popup(self.parent,
-                        lang.t("receive_kit.in_type_missing_title", "IN Type Missing"),
-                        lang.t("receive_kit.in_type_missing_msg", "Please select an IN Type."),
-                        "error")
+                         lang.t("receive_kit.in_type_missing_title","IN Type Missing"),
+                         lang.t("receive_kit.in_type_missing_msg","Please select an IN Type."),
+                         "error")
             return
         if not self.ensure_unique_numbers_interactively():
             return
@@ -3667,14 +3582,14 @@ class StockReceiveKit(tk.Frame):
         if structural_nodes:
             if not self._prompt_for_structural_expiries():
                 return
-            still_missing = [self.tree.item(iid, "values")[0]
-                            for iid in structural_nodes
-                            if not self.row_data.get(iid, {}).get("expiry_iso")]
+            still_missing = [self.tree.item(iid,"values")[0]
+                             for iid in structural_nodes
+                             if not self.row_data.get(iid,{}).get("expiry_iso")]
             if still_missing:
                 custom_popup(self.parent,
-                            lang.t("receive_kit.missing_expiry_title", "Missing Expiry"),
-                            "Still missing expiry for:\n" + "\n".join(still_missing),
-                            "error")
+                             lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
+                             "Still missing expiry for:\n" + "\n".join(still_missing),
+                             "error")
                 return
             self._propagate_structural_expiries_top_down()
         else:
@@ -3693,14 +3608,14 @@ class StockReceiveKit(tk.Frame):
         ]
         if missing_struct_final:
             custom_popup(self.parent,
-                        lang.t("receive_kit.missing_expiry_title", "Missing Expiry"),
-                        "Structural rows still missing expiry:\n" + "\n".join(missing_struct_final),
-                        "error")
+                         lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
+                         "Structural rows still missing expiry:\n" + "\n".join(missing_struct_final),
+                         "error")
             return
         for iid in self._gather_full_tree_nodes():
             self._validate_and_tag_row(iid, force=True)
         self.update_unique_ids_and_column()
-        review_title = lang.t("receive_kit.review_title", "Review Before Saving")
+        review_title = lang.t("receive_kit.review_title","Review Before Saving")
         base_msg = "Structural expiries captured. Mandatory item expiries auto-adopted where possible."
         if adopted_items:
             base_msg += f"\n{adopted_items} mandatory item(s) received an adopted expiry."
@@ -3711,49 +3626,42 @@ class StockReceiveKit(tk.Frame):
                 review_title,
                 review_message,
                 buttons=[
-                    {"key": "save", "text": lang.t("receive_kit.button_save", "Save"),
-                    "style": "Primary.Popup.TButton"},
-                    {"key": "review", "text": lang.t("receive_kit.button_review", "Review"),
-                    "style": "Secondary.Popup.TButton"}
+                    {"key":"save","text":lang.t("receive_kit.button_save","Save"),
+                     "style":"Primary.Popup.TButton"},
+                    {"key":"review","text":lang.t("receive_kit.button_review","Review"),
+                     "style":"Secondary.Popup.TButton"}
                 ]
             )
         except Exception:
-            # Fallback: use custom_askyesno (returns "yes"/"no") instead of undefined win_confirm
-            try:
-                ans = custom_askyesno(self.parent, review_title, review_message)
-            except Exception:
-                ans = "no"
-            choice = "save" if ans == "yes" else "review"
+            choice = "save" if win_confirm(review_title, review_message) else "review"
         if choice != "save":
-            self.status_var.set(lang.t("receive_kit.review_mode_status", "Review mode - not saved yet."))
+            self.status_var.set(lang.t("receive_kit.review_mode_status","Review mode - not saved yet."))
             return
-        # Use canonical English for document number generation and DB saves
-        document_number = self.generate_document_number(canonical_in_type)
+        document_number = self.generate_document_number(self.trans_type_var.get())
         self.ensure_module_number_consistency()
         exported_rows = []
         for root in self.tree.get_children(""):
             if not self.save_subtree(root, [], exported_rows, document_number=document_number):
                 custom_popup(self.parent,
-                            lang.t("receive_kit.save_error_title", "Save Error"),
-                            lang.t("receive_kit.save_error_msg", "An error occurred during save."),
-                            "error")
+                             lang.t("receive_kit.save_error_title","Save Error"),
+                             lang.t("receive_kit.save_error_msg","An error occurred during save."),
+                             "error")
                 return
         self.rewrite_module_number_rows()
         custom_popup(self.parent,
-                    lang.t("receive_kit.save_success_title", "Success"),
-                    lang.t("receive_kit.save_success_msg", "Data saved successfully."),
-                    "success")
+                     lang.t("receive_kit.save_success_title","Success"),
+                     lang.t("receive_kit.save_success_msg","Data saved successfully."),
+                     "success")
         self.status_var.set(
-            lang.t("receive_kit.saved_doc_status", "Saved. Document Number: {doc}", doc=document_number)
+            lang.t("receive_kit.saved_doc_status","Saved. Document Number: {doc}", doc=document_number)
         )
         if exported_rows and custom_askyesno(
             self.parent,
-            lang.t("receive_kit.export_confirm_title", "Export"),
-            lang.t("receive_kit.export_confirm_msg", "Export this movement to Excel?")
+            lang.t("receive_kit.export_confirm_title","Export"),
+            lang.t("receive_kit.export_confirm_msg","Export this movement to Excel?")
         ) == "yes":
             self.export_data(exported_rows)
         self.clear_form()
-
 # ---------------------------------------------------------------------
 # VERSION
 # ---------------------------------------------------------------------
