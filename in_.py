@@ -155,8 +155,25 @@ def fetch_qty_needed(self, code, scenario_name, scenario_id, std_qty):
         cur.close()
         conn.close()
 
+
+
 # ---------------------- Main Class ---------------------- #
 class StockIn(tk.Frame):
+
+
+# ---------- Canonical IN Types (class-level constant) ----------
+    IN_TYPE_CANONICAL = [
+        "In MSF",
+        "In Local Purchase",
+        "In from Quarantine",
+        "In Donation",
+        "Return from End User",
+        "In Supply Non-MSF",
+        "In Borrowing",
+        "In Return of Loan",
+        "In Correction of Previous Transaction",
+    ]
+        
     def __init__(self, parent: tk.Widget, root: tk.Tk, role: str = "supervisor"):
         super().__init__(parent)
         self.root = root
@@ -184,12 +201,29 @@ class StockIn(tk.Frame):
         return custom_askyesno(self, lang.t("dialog_titles.confirm", "Confirm"),
                                lang.t(msg_key_default, default_text, **fmt)) == "yes"
 
-    # -------- Document Number Generation -------- #
+    # ---------- Helpers for canonical IN types ----------
+    def get_canonical_in_type(self) -> str:
+        """
+        Convert the currently selected display label to canonical English
+        using translations section 'stock_in.in_types_map'.
+        Returns a canonical English string (e.g., 'In MSF').
+        """
+        display_val = (self.trans_type_var.get() or "").strip()
+        return lang.enum_to_canonical("stock_in.in_types_map", display_val).strip()
+
+    def get_display_in_type_list(self):
+        """
+        Return localized display list for IN types from the canonical list.
+        These are shown in the combobox, but will be converted back to
+        canonical English for DB writes.
+        """
+        return lang.enum_to_display_list("stock_in.in_types_map", self.IN_TYPE_CANONICAL)
+
+    # ---------- Document Number Generation ----------
     def generate_document_number(self, in_type_text: str) -> str:
         """
         Format: YYYY/MM/<PROJECT_CODE>/<ABBR>/<SERIAL>
-        ABBR from mapping; dynamic fallback if unknown.
-        SERIAL increments per prefix (4 digits).
+        ABBR from canonical English; in_type_text MUST be canonical English.
         """
         project_name, project_code = fetch_project_details()
         project_code = (project_code or "PRJ").strip().upper()
@@ -206,7 +240,6 @@ class StockIn(tk.Frame):
             "In Correction of Previous Transaction": "ICOR"
         }
         raw = (in_type_text or "").strip()
-        import re
         norm = re.sub(r'[^a-z0-9]+', '', raw.lower())
         abbr = None
         for k, v in base_map.items():
@@ -220,14 +253,8 @@ class StockIn(tk.Frame):
             for t in tokens:
                 if not t or t in stop:
                     continue
-                if t == "MSF":
-                    parts.append("MSF")
-                else:
-                    parts.append(t[0])
-            if not parts:
-                abbr = (raw[:4].upper() or "DOC").replace(" ", "")
-            else:
-                abbr = "".join(parts)
+                parts.append("MSF" if t == "MSF" else t[0])
+            abbr = "".join(parts) if parts else (raw[:4].upper() or "DOC").replace(" ", "")
             if len(abbr) > 8:
                 abbr = abbr[:8]
 
@@ -258,7 +285,7 @@ class StockIn(tk.Frame):
         doc = f"{prefix}/{serial:04d}"
         self.current_document_number = doc
         return doc
-
+    
     # -------- Data Fetch Helpers -------- #
     def fetch_scenario_map(self):
         conn = connect_db()
@@ -416,6 +443,7 @@ class StockIn(tk.Frame):
 
     # -------- UI Rendering -------- #
     def render_ui(self):
+        # Clear existing widgets
         for w in self.winfo_children():
             try:
                 w.destroy()
@@ -428,22 +456,25 @@ class StockIn(tk.Frame):
         tk.Label(self, text=lang.t("stock_in.title", "Stock In"),
                  font=("Helvetica", 20, "bold"), bg=bg).pack(pady=10)
 
+        # Top buttons
+        # Top buttons (REMOVE role restriction)
         btn_frame = tk.Frame(self, bg=bg)
         btn_frame.pack(pady=5, fill="x")
-        can_edit = self.role in ["admin", "manager"]
+    
         tk.Button(btn_frame, text=lang.t("stock_in.add_button", "Add Stock"),
-                  bg="#27AE60", fg="white", command=self.save_all,
-                  activebackground="#1E874B",
-                  state="normal" if can_edit else "disabled").pack(side="left", padx=5)
+                bg="#27AE60", fg="white", activebackground="#1E874B",
+                command=self.save_all).pack(side="left", padx=5)
+    
         tk.Button(btn_frame, text=lang.t("stock_in.clear_all", "Clear All"),
-                  bg="#7F8C8D", fg="white", activebackground="#666E70",
-                  command=self.clear_form).pack(side="left", padx=5)
+                bg="#7F8C8D", fg="white", activebackground="#666E70",
+                command=self. clear_form).pack(side="left", padx=5)
+    
         tk.Button(btn_frame, text=lang.t("stock_in.export", "Export"),
-                  bg="#2980B9", fg="white", activebackground="#1F6390",
-                  command=self.export_data).pack(side="left", padx=5)
+                bg="#2980B9", fg="white", activebackground="#1F6390",
+                command=self.export_data).pack(side="left", padx=5)
 
-        filter_frame = tk.Frame(self, bg=bg)
-        filter_frame.pack(pady=5, fill="x")
+        # Scenario filter
+        filter_frame = tk.Frame(self, bg=bg); filter_frame.pack(pady=5, fill="x")
         tk.Label(filter_frame, text=lang.t("stock_in.scenario", "Scenario:"),
                  bg=bg).grid(row=0, column=0, padx=5, sticky="w")
         self.scenario_var = tk.StringVar(value=lang.t("stock_in.all_scenarios", "All Scenarios"))
@@ -453,45 +484,45 @@ class StockIn(tk.Frame):
         self.scenario_cb.grid(row=0, column=1, padx=5, pady=5)
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_scenario_selected)
 
-        type_frame = tk.Frame(self, bg=bg)
-        type_frame.pack(pady=5, fill="x")
-        tk.Label(type_frame, text=lang.t("stock_in.in_type", "IN Type:"), bg=bg).grid(row=0, column=0, padx=5, sticky="w")
+        # IN Type + parties
+        type_frame = tk.Frame(self, bg=bg); type_frame.pack(pady=5, fill="x")
+        tk.Label(type_frame, text=lang.t("stock_in.in_type", "IN Type:"), bg=bg)\
+            .grid(row=0, column=0, padx=5, sticky="w")
         self.trans_type_var = tk.StringVar()
-        self.trans_type_cb = ttk.Combobox(type_frame, textvariable=self.trans_type_var,
-                                          values=[
-                                              lang.t("stock_in.in_msf", "In MSF"),
-                                              lang.t("stock_in.in_local_purchase", "In Local Purchase"),
-                                              lang.t("stock_in.in_from_quarantine", "In from Quarantine"),
-                                              lang.t("stock_in.in_donation", "In Donation"),
-                                              lang.t("stock_in.return_from_end_user", "Return from End User"),
-                                              lang.t("stock_in.in_supply_non_msf", "In Supply Non-MSF"),
-                                              lang.t("stock_in.in_borrowing", "In Borrowing"),
-                                              lang.t("stock_in.in_return_loan", "In Return of Loan"),
-                                              lang.t("stock_in.in_correction", "In Correction of Previous Transaction")
-                                          ],
-                                          state="readonly", width=30)
+        # DISPLAY LIST IS LOCALIZED; we convert back to canonical on save
+        self.trans_type_cb = ttk.Combobox(
+            type_frame,
+            textvariable=self.trans_type_var,
+            values=self.get_display_in_type_list(),
+            state="readonly", width=30
+        )
         self.trans_type_cb.grid(row=0, column=1, padx=5, pady=5)
         self.trans_type_cb.bind("<<ComboboxSelected>>", self.update_dropdown_visibility)
-
-        tk.Label(type_frame, text=lang.t("stock_in.end_user", "End User:"), bg=bg).grid(row=0, column=2, padx=5, sticky="w")
+        
+        
+        tk.Label(type_frame, text=lang.t("stock_in.end_user", "End User:"), bg=bg)\
+            .grid(row=0, column=2, padx=5, sticky="w")
         self.end_user_var = tk.StringVar()
         self.end_user_cb = ttk.Combobox(type_frame, textvariable=self.end_user_var, state="disabled", width=30)
         self.end_user_cb['values'] = self.fetch_end_users()
         self.end_user_cb.grid(row=0, column=3, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("stock_in.third_party", "Third Party:"), bg=bg).grid(row=0, column=4, padx=5, sticky="w")
+        tk.Label(type_frame, text=lang.t("stock_in.third_party", "Third Party:"), bg=bg)\
+            .grid(row=0, column=4, padx=5, sticky="w")
         self.third_party_var = tk.StringVar()
         self.third_party_cb = ttk.Combobox(type_frame, textvariable=self.third_party_var, state="disabled", width=30)
         self.third_party_cb['values'] = self.fetch_third_parties()
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("stock_in.remarks", "Remarks:"), bg=bg).grid(row=0, column=6, padx=5, sticky="w")
+        tk.Label(type_frame, text=lang.t("stock_in.remarks", "Remarks:"), bg=bg)\
+            .grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
 
-        search_frame = tk.Frame(self, bg=bg)
-        search_frame.pack(pady=10, fill="x")
-        tk.Label(search_frame, text=lang.t("stock_in.item_code", "Item Code"), bg=bg).grid(row=0, column=0, padx=5, sticky="w")
+        # Search
+        search_frame = tk.Frame(self, bg=bg); search_frame.pack(pady=10, fill="x")
+        tk.Label(search_frame, text=lang.t("stock_in.item_code", "Item Code"), bg=bg)\
+            .grid(row=0, column=0, padx=5, sticky="w")
         self.code_entry = tk.Entry(search_frame)
         self.code_entry.grid(row=0, column=1, padx=5, pady=5)
         self.code_entry.bind("<KeyRelease>", self.search_items)
@@ -503,8 +534,8 @@ class StockIn(tk.Frame):
         self.search_listbox.grid(row=0, column=3, padx=5, pady=5, sticky="we")
         self.search_listbox.bind("<<ListboxSelect>>", self.fill_code_from_search)
 
-        tree_frame = tk.Frame(self, bg=bg)
-        tree_frame.pack(expand=True, fill="both", pady=10)
+        # Table
+        tree_frame = tk.Frame(self, bg=bg); tree_frame.pack(expand=True, fill="both", pady=10)
         self.cols = ("code", "description", "scenario_name", "kit_code", "module_code",
                      "std_qty", "qty_needed", "qty_in", "expiry_date", "batch_no")
         self.tree = ttk.Treeview(tree_frame, columns=self.cols, show="headings", height=18)
@@ -531,12 +562,9 @@ class StockIn(tk.Frame):
             self.tree.heading(c, text=self.headers[c])
             self.tree.column(c, width=self.widths[c], stretch=True)
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        vsb.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=vsb.set)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
-        hsb.grid(row=1, column=0, sticky="ew")
-        self.tree.configure(xscrollcommand=hsb.set)
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview); vsb.grid(row=0, column=1, sticky="ns")
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview); hsb.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
@@ -602,23 +630,22 @@ class StockIn(tk.Frame):
     def on_scenario_selected(self, event=None):
         self.populate_table()
 
+    # ---------- Dropdown visibility based on canonical ----------
     def update_dropdown_visibility(self, event=None):
-        ttype = self.trans_type_var.get()
-        self.end_user_cb.config(state="disabled")
-        self.third_party_cb.config(state="disabled")
+        """Enable/disable dropdowns based on canonical IN Type selection."""
+        canonical_type = self.get_canonical_in_type()
+        
+        # Reset all to disabled
+        self.end_user_cb. config(state="disabled")
+        self.third_party_cb. config(state="disabled")
         self.remarks_entry.config(state="disabled")
-        self.end_user_var.set("")
-        self.third_party_var.set("")
-        self.remarks_entry.delete(0, tk.END)
-        if ttype in [
-            lang.t("stock_in.in_donation", "In Donation"),
-            lang.t("stock_in.in_borrowing", "In Borrowing"),
-            lang.t("stock_in.in_return_loan", "In Return of Loan")
-        ]:
-            self.third_party_cb.config(state="readonly")
-        elif ttype == lang.t("stock_in.return_from_end_user", "Return from End User"):
+        
+        # Enable based on canonical English type
+        if canonical_type == "Return from End User":
             self.end_user_cb.config(state="readonly")
-        elif ttype == lang.t("stock_in.in_correction", "In Correction of Previous Transaction"):
+        elif canonical_type == "In Donation":
+            self.third_party_cb.config(state="readonly")
+        elif canonical_type == "In Correction of Previous Transaction":
             self.remarks_entry.config(state="normal")
 
     def search_items(self, event=None):
@@ -993,32 +1020,42 @@ class StockIn(tk.Frame):
         if not rows:
             self.show_error("stock_in.no_rows", "No rows to save.")
             return
-        ttype = self.trans_type_var.get()
+
+        # ALWAYS use canonical English for DB/logging
+        ttype_canonical = self.get_canonical_in_type()
         remarks = self.remarks_entry.get().strip()
         end_user = self.end_user_var.get().strip()
         third_party = self.third_party_var.get().strip()
 
-        if not ttype:
+        if not ttype_canonical:
             self.show_error("stock_in.no_in_type", "IN Type is required.")
             return
-        if ttype == lang.t("stock_in.in_donation", "In Donation"):
+        if ttype_canonical == "In Donation":
             if not third_party or third_party not in self.third_party_cb['values']:
                 self.show_error("stock_in.invalid_third_party", "A valid Third Party must be selected for In Donation.")
                 return
-        if ttype == lang.t("stock_in.return_from_end_user", "Return from End User"):
+        if ttype_canonical == "Return from End User":
             if not end_user or end_user not in self.end_user_cb['values']:
                 self.show_error("stock_in.invalid_end_user", "A valid End User must be selected for Return from End User.")
                 return
-        if ttype == lang.t("stock_in.in_correction", "In Correction of Previous Transaction"):
+        if ttype_canonical == "In Correction of Previous Transaction":
             if len(remarks) < 10 or len(remarks) > 300:
                 self.show_error("stock_in.remarks_length", "Remarks must be between 10 and 300 characters for In Correction of Previous Transaction.")
                 return
+            
+         # Guard: ensure the canonical value is one of the supported enums
+        if not ttype_canonical or ttype_canonical not in self.IN_TYPE_CANONICAL:
+            self.show_error("stock_in.no_in_type", "IN Type is required.")
+            return
 
-        # Generate Document Number
-        doc_number = self.generate_document_number(ttype)
+        remarks = self.remarks_entry.get().strip()
+        end_user = self.end_user_var.get().strip()
+        third_party = self.third_party_var.get().strip()    
+
+        # Generate Document Number from CANONICAL type
+        doc_number = self.generate_document_number(ttype_canonical)
         self.status_var.set(
-            lang.t("stock_in.generating_document", "Generated Document Number: {doc}")
-               .format(doc=doc_number)
+            lang.t("stock_in.generating_document", "Generated Document Number: {doc}").format(doc=doc_number)
         )
 
         invalid_items = []
@@ -1051,7 +1088,7 @@ class StockIn(tk.Frame):
             six_layer_unique_id = f"{scenario_name}/{kit_code if kit_code != '-----' else 'None'}/{module_code if module_code != '-----' else 'None'}/{code}/{std_qty}/{exp_part}"
 
             try:
-                # log_transaction now supports document_number if DB column exists
+                # Store canonical English in DB
                 log_transaction(
                     unique_id=six_layer_unique_id,
                     code=code,
@@ -1062,7 +1099,7 @@ class StockIn(tk.Frame):
                     Kit=kit_code if kit_code != "-----" else None,
                     Module=module_code if module_code != "-----" else None,
                     Qty_IN=qty_in_int,
-                    IN_Type=ttype,
+                    IN_Type=ttype_canonical,            # <--- canonical English
                     Third_Party=third_party if third_party else None,
                     End_User=end_user if end_user else None,
                     Remarks=remarks,
@@ -1095,7 +1132,7 @@ class StockIn(tk.Frame):
             return
 
         self.show_info("stock_in.saved", "Stock IN saved successfully.")
-        # Offer export
+        # Offer export; export can keep localized display if preferred
         if exported_rows and self.ask_yes_no("stock_in.save_excel_prompt", "Do you want to save the stock issuance to Excel?"):
             self.export_data(exported_rows)
 
@@ -1109,9 +1146,10 @@ class StockIn(tk.Frame):
                 os.makedirs(default_dir)
 
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ttype = self.trans_type_var.get() or lang.t("stock_in.unknown", "Unknown")
+            # Show display (localized) in Excel for user friendliness
+            ttype_display = self.trans_type_var.get() or lang.t("stock_in.unknown", "Unknown")
             safe_time = current_time.replace(":", "-").replace(" ", "_")
-            file_name = f"IsEPREP_Stock-In_{ttype.replace(' ', '_')}_{safe_time}.xlsx"
+            file_name = f"IsEPREP_Stock-In_{ttype_display.replace(' ', '_')}_{safe_time}.xlsx"
 
             path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
@@ -1151,8 +1189,8 @@ class StockIn(tk.Frame):
             ws['A3'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A3:J3')
 
-            # A4: IN Type
-            ws['A4'] = f"{lang.t('stock_in.in_type', 'In Type')}: {ttype}"
+            # A4: IN Type (display)
+            ws['A4'] = f"{lang.t('stock_in.in_type', 'In Type')}: {ttype_display}"
             ws['A4'].font = Font(name="Tahoma")
             ws['A4'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A4:J4')

@@ -333,10 +333,16 @@ class ReportsFrame(tk.Frame):
         # Type
         tk.Label(filters_frame, text=lang.t("reports.type","Type:"),
                  bg="#F0F4F8").grid(row=0, column=2, sticky="w", padx=4, pady=2)
-        self.type_var = tk.StringVar(value="All")
-        self.type_cb = ttk.Combobox(filters_frame, textvariable=self.type_var,
-                                    values=["All","KIT","MODULE","ITEM"], width=10, state="readonly")
+        self.type_var = tk.StringVar(value=lang.t("reports.type_all", "All"))
+        self.type_cb = ttk.Combobox(
+            filters_frame,
+            textvariable=self.type_var,
+    values=[lang.t("reports.type_all", "All"), "KIT", "MODULE", "ITEM"],
+            width=10,
+            state="readonly"
+        )
         self.type_cb.grid(row=0, column=3, padx=4, pady=2, sticky="w")
+        self.type_cb.current(0)
 
         # Expiry Period override (renamed)
         tk.Label(filters_frame, text=lang.t("reports.expiry_period","Expiry Period (months):"),
@@ -510,12 +516,14 @@ class ReportsFrame(tk.Frame):
 
     # ---------------- Filters ----------------
     def gather_filters(self):
+        tsel = self.type_var.get()
+        type_filter = "All" if tsel in ("", lang.t("reports.type_all", "All")) else tsel
         return {
             "scenario": self.scenario_var.get() or None,
             "kit_code": self.kit_var.get() or None,
             "module_code": self.module_var.get() or None,
             "item_code": self.item_var.get() or None,
-            "type_filter": self.type_var.get() or "All"
+            "type_filter": type_filter
         }
 
     def clear_filters(self):

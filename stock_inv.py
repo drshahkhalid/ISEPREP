@@ -121,10 +121,10 @@ def get_std_qty(code, scenario_name):
 
 def get_item_type(code: str) -> str:
     if not code:
-        return "Item"
+        return lang.t("stock_inv.item", "Item")
     conn = connect_db()
     if conn is None:
-        return "Item"
+        return lang.t("stock_inv.item", "Item")
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     try:
@@ -133,10 +133,10 @@ def get_item_type(code: str) -> str:
         if row and row['type']:
             t = row['type'].strip().upper()
             if t in ("KIT", "MODULE", "ITEM"):
-                return t.title()
+                return lang.t(f"stock_inv.{t.lower()}", t.title())
         desc = row['designation_en'] if row else get_item_description(code)
         dt = detect_type(code, desc) if desc else "ITEM"
-        return {"KIT": "Kit", "MODULE": "Module", "ITEM": "Item"}.get(dt.upper(), "Item")
+        return {"KIT": lang.t("stock_inv.kit", "Kit"), "MODULE": lang.t("stock_inv.module", "Module"), "ITEM": lang.t("stock_inv.item", "Item")}.get(dt.upper(), lang.t("stock_inv.item", "Item"))
     finally:
         cur.close()
         conn.close()
@@ -292,13 +292,13 @@ class StockInventory(tk.Frame):
     def fetch_project_details(self):
         conn = connect_db()
         if conn is None:
-            return ("Unknown", "Unknown")
+            return (lang.t("stock_inv.unknown", "Unknown"), lang.t("stock_inv.unknown", "Unknown"))
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
             cur.execute("SELECT project_name, project_code FROM project_details ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
-            return (row['project_name'], row['project_code']) if row else ("Unknown", "Unknown")
+            return (row['project_name'], row['project_code']) if row else (lang.t("stock_inv.unknown", "Unknown"), lang.t("stock_inv.unknown", "Unknown"))
         finally:
             cur.close()
             conn.close()
@@ -653,7 +653,7 @@ class StockInventory(tk.Frame):
                     # Enhanced popup for MODULEs zeroed out by a KIT
                     if base_input > 0 and final_qty == 0 and parent_kit_factor == 0:
                         custom_popup(self, lang.t("dialog_titles.info", "Info"),
-                                     f"{vals[1]} {vals[2]} quantity will remain 0 as the kit number {kit_number} has 0 quantity.", "info")
+                                     lang.t("stock_inv.kit_zero_module_zero", "Quantity for {code} {desc} will remain 0 as the kit number {kit} has 0 quantity.").format(code=vals[1], desc=vals[2], kit=kit_number), "info")
                         # State Synchronization: Reset base input to prevent repeated popups
                         self.base_physical_inputs[iid] = 0
 
@@ -682,13 +682,13 @@ class StockInventory(tk.Frame):
                 if base_input > 0 and final_qty == 0:
                     reason = ""
                     if parent_module_factor == 0:
-                        reason = f"module number {module_number}"
+                        reason = lang.t("stock_inv.module_number", "module number") + f" {module_number}"
                     elif parent_kit_factor == 0:
-                        reason = f"kit number {kit_number}"
+                        reason = lang.t("stock_inv.kit_number", "kit number") + f" {kit_number}"
                     
                     if reason:
                         custom_popup(self, lang.t("dialog_titles.info", "Info"),
-                                     f"{vals[1]} {vals[2]} quantity will remain 0 as the {reason} has 0 quantity.", "info")
+                                     lang.t("stock_inv.item_zero_reason", "Quantity for {code} {desc} will remain 0 as the {reason} has 0 quantity.").format(code=vals[1], desc=vals[2], reason=reason), "info")
                         # State Synchronization: Reset base input
                         self.base_physical_inputs[iid] = 0
             
@@ -750,7 +750,7 @@ class StockInventory(tk.Frame):
             file_name = f"IsEPREP_Stock-Inventory_{inv_type}_{mgmt_mode}_{current_time}.xlsx"
             path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
-                filetypes=[("Excel Files", "*.xlsx")],
+                filetypes=[(lang.t("stock_inv.excel_files", "Excel Files"), "*.xlsx")],
                 title=lang.t("stock_inv.save_excel", "Save Excel"),
                 initialfile=file_name,
                 initialdir=default_dir
@@ -1408,7 +1408,10 @@ class StockInventory(tk.Frame):
             self.batch_info_var.set(lang.t("stock_inv.complete_info",
                                            "Complete inventory: All items with current stock loaded."))
         else:
-            self.capture_current_rows()
+            # Partial inventory: clear tree and states to start fresh
+            self.tree.delete(*self.tree.get_children())
+            self.user_row_states.clear()
+            self.base_physical_inputs.clear()
             self.search_frame.pack(pady=5, fill="x")
             self.status_var.set(lang.t("stock_inv.partial_info",
                                        "Enter a code or description to search items or add a missing item."))
@@ -1767,7 +1770,7 @@ class StockInventory(tk.Frame):
                 INSERT INTO stock_transactions
                   (Date, Time, document_number, unique_id, code, Description, Expiry_date, Batch_Number,
                    Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-                   Third_Party, End_User, Remarks, Movement_Type, Discrepancy)
+                   Third_Party, End_User, Discrepancy, Remarks, Movement_Type)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 datetime.today().strftime('%Y-%m-%d'),
@@ -1787,9 +1790,9 @@ class StockInventory(tk.Frame):
                 inv_abbr if qty_out and qty_out > 0 else None,
                 None,
                 None,
+                None,
                 remarks if remarks else None,
-                "stock_inv",
-                str(qty_in if qty_in else (-qty_out if qty_out else 0))
+                "stock_inv"
             ))
 
         try:

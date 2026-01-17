@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, filedialog
 import openpyxl
+import sqlite3
 import re
 from db import connect_db
 from language_manager import lang
@@ -11,7 +12,7 @@ from popup_utils import custom_popup, custom_askyesno, custom_dialog
 RESTRICTED_EDIT = {"manager", "supervisor", "~", "$"}
 
 def validate_code(code):
-    """Validate code: at least 9 characters (uppercase letters, digits, hyphens). Strip spaces."""
+    """Validate code:  at least 9 characters (uppercase letters, digits, hyphens). Strip spaces."""
     if not code:
         return None
     code = code.replace(" ", "").upper()
@@ -25,8 +26,39 @@ def generate_unique_id_2(scenario_name, code, quantity):
     return f"{scenario_name}/None/None/{cleaned_code}/{int(quantity or 0)}"
 
 def scenario_to_column_letter(index):
-    """Map scenario index (0-based) to unique_id_2a .. unique_id_2o."""
+    """Map scenario index (0-based) to unique_id_2a ..  unique_id_2o."""
     return f"unique_id_2{chr(ord('a') + index)}"
+
+def get_description_with_priority(row):
+    """
+    Get description with priority:  active language → en → fr → sp
+    row is a sqlite3.Row object
+    """
+    lang_code = lang.lang_code. lower()
+    
+    # Get available keys from Row object
+    row_keys = row.keys()
+    
+    # Try active language first
+    if lang_code == "fr" and "designation_fr" in row_keys and row["designation_fr"]:
+        return row["designation_fr"]
+    elif lang_code in ("es", "sp") and "designation_sp" in row_keys and row["designation_sp"]:
+        return row["designation_sp"]
+    elif lang_code == "en" and "designation_en" in row_keys and row["designation_en"]: 
+        return row["designation_en"]
+    
+    # Fallback priority: en → fr → sp
+    if "designation_en" in row_keys and row["designation_en"]:
+        return row["designation_en"]
+    if "designation_fr" in row_keys and row["designation_fr"]:
+        return row["designation_fr"]
+    if "designation_sp" in row_keys and row["designation_sp"]:
+        return row["designation_sp"]
+    
+    # Last resort
+    if "designation" in row_keys and row["designation"]:
+        return row["designation"]
+    return ""
 
 class StandardList(tk.Frame):
     def __init__(self, parent, app):
@@ -39,7 +71,7 @@ class StandardList(tk.Frame):
         self.search_term = tk.StringVar()
         self.scenarios = []
         self.show_all = False
-        self.kit_codes = []  # Reserved
+        self. kit_codes = []  # Reserved
         self.tree_order = []  # Store code order
         self.pack(fill="both", expand=True)
         self.render_ui()
@@ -55,31 +87,33 @@ class StandardList(tk.Frame):
         style.configure("Invalid.TLabel", foreground="red")
 
         main_frame = ttk.Frame(self, padding=10)
-        main_frame.pack(fill="both", expand=True)
+        main_frame. pack(fill="both", expand=True)
 
-        ttk.Label(main_frame, text=lang.t("standard_list.title"), font=("Helvetica", 20, "bold")).pack(pady=(0, 10))
+        ttk.Label(main_frame, text=lang.t("standard_list.title", fallback="Standard List"), 
+                  font=("Helvetica", 20, "bold")).pack(pady=(0, 10))
 
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill="x", pady=5)
 
-        ttk.Label(top_frame, text=lang.t("standard_list.search")).pack(side="left", padx=(0, 5))
+        ttk.Label(top_frame, text=lang.t("standard_list.search", fallback="Search Code or Description")).pack(side="left", padx=(0, 5))
         search_entry = ttk.Entry(top_frame, textvariable=self.search_term, width=30)
         search_entry.pack(side="left")
         search_entry.bind("<KeyRelease>", lambda e: self.load_data())
 
-        ttk.Button(top_frame, text=lang.t("Refresh"), command=self.load_data).pack(side="left", padx=5)
+        ttk.Button(top_frame, text=lang.t("standard_list.refresh", fallback="Refresh"), 
+                   command=self.load_data).pack(side="left", padx=5)
 
-        self.toggle_btn = ttk.Button(
+        self.toggle_btn = ttk. Button(
             top_frame,
             text=lang.t("standard_list.show_all_items", fallback="Show All Items"),
             command=self.toggle_mode
         )
         self.toggle_btn.pack(side="left", padx=5)
 
-        self.last_update_label = ttk.Label(top_frame, text="", foreground="#555")
-        self.last_update_label.pack(side="right")
+        self.last_update_label = ttk. Label(top_frame, text="", foreground="#555")
+        self.last_update_label. pack(side="right")
 
-        self.status_var = tk.StringVar(value="Ready")
+        self.status_var = tk.StringVar(value=lang.t("standard_list.ready", fallback="Ready"))
         ttk.Label(main_frame, textvariable=self.status_var, relief="sunken", anchor="w").pack(fill="x", pady=(5, 0))
 
         tree_frame = ttk.Frame(main_frame)
@@ -108,7 +142,7 @@ class StandardList(tk.Frame):
         btn_frame.pack(fill="x", pady=5)
 
         # Export always allowed
-        ttk.Button(btn_frame, text=lang.t("standard_list.export_excel"),
+        ttk.Button(btn_frame, text=lang.t("standard_list.export_excel", fallback="Export to Excel"),
                    style="Accent.TButton", command=self.export_excel).pack(side="left", padx=5)
 
         # Import conditional
@@ -116,12 +150,12 @@ class StandardList(tk.Frame):
             btn_frame,
             text=lang.t("standard_list.import_excel", fallback="Import from Excel"),
             style="Accent.TButton",
-            command=(self.import_excel if not self.read_only else self._deny)
+            command=(self.import_excel if not self. read_only else self._deny)
         ).pack(side="left", padx=5)
 
-        # Clear all only if not read-only (previously for admin/manager; manager now blocked)
+        # Clear all only if not read-only
         if not self.read_only:
-            ttk.Button(btn_frame, text="Clear All",
+            ttk.Button(btn_frame, text=lang.t("standard_list.clear_all", fallback="Clear All"),
                        style="Accent.TButton", command=self.clear_all).pack(side="left", padx=5)
 
         if self.read_only:
@@ -130,10 +164,11 @@ class StandardList(tk.Frame):
         self.load_data()
 
     def _deny(self):
-        messagebox.showwarning(
+        custom_popup(
+            self,
             lang.t("dialog_titles.restricted", fallback="Restricted"),
-            lang.t("standard_list.read_only_alert", fallback="You do not have permission to modify the standard list."),
-            parent=self
+            lang.t("standard_list. read_only_alert", fallback="You do not have permission to modify the standard list. "),
+            "warning"
         )
 
     def toggle_mode(self):
@@ -141,7 +176,7 @@ class StandardList(tk.Frame):
         self.show_all = not self.show_all
         self.toggle_btn.config(
             text=lang.t(
-                "standard_list.show_compositions_only" if self.show_all else "standard_list.show_all_items",
+                "standard_list.show_compositions_only" if self.show_all else "standard_list. show_all_items",
                 fallback="Show Standard List Only" if self.show_all else "Show All Items"
             )
         )
@@ -151,6 +186,7 @@ class StandardList(tk.Frame):
         """Fetch scenarios from database, limit to 15."""
         try:
             conn = connect_db()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT scenario_id, name FROM scenarios ORDER BY scenario_id")
             rows = cursor.fetchall()
@@ -158,52 +194,73 @@ class StandardList(tk.Frame):
             conn.close()
             scenarios = [{"scenario_id": row["scenario_id"], "name": row["name"]} for row in rows]
             if len(scenarios) > 15:
-                messagebox.showwarning("Warning", "Only first 15 scenarios supported.", parent=self)
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.warning", fallback="Warning"),
+                    lang.t("standard_list.warning_15_scenarios", fallback="Only first 15 scenarios supported."),
+                    "warning"
+                )
                 return scenarios[:15]
             return scenarios
-        except Exception as e:
-            messagebox.showerror("Database Error", f"Failed to fetch scenarios: {str(e)}", parent=self)
+        except Exception as e: 
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list.db_error_scenarios", fallback="Failed to fetch scenarios:  {error}").format(error=str(e)),
+                "error"
+            )
             return []
 
     def load_data(self):
         """Load and display data in Treeview, preserving order."""
-        self.status_var.set("Loading...")
+        self.status_var.set(lang.t("standard_list.loading", fallback="Loading..."))
         self.app.update_idletasks()
 
         try:
             self.scenarios = self.get_scenarios()
             if not self.scenarios:
-                self.status_var.set("No scenarios found")
+                self.status_var.set(lang.t("standard_list.no_scenarios_found", fallback="No scenarios found"))
                 return
 
-            columns = ["Code", "Description", "Type"] + [s["name"] for s in self.scenarios] + ["Remarks"]
+            columns = [
+                lang.t("standard_list.code", fallback="Code"),
+                lang.t("standard_list. description", fallback="Description"),
+                lang.t("standard_list.type", fallback="Type")
+            ] + [s["name"] for s in self. scenarios] + [lang.t("standard_list. remarks", fallback="Remarks")]
+            
             self.tree["columns"] = columns
 
+            code_label = lang.t("standard_list.code", fallback="Code")
+            desc_label = lang.t("standard_list.description", fallback="Description")
+            
             for col in columns:
-                width, anchor = (135, "w") if col == "Code" else (380, "w") if col == "Description" else (120, "center")
+                width, anchor = (135, "w") if col == code_label else (380, "w") if col == desc_label else (120, "center")
                 self.tree.heading(col, text=col)
                 self.tree.column(col, width=width, anchor=anchor, stretch=True)
 
-            designation_col = {"fr": "designation_fr", "sp": "designation_sp"}.get(lang.lang_code, "designation_en")
-
             conn = connect_db()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+            
+            # Fetch all designation columns to allow priority selection
             query = f"""
-                SELECT DISTINCT i.code, i.type, i.{designation_col} AS description,
+                SELECT DISTINCT i.code, i.type, 
+                       i.designation_en, i.designation_fr, i.designation_sp, i.designation,
                        c.scenario_id, c.quantity, c.remarks, c.updated_at
                 FROM items_list i
-                {"LEFT JOIN" if self.show_all else "JOIN"} compositions c ON i.code = c.code
+                {"LEFT JOIN" if self.show_all else "JOIN"} compositions c ON i.code = c. code
                 ORDER BY i.code ASC
             """
-            cursor.execute(query)
+            cursor. execute(query)
             rows = cursor.fetchall()
 
             cursor.execute("SELECT MAX(updated_at) AS last_update FROM compositions")
-            last_update = cursor.fetchone()["last_update"]
+            last_update_row = cursor.fetchone()
+            last_update = last_update_row["last_update"] if last_update_row else None
             last_update_text = (last_update if isinstance(last_update, str)
                                 else last_update.strftime('%Y-%m-%d %H:%M') if last_update else 'N/A')
             self.last_update_label.config(
-                text=f"{lang.t('standard_list.last_update')}: {last_update_text}"
+                text=f"{lang.t('standard_list. last_update', fallback='Standard List last updated on')}: {last_update_text}"
             )
             cursor.close()
             conn.close()
@@ -213,27 +270,36 @@ class StandardList(tk.Frame):
 
             for row in rows:
                 cleaned_code = validate_code(row["code"])
-                code = cleaned_code if cleaned_code else row["code"].replace(" ", "").upper()
+                code = cleaned_code if cleaned_code else row["code"]. replace(" ", "").upper()
                 if not cleaned_code:
                     invalid_codes.add(row["code"])
+                
                 if code not in data_map:
+                    # Get description with priority
+                    description = get_description_with_priority(row)
+                    
                     data_map[code] = {
-                        "desc": row["description"] or "",
+                        "desc": description,
                         "type": row["type"] or "",
                         "remarks": row["remarks"] or "",
                         "qtys": {s["scenario_id"]: 0 for s in self.scenarios}
                     }
+                
                 if row["scenario_id"]:
                     data_map[code]["qtys"][row["scenario_id"]] = row["quantity"] or 0
                     if row["remarks"]:
                         data_map[code]["remarks"] = row["remarks"]
 
             if invalid_codes:
-                messagebox.showwarning(
-                    "Warning",
-                    f"Found {len(invalid_codes)} invalid codes (e.g., {list(invalid_codes)[:3]}). "
-                    f"Codes must be at least 9 characters with letters, digits, or hyphens.",
-                    parent=self
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.warning", fallback="Warning"),
+                    lang.t("standard_list.invalid_code_warning", 
+                           fallback="Found {count} invalid codes (e.g., {examples}). Codes must be at least 9 characters with letters, digits, or hyphens.").format(
+                        count=len(invalid_codes),
+                        examples=', '.join(list(invalid_codes)[:3])
+                    ),
+                    "warning"
                 )
 
             self.tree.delete(*self.tree.get_children())
@@ -245,10 +311,10 @@ class StandardList(tk.Frame):
                 if code not in data_map:
                     continue
                 item = data_map[code]
-                if search and search not in code.lower() and search not in item["desc"].lower():
+                if search and search not in code.lower() and search not in item["desc"]. lower():
                     continue
                 values = [code, item["desc"], item["type"]] + [
-                    int(item["qtys"].get(s["scenario_id"], 0)) for s in self.scenarios
+                    int(item["qtys"]. get(s["scenario_id"], 0)) for s in self.scenarios
                 ] + [item["remarks"]]
                 tag = 'oddrow' if len(new_order) % 2 else 'evenrow'
                 if not validate_code(code):
@@ -274,8 +340,8 @@ class StandardList(tk.Frame):
 
             self.tree_order = new_order
 
-            loaded_records = len(self.tree.get_children())
-            self.status_var.set(f"Loaded {loaded_records} records")
+            loaded_records = len(self.tree. get_children())
+            self.status_var.set(lang.t("standard_list.loaded_records", fallback="Loaded {count} record(s)").format(count=loaded_records))
 
             if loaded_records == 0:
                 if not self.show_all:
@@ -286,10 +352,20 @@ class StandardList(tk.Frame):
                     self.load_data()
                     return
                 else:
-                    messagebox.showinfo("Info", "No data loaded. Check database, code formats, or search term.", parent=self)
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.info", fallback="Info"),
+                        lang.t("standard_list.no_data_info", fallback="No data loaded. Check database, code formats, or search term. "),
+                        "info"
+                    )
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load data: {str(e)}", parent=self)
-            self.status_var.set("Error loading data")
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list.error_loading_data", fallback="Error loading data") + f": {str(e)}",
+                "error"
+            )
+            self.status_var.set(lang.t("standard_list. error_loading_data", fallback="Error loading data"))
 
     def on_double_click(self, event):
         """Handle double-click to edit scenario quantities or remarks."""
@@ -302,7 +378,8 @@ class StandardList(tk.Frame):
         col_id = self.tree.identify_column(event.x)
         col_index = int(col_id[1:]) - 1
         col_name = self.tree["columns"][col_index]
-        if col_name not in [s["name"] for s in self.scenarios] + ["Remarks"]:
+        remarks_label = lang.t("standard_list.remarks", fallback="Remarks")
+        if col_name not in [s["name"] for s in self. scenarios] + [remarks_label]:
             return
 
         x, y, width, height = self.tree.bbox(row_id, col_id)
@@ -330,12 +407,15 @@ class StandardList(tk.Frame):
             self._deny()
             return
         try:
-            cleaned_code = validate_code(code) or code.replace(" ", "").upper()
+            cleaned_code = validate_code(code) or code. replace(" ", "").upper()
             conn = connect_db()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            if column_name == "Remarks":
-                cursor.execute("UPDATE compositions SET remarks=?, updated_at=CURRENT_TIMESTAMP WHERE code=?", (new_value, cleaned_code))
+            remarks_label = lang.t("standard_list.remarks", fallback="Remarks")
+            if column_name == remarks_label:
+                cursor.execute("UPDATE compositions SET remarks=?, updated_at=CURRENT_TIMESTAMP WHERE code=?", 
+                               (new_value, cleaned_code))
             else:
                 scenario = next((s for s in self.scenarios if s["name"] == column_name), None)
                 if not scenario:
@@ -362,16 +442,21 @@ class StandardList(tk.Frame):
                     cursor.execute("SELECT unique_id_2a, unique_id_2b, unique_id_2c, unique_id_2d, unique_id_2e, "
                                    "unique_id_2f, unique_id_2g, unique_id_2h, unique_id_2i, unique_id_2j, "
                                    "unique_id_2k, unique_id_2l, unique_id_2m, unique_id_2n, unique_id_2o "
-                                   "FROM compositions WHERE code = ?", (cleaned_code,))
+                                   "FROM compositions WHERE code = ? ", (cleaned_code,))
                     rows = cursor.fetchall()
                     used_columns = {f'unique_id_2{i}' for row in rows for i in 'abcdefghijklmno' if row[f'unique_id_2{i}']}
                     for i in 'abcdefghijklmno':
-                        if f'unique_id_2{i}' not in used_columns:
+                        if f'unique_id_2{i}' not in used_columns: 
                             col_letter = f"unique_id_2{i}"
                             break
 
                 if not col_letter:
-                    messagebox.showerror("Error", "No available unique_id_2 column. Maximum scenarios reached.", parent=self)
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", fallback="Error"),
+                        lang.t("standard_list.no_available_column", fallback="No available unique_id_2 column.  Maximum scenarios reached."),
+                        "error"
+                    )
                     return
 
                 unique_id_2 = generate_unique_id_2(scenario_name, cleaned_code, qty)
@@ -384,13 +469,19 @@ class StandardList(tk.Frame):
                             updated_at=CURRENT_TIMESTAMP
                     """, (cleaned_code, scenario_id, qty, unique_id_2, unique_id_2))
                 else:
-                    cursor.execute("DELETE FROM compositions WHERE code = ? AND scenario_id = ?", (cleaned_code, scenario_id))
+                    cursor.execute("DELETE FROM compositions WHERE code = ? AND scenario_id = ?", 
+                                   (cleaned_code, scenario_id))
 
             conn.commit()
-            self.status_var.set("Changes saved")
+            self.status_var.set(lang.t("standard_list.changes_saved", fallback="Changes saved"))
             self.load_data()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save changes: {str(e)}", parent=self)
+        except Exception as e: 
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list.save_changes_failed", fallback="Failed to save changes: {error}").format(error=str(e)),
+                "error"
+            )
             try:
                 conn.rollback()
             except Exception:
@@ -405,7 +496,8 @@ class StandardList(tk.Frame):
     def export_excel(self):
         """Export Treeview data to Excel (allowed even in read-only)."""
         try:
-            file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
+            file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", 
+                                                      filetypes=[("Excel Files", "*.xlsx")])
             if not file_path:
                 return
 
@@ -416,14 +508,24 @@ class StandardList(tk.Frame):
             for item in self.tree.get_children():
                 ws.append(self.tree.item(item)["values"])
 
-            for col in ws.columns:
+            for col in ws. columns:
                 max_length = max(len(str(cell.value)) for cell in col if cell.value) + 2
                 ws.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max_length
 
             wb.save(file_path)
-            messagebox.showinfo("Success", f"Exported to {file_path}", parent=self)
+            custom_popup(
+                self,
+                lang.t("dialog_titles.success", fallback="Success"),
+                lang.t("standard_list. export_success", fallback="Exported to {path}").format(path=file_path),
+                "success"
+            )
         except Exception as e:
-            messagebox.showerror("Error", f"Export failed: {str(e)}", parent=self)
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list. export_failed", fallback="Export failed: {error}").format(error=str(e)),
+                "error"
+            )
 
     def import_excel(self):
         """Import data from Excel and update compositions in the database (blocked if read-only)."""
@@ -439,17 +541,23 @@ class StandardList(tk.Frame):
             ws = wb.active
             headers = [str(cell.value).lower() for cell in ws[1] if cell.value]
             if "code" not in headers:
-                messagebox.showerror("Error", "Excel must have a 'Code' column (case-insensitive).", parent=self)
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.error", fallback="Error"),
+                    lang.t("standard_list.excel_missing_code", fallback="Excel must have a 'Code' column (case-insensitive)."),
+                    "error"
+                )
                 return
 
             code_idx = headers.index("code")
-            scenario_names = {s["name"].lower() for s in self.scenarios}
-            scenario_idxs = {header: idx for idx, header in enumerate(headers) if header in scenario_names}
+            scenario_names = {s["name"]. lower() for s in self.scenarios}
+            scenario_idxs = {header:  idx for idx, header in enumerate(headers) if header in scenario_names}
             remarks_idx = headers.index("remarks") if "remarks" in headers else None
 
             excel_codes = set()
             code_quantities = {}
             conn = connect_db()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
             for row in ws.iter_rows(min_row=2, values_only=True):
@@ -457,12 +565,15 @@ class StandardList(tk.Frame):
                     continue
                 raw_code = str(row[code_idx])
                 cleaned_code = validate_code(raw_code) or raw_code.replace(" ", "").upper()
-                if cleaned_code.startswith('K'):
+                if cleaned_code. startswith('K'):
                     continue
                 excel_codes.add(cleaned_code)
 
                 if cleaned_code not in code_quantities:
-                    code_quantities[cleaned_code] = {'remarks': None, 'quantities': {s["name"]: 0 for s in self.scenarios}}
+                    code_quantities[cleaned_code] = {
+                        'remarks': None, 
+                        'quantities': {s["name"]: 0 for s in self.scenarios}
+                    }
 
                 remarks = str(row[remarks_idx]) if remarks_idx is not None and row[remarks_idx] else None
                 if remarks is not None:
@@ -471,18 +582,19 @@ class StandardList(tk.Frame):
                 for scen_name, idx in scenario_idxs.items():
                     val = row[idx]
                     qty = 0
-                    if val:
+                    if val: 
                         try:
                             qty = float(val)
                         except ValueError:
                             pass
-                    original_scen_name = next(s["name"] for s in self.scenarios if s["name"].lower() == scen_name)
+                    original_scen_name = next(s["name"] for s in self.scenarios if s["name"]. lower() == scen_name)
                     code_quantities[cleaned_code]['quantities'][original_scen_name] = qty
 
             for cleaned_code, data in code_quantities.items():
                 remarks = data['remarks']
                 if remarks is not None:
-                    cursor.execute("UPDATE compositions SET remarks=?, updated_at=CURRENT_TIMESTAMP WHERE code=?", (remarks, cleaned_code))
+                    cursor.execute("UPDATE compositions SET remarks=?, updated_at=CURRENT_TIMESTAMP WHERE code=?", 
+                                   (remarks, cleaned_code))
 
                 for scen_name, qty in data['quantities'].items():
                     scenario = next(s for s in self.scenarios if s["name"] == scen_name)
@@ -500,7 +612,8 @@ class StandardList(tk.Frame):
                                 updated_at=CURRENT_TIMESTAMP
                         """, (cleaned_code, scenario_id, qty, unique_id_2, unique_id_2))
                     else:
-                        cursor.execute("DELETE FROM compositions WHERE code = ? AND scenario_id = ?", (cleaned_code, scenario_id))
+                        cursor.execute("DELETE FROM compositions WHERE code = ?  AND scenario_id = ?", 
+                                       (cleaned_code, scenario_id))
 
             conn.commit()
             cursor.close()
@@ -508,22 +621,39 @@ class StandardList(tk.Frame):
 
             # Check for missing items in items_list
             conn = connect_db()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT code FROM items_list")
-            existing_codes = {validate_code(row[0]) or row[0].replace(" ", "").upper() for row in cursor.fetchall()}
+            existing_codes = {validate_code(row[0]) or row[0]. replace(" ", "").upper() for row in cursor.fetchall()}
             cursor.close()
             conn.close()
 
             missing = excel_codes - existing_codes
             if missing:
-                messagebox.showwarning("Missing Items",
-                                       f"The following codes are missing in the items_list: {', '.join(sorted(missing)[:10])}"
-                                       f"{'...' if len(missing) > 10 else ''}. Data was still updated.", parent=self)
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.warning", fallback="Warning"),
+                    lang.t("standard_list.missing_items_warning", 
+                           fallback="The following codes are missing in the items_list: {codes}.  Data was still updated.").format(
+                        codes=', '.join(sorted(missing)[: 10]) + ('...' if len(missing) > 10 else '')
+                    ),
+                    "warning"
+                )
 
             self.load_data()
-            messagebox.showinfo("Success", "Import completed.", parent=self)
-        except Exception as e:
-            messagebox.showerror("Error", f"Import failed: {str(e)}", parent=self)
+            custom_popup(
+                self,
+                lang.t("dialog_titles.success", fallback="Success"),
+                lang.t("standard_list.import_success", fallback="Import completed. "),
+                "success"
+            )
+        except Exception as e: 
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list.import_failed", fallback="Import failed: {error}").format(error=str(e)),
+                "error"
+            )
         finally:
             if 'wb' in locals():
                 wb.close()
@@ -533,8 +663,16 @@ class StandardList(tk.Frame):
         if self.read_only:
             self._deny()
             return
-        if not messagebox.askyesno("Confirm", "This will delete all compositions. Continue?", parent=self):
+        
+        result = custom_askyesno(
+            self,
+            lang.t("dialog_titles.confirm", fallback="Confirm"),
+            lang.t("standard_list.clear_all_confirm", fallback="This will delete all compositions. Continue?")
+        )
+        
+        if result != "yes":
             return
+            
         try:
             conn = connect_db()
             cursor = conn.cursor()
@@ -543,6 +681,16 @@ class StandardList(tk.Frame):
             cursor.close()
             conn.close()
             self.load_data()
-            messagebox.showinfo("Cleared", "All compositions deleted", parent=self)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to clear: {str(e)}", parent=self)
+            custom_popup(
+                self,
+                lang.t("dialog_titles.success", fallback="Success"),
+                lang.t("standard_list.cleared", fallback="All compositions deleted"),
+                "success"
+            )
+        except Exception as e: 
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", fallback="Error"),
+                lang.t("standard_list.clear_failed", fallback="Failed to clear:  {error}").format(error=str(e)),
+                "error"
+            )

@@ -163,7 +163,7 @@ class ProjectDetailsWindow(tk.Toplevel):
 
         # Tooltip style hint label (optional)
         hint = tk.Label(self, text=self.t("hint_autoprompt",
-                                          fallback="* All fields required. Missing values will prompt."),
+                                          fallback="* All fields required."),
                         bg="#F0F4F8", fg="#555555", font=("Helvetica", 8, "italic"))
         hint.grid(row=row+1, column=0, columnspan=3, sticky="w", padx=10)
 

@@ -22,6 +22,7 @@ Carry‑over (v1.0):
 
 """
 
+
 import tkinter as tk
 from tkinter import ttk, filedialog
 import sqlite3
@@ -288,7 +289,7 @@ class Loans(tk.Frame):
     SIMPLE_COLS = ["code","description","qty_given","qty_received","balance","status"]
     DETAIL_COLS = [
         "scenarios","kits","modules","type","code","description",
-        "third_party",  # inserted after description (as per request)
+        "third_party",
         "qty_given","qty_received","balance","status","documents"
     ]
 
@@ -298,12 +299,13 @@ class Loans(tk.Frame):
         self.rows = []
         self.simple_mode = False
 
-        # Filters
-        self.scenario_var = tk.StringVar(value="All")
-        self.kit_var = tk.StringVar(value="All")
-        self.module_var = tk.StringVar(value="All")
-        self.type_var = tk.StringVar(value="All")
-        self.third_party_var = tk.StringVar(value="All")
+        # Filters (use translated "All" label, normalize later)
+        all_lbl = self._all_label()
+        self.scenario_var = tk.StringVar(value=all_lbl)
+        self.kit_var = tk.StringVar(value=all_lbl)
+        self.module_var = tk.StringVar(value=all_lbl)
+        self.type_var = tk.StringVar(value=all_lbl)
+        self.third_party_var = tk.StringVar(value=all_lbl)
         self.item_search_var = tk.StringVar()
         self.doc_var = tk.StringVar()
         self.from_var = tk.StringVar()
@@ -316,6 +318,26 @@ class Loans(tk.Frame):
         self.populate_filters()
         self._set_default_dates()
         self.refresh()
+
+    def _all_label(self):
+        return lang.t("loans.all", "All")
+
+    def _norm(self, val):
+        all_lbl = self._all_label()
+        return "All" if (val is None or val == "" or val == all_lbl) else val
+    
+
+    def _norm_type(self, val):
+        # map translated labels back to canonical
+        if val in (None, "", lang.t("loans.all","All")):
+            return "All"
+        if val == lang.t("generic.type_kit","Kit"):
+            return "Kit"
+        if val == lang.t("generic.type_module","Module"):
+            return "Module"
+        if val == lang.t("generic.type_item","Item"):
+            return "Item"
+        return val    
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -345,6 +367,8 @@ class Loans(tk.Frame):
         filters = tk.Frame(self, bg=BG_MAIN)
         filters.pack(fill="x", padx=12, pady=(0,8))
 
+        all_lbl = self._all_label()
+
         # Row 1
         r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
         tk.Label(r1, text=lang.t("generic.scenario","Scenario"), bg=BG_MAIN)\
@@ -364,8 +388,17 @@ class Loans(tk.Frame):
 
         tk.Label(r1, text=lang.t("generic.type","Type"), bg=BG_MAIN)\
             .grid(row=0, column=6, sticky="w", padx=(0,4))
-        self.type_cb = ttk.Combobox(r1, textvariable=self.type_var, state="readonly",
-                                    width=12, values=["All","Kit","Module","Item"])
+        type_all_lbl   = lang.t("loans.all","All")
+        type_kit_lbl   = lang.t("generic.type_kit","Kit")
+        type_mod_lbl   = lang.t("generic.type_module","Module")
+        type_item_lbl  = lang.t("generic.type_item","Item")
+        self.type_cb = ttk.Combobox(
+            r1,
+            textvariable=self.type_var,
+            state="readonly",
+            width=12,
+            values=[type_all_lbl, type_kit_lbl, type_mod_lbl, type_item_lbl]
+        )
         self.type_cb.grid(row=0, column=7, padx=(0,12))
 
         tk.Label(r1, text=lang.t("loans.third_party","Third Party"), bg=BG_MAIN)\
@@ -443,7 +476,6 @@ class Loans(tk.Frame):
         self.bind_all("<Escape>", self._esc_global_handler)
 
     def _esc_global_handler(self, event):
-        # If inside entry, let field-level handle
         if isinstance(event.widget, tk.Entry):
             return
         self.clear_filters()
@@ -472,7 +504,6 @@ class Loans(tk.Frame):
         try:
             past = date(today.year - 1, today.month, today.day)
         except:
-            # leap day safeguard
             past = today
         self.from_var.set(past.strftime("%Y-%m-%d"))
         self.to_var.set(today.strftime("%Y-%m-%d"))
@@ -483,11 +514,12 @@ class Loans(tk.Frame):
         kits = fetch_kit_numbers()
         modules = fetch_module_numbers()
         tps = fetch_third_parties()
+        all_lbl = self._all_label()
 
-        self.scenario_cb['values'] = ["All"] + scenarios
-        self.kit_cb['values'] = ["All"] + kits
-        self.module_cb['values'] = ["All"] + modules
-        self.third_party_cb['values'] = ["All"] + tps
+        self.scenario_cb['values'] = [all_lbl] + scenarios
+        self.kit_cb['values'] = [all_lbl] + kits
+        self.module_cb['values'] = [all_lbl] + modules
+        self.third_party_cb['values'] = [all_lbl] + tps
 
         for var, cb in [
             (self.scenario_var, self.scenario_cb),
@@ -496,7 +528,11 @@ class Loans(tk.Frame):
             (self.third_party_var, self.third_party_cb)
         ]:
             if var.get() not in cb['values']:
-                var.set("All")
+                var.set(all_lbl)
+
+        # Type combobox already set; ensure default is translated All
+        if self.type_var.get() not in self.type_cb['values']:
+            self.type_var.set(all_lbl)
 
     # ---------- Mode ----------
     def toggle_mode(self):
@@ -507,12 +543,13 @@ class Loans(tk.Frame):
 
     # ---------- Refresh ----------
     def refresh(self):
+        all_lbl = self._all_label()
         filters = {
-            "scenario": self.scenario_var.get(),
-            "kit": self.kit_var.get(),
-            "module": self.module_var.get(),
-            "type": self.type_var.get(),
-            "third_party": self.third_party_var.get(),
+            "scenario": self._norm(self.scenario_var.get()),
+            "kit": self._norm(self.kit_var.get()),
+            "module": self._norm(self.module_var.get()),
+            "type": self._norm_type(self.type_var.get()),
+            "third_party": self._norm(self.third_party_var.get()),
             "item_search": self.item_search_var.get().strip(),
             "doc_number": self.doc_var.get().strip(),
             "date_from": parse_user_date(self.from_var.get().strip(), "from") if self.from_var.get().strip() else None,
@@ -525,11 +562,12 @@ class Loans(tk.Frame):
         self.status_var.set(lang.t("loans.loaded","Loaded {n} rows").format(n=len(self.rows)))
 
     def clear_filters(self):
-        self.scenario_var.set("All")
-        self.kit_var.set("All")
-        self.module_var.set("All")
-        self.type_var.set("All")
-        self.third_party_var.set("All")
+        all_lbl = self._all_label()
+        self.scenario_var.set(all_lbl)
+        self.kit_var.set(all_lbl)
+        self.module_var.set(all_lbl)
+        self.type_var.set(all_lbl)
+        self.third_party_var.set(all_lbl)
         self.item_search_var.set("")
         self.doc_var.set("")
         self._set_default_dates()
@@ -607,7 +645,6 @@ class Loans(tk.Frame):
         if not vals:
             return None, None
         if self.simple_mode:
-            # simple mode has no third_party column
             code_idx = self._current_columns().index("code")
             return vals[code_idx], None
         else:

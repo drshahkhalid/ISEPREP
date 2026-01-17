@@ -1,20 +1,11 @@
 """
-consumption.py  v2.1
+consumption.py  v2.1 (i18n-enhanced)
 
-Combined Reception (IN) + Consumption (OUT) Monthly Analysis
-
-v2.1 Changes:
-  * Renamed 'Dataset' label to 'Stock Action'.
-  * Added horizontal scrollbar to results table (Treeview now has both vertical & horizontal).
-  * Added global key bindings:
-       - Enter (Return): triggers refresh (anywhere in the module window).
-       - Escape (Esc): clears all filters (same as Clear button).
-  * Added key bindings on main editable filter widgets so pressing Enter immediately refreshes.
-  * Added optional horizontal scrolling for graph popup canvas (if resized smaller than content).
-  * Ensured movement type dropdowns update after scenario changes; bindings preserved.
-  * Minor UI spacing/layout refinements for clarity.
-
-See earlier version notes (v2.0) for full feature list (Reception + Consumption integration, two-line graph, etc.).
+Internationalization additions:
+  * All UI strings now use translation keys under 'consumption.*'.
+  * Added keys for export metadata and popup messages.
+  * Ensure graph title & messages localized.
+  * Horizontal & vertical scrollbars retained.
 """
 
 import tkinter as tk
@@ -171,21 +162,25 @@ def ym_label(y, m):
 def fetch_project_details():
     conn = connect_db()
     if conn is None:
-        return ("Unknown Project","Unknown Code")
+        return (lang.t("consumption.unknown_project","Unknown Project"),
+                lang.t("consumption.unknown_code","Unknown Code"))
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         row = cur.fetchone()
-        if not row: return ("Unknown Project","Unknown Code")
-        return (row[0] or "Unknown Project", row[1] or "Unknown Code")
+        if not row:
+            return (lang.t("consumption.unknown_project","Unknown Project"),
+                    lang.t("consumption.unknown_code","Unknown Code"))
+        return (row[0] or lang.t("consumption.unknown_project","Unknown Project"),
+                row[1] or lang.t("consumption.unknown_code","Unknown Code"))
     except sqlite3.Error:
-        return ("Unknown Project","Unknown Code")
+        return (lang.t("consumption.unknown_project","Unknown Project"),
+                lang.t("consumption.unknown_code","Unknown Code"))
     finally:
         cur.close(); conn.close()
 
 class CombinedCalculator:
     def __init__(self, **kwargs):
-        # Accept all kwargs for flexibility
         for k,v in kwargs.items():
             setattr(self, k, v)
         if self.date_from and self.date_to and self.date_from > self.date_to:
@@ -217,7 +212,7 @@ class CombinedCalculator:
     def compute(self):
         conn = connect_db()
         if conn is None:
-            raise ValueError("Database connection failed")
+            raise ValueError(lang.t("consumption.db_fail","Database connection failed"))
         try:
             cur = conn.cursor()
             mgmt_map = self._load_mgmt_map(conn)
@@ -296,9 +291,7 @@ class CombinedCalculator:
                         self.item_search.lower() not in desc_search.lower()):
                         continue
 
-                # Filter directions
                 dataset_mode = self.dataset_mode
-                # IN filters
                 if dataset_mode in ("All","Reception"):
                     if self.in_type.lower() != "all":
                         if (in_type or "").strip() != self.in_type:
@@ -306,7 +299,6 @@ class CombinedCalculator:
                     if self.in_movement.upper() != "ALL":
                         if (movement_type or "").strip() != self.in_movement:
                             continue
-                # OUT filters
                 if dataset_mode in ("All","Consumption"):
                     if self.out_type.lower() != "all":
                         if (out_type or "").strip() != self.out_type:
@@ -398,6 +390,14 @@ class Consumption(tk.Frame):
 
     def t(self, key, fallback=None, **kwargs):
         return lang.t(f"consumption.{key}", fallback=fallback if fallback else key, **kwargs)
+    
+    def _mode_norm(self):
+        mode_disp = self.dataset_mode.get()
+        if mode_disp == self.t("dataset_reception", "Reception"):
+            return "Reception"
+        elif mode_disp == self.t("dataset_consumption", "Consumption"):
+            return "Consumption"
+        return "All"    
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -420,25 +420,31 @@ class Consumption(tk.Frame):
         filters = tk.Frame(self, bg=BG_MAIN)
         filters.pack(fill="x", padx=12, pady=(0,10))
 
-        # Row 1 - Stock Action (Dataset)
+        # Row 1 - Stock Action
         r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
         tk.Label(r1, text=self.t("stock_action","Stock Action"), bg=BG_MAIN)\
             .grid(row=0, column=0, sticky="w", padx=(0,4))
+        dataset_all_lbl = self.t("dataset_all","All")
+        dataset_reception_lbl = self.t("dataset_reception","Reception")
+        dataset_consumption_lbl = self.t("dataset_consumption","Consumption")
         self.dataset_cb = ttk.Combobox(r1, textvariable=self.dataset_mode,
                                        state="readonly", width=16,
-                                       values=["All","Reception","Consumption"])
+                                       values=[dataset_all_lbl, dataset_reception_lbl, dataset_consumption_lbl])
         self.dataset_cb.grid(row=0, column=1, padx=(0,12))
         self.dataset_cb.bind("<<ComboboxSelected>>", lambda e: self._update_filter_states())
 
         tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=BG_MAIN)\
             .grid(row=0, column=2, sticky="w", padx=(0,4))
-        self.mgmt_var = tk.StringVar(value="All")
+        all_lbl = self.t("all","All")
+        mgmt_on_lbl = self.t("management_on_shelf","On-Shelf")
+        mgmt_box_lbl = self.t("management_in_box","In-Box")
+        self.mgmt_var = tk.StringVar(value=all_lbl)
         ttk.Combobox(r1, textvariable=self.mgmt_var, state="readonly", width=14,
-                     values=["All","on-shelf","in-box"]).grid(row=0, column=3, padx=(0,12))
+                     values=[all_lbl, mgmt_on_lbl, mgmt_box_lbl]).grid(row=0, column=3, padx=(0,12))
 
         tk.Label(r1, text=self.t("scenario","Scenario"), bg=BG_MAIN)\
             .grid(row=0, column=4, sticky="w", padx=(0,4))
-        self.scenario_var = tk.StringVar(value="All")
+        self.scenario_var = tk.StringVar(value=all_lbl)
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var, state="readonly", width=20)
         self.scenario_cb.grid(row=0, column=5, padx=(0,12))
         self.scenario_cb.bind("<<ComboboxSelected>>", lambda e: (self._refresh_movement_lists(), self.refresh()))
@@ -447,21 +453,25 @@ class Consumption(tk.Frame):
         r2 = tk.Frame(filters, bg=BG_MAIN); r2.pack(fill="x", pady=2)
         tk.Label(r2, text=self.t("kit_number","Kit"), bg=BG_MAIN)\
             .grid(row=0, column=0, sticky="w", padx=(0,4))
-        self.kit_var = tk.StringVar(value="All")
+        self.kit_var = tk.StringVar(value=all_lbl)
         self.kit_cb = ttk.Combobox(r2, textvariable=self.kit_var, state="readonly", width=16)
         self.kit_cb.grid(row=0, column=1, padx=(0,14))
 
         tk.Label(r2, text=self.t("module_number","Module"), bg=BG_MAIN)\
             .grid(row=0, column=2, sticky="w", padx=(0,4))
-        self.module_var = tk.StringVar(value="All")
+        self.module_var = tk.StringVar(value=all_lbl)
         self.module_cb = ttk.Combobox(r2, textvariable=self.module_var, state="readonly", width=16)
         self.module_cb.grid(row=0, column=3, padx=(0,14))
 
         tk.Label(r2, text=self.t("type","Type"), bg=BG_MAIN)\
             .grid(row=0, column=4, sticky="w", padx=(0,4))
-        self.type_var = tk.StringVar(value="All")
+        type_all_lbl = self.t("type_all","All")
+        self.type_var = tk.StringVar(value=type_all_lbl)
         ttk.Combobox(r2, textvariable=self.type_var, state="readonly", width=12,
-                     values=["All","Kit","Module","Item"]).grid(row=0, column=5, padx=(0,14))
+                     values=[type_all_lbl,
+                             self.t("type_kit","Kit"),
+                             self.t("type_module","Module"),
+                             self.t("type_item","Item")]).grid(row=0, column=5, padx=(0,14))
 
         tk.Label(r2, text=self.t("item_search","Item Search"), bg=BG_MAIN)\
             .grid(row=0, column=6, sticky="w", padx=(0,4))
@@ -470,7 +480,7 @@ class Consumption(tk.Frame):
         item_entry.grid(row=0, column=7, padx=(0,14))
         item_entry.bind("<Return>", lambda e: self.refresh())
 
-        # Row 3 (Dates and Document)
+        # Row 3 (Dates / Document)
         r3 = tk.Frame(filters, bg=BG_MAIN); r3.pack(fill="x", pady=2)
         tk.Label(r3, text=self.t("from_date","From Date"), bg=BG_MAIN)\
             .grid(row=0, column=0, sticky="w", padx=(0,4))
@@ -495,27 +505,27 @@ class Consumption(tk.Frame):
         r4 = tk.Frame(filters, bg=BG_MAIN); r4.pack(fill="x", pady=2)
         tk.Label(r4, text=self.t("in_type","IN Type"), bg=BG_MAIN)\
             .grid(row=0, column=0, sticky="w", padx=(0,4))
-        self.in_type_var = tk.StringVar(value="All")
+        self.in_type_var = tk.StringVar(value=self.t("all","All"))
         self.in_type_cb = ttk.Combobox(r4, textvariable=self.in_type_var, state="readonly",
                                        width=26, values=IN_TYPES_LIST)
         self.in_type_cb.grid(row=0, column=1, padx=(0,14))
 
         tk.Label(r4, text=self.t("in_movement_type","IN Movement Type"), bg=BG_MAIN)\
             .grid(row=0, column=2, sticky="w", padx=(0,4))
-        self.in_move_var = tk.StringVar(value="ALL")
+        self.in_move_var = tk.StringVar(value=self.t("movement_all","ALL"))
         self.in_move_cb = ttk.Combobox(r4, textvariable=self.in_move_var, state="readonly", width=34)
         self.in_move_cb.grid(row=0, column=3, padx=(0,14))
 
         tk.Label(r4, text=self.t("out_type","Out Type"), bg=BG_MAIN)\
             .grid(row=0, column=4, sticky="w", padx=(0,4))
-        self.out_type_var = tk.StringVar(value="All")
+        self.out_type_var = tk.StringVar(value=self.t("all","All"))
         self.out_type_cb = ttk.Combobox(r4, textvariable=self.out_type_var, state="readonly",
                                         width=26, values=OUT_TYPES_LIST)
         self.out_type_cb.grid(row=0, column=5, padx=(0,14))
 
         tk.Label(r4, text=self.t("out_movement_type","Out Movement Type"), bg=BG_MAIN)\
             .grid(row=0, column=6, sticky="w", padx=(0,4))
-        self.out_move_var = tk.StringVar(value="ALL")
+        self.out_move_var = tk.StringVar(value=self.t("movement_all","ALL"))
         self.out_move_cb = ttk.Combobox(r4, textvariable=self.out_move_var, state="readonly", width=34)
         self.out_move_cb.grid(row=0, column=7, padx=(0,14))
 
@@ -537,7 +547,7 @@ class Consumption(tk.Frame):
                  bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken")\
             .pack(fill="x", padx=12, pady=(0,8))
 
-        # Table frame with BOTH scrollbars
+        # Table frame with scrollbars
         table_frame_outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
         table_frame_outer.pack(fill="both", expand=True, padx=12, pady=(0,12))
 
@@ -575,31 +585,32 @@ class Consumption(tk.Frame):
             w.bind("<Return>", lambda e: self.refresh())
             return w
 
-    # Global keybindings
     def _setup_global_keybindings(self):
         root = self.winfo_toplevel()
         root.bind("<Return>", lambda e: self.refresh())
         root.bind("<Escape>", lambda e: self.clear_filters())
 
     def _refresh_movement_lists(self):
-        scen = self.scenario_var.get()
+        all_lbl = self.t("all","All")
+        scen_disp = self.scenario_var.get()
+        scen_for_tpl = scen_disp if scen_disp != all_lbl else self.t("scenario","Scenario")
         def fmt(templates):
             out=[]
             for t in templates:
                 if "{scenario}" in t:
-                    out.append(t.format(scenario=scen if scen!="All" else "Scenario"))
+                    out.append(t.format(scenario=scen_for_tpl))
                 else:
-                    out.append(t)
+                    out.append(t if t != "ALL" else self.t("movement_all","ALL"))
             return out
         self.in_move_cb['values'] = fmt(IN_MOVEMENT_TEMPLATES)
         if self.in_move_var.get() not in self.in_move_cb['values']:
-            self.in_move_var.set("ALL")
+            self.in_move_var.set(self.t("movement_all","ALL"))
         self.out_move_cb['values'] = fmt(OUT_MOVEMENT_TEMPLATES)
         if self.out_move_var.get() not in self.out_move_cb['values']:
-            self.out_move_var.set("ALL")
+            self.out_move_var.set(self.t("movement_all","ALL"))
 
     def _update_filter_states(self):
-        mode = self.dataset_mode.get()
+        mode = self._mode_norm()
         enable_in = (mode in ("All","Reception"))
         enable_out = (mode in ("All","Consumption"))
         self._set_combo_state(self.in_type_cb, enable_in)
@@ -646,17 +657,18 @@ class Consumption(tk.Frame):
             finally:
                 cur.close(); conn.close()
 
-        self.scenario_cb['values'] = ["All"] + scenarios
+        all_lbl = self.t("all","All")
+        self.scenario_cb['values'] = [all_lbl] + scenarios
         if self.scenario_var.get() not in self.scenario_cb['values']:
-            self.scenario_var.set("All")
+            self.scenario_var.set(all_lbl)
 
-        self.kit_cb['values'] = ["All"] + kits
+        self.kit_cb['values'] = [all_lbl] + kits
         if self.kit_var.get() not in self.kit_cb['values']:
-            self.kit_var.set("All")
+            self.kit_var.set(all_lbl)
 
-        self.module_cb['values'] = ["All"] + modules
+        self.module_cb['values'] = [all_lbl] + modules
         if self.module_var.get() not in self.module_cb['values']:
-            self.module_var.set("All")
+            self.module_var.set(all_lbl)
 
         self._refresh_movement_lists()
         self._update_filter_states()
@@ -666,18 +678,57 @@ class Consumption(tk.Frame):
         to_dt = parse_user_date(self.to_var.get().strip(), "to") if self.to_var.get().strip() else None
         if to_dt and to_dt > date.today():
             to_dt = date.today()
+        all_lbl = self.t("all","All")
+        dataset_disp = self.dataset_mode.get()
+        if dataset_disp == self.t("dataset_reception","Reception"):
+            dataset_mode_norm = "Reception"
+        elif dataset_disp == self.t("dataset_consumption","Consumption"):
+            dataset_mode_norm = "Consumption"
+        else:
+            dataset_mode_norm = "All"
+
+        mgmt_disp = self.mgmt_var.get()
+        if mgmt_disp == self.t("management_on_shelf","On-Shelf"):
+            mgmt_norm = "on-shelf"
+        elif mgmt_disp == self.t("management_in_box","In-Box"):
+            mgmt_norm = "in-box"
+        else:
+            mgmt_norm = "All" if mgmt_disp == all_lbl else mgmt_disp
+
+        scen_disp = self.scenario_var.get()
+        scen_norm = "All" if scen_disp == all_lbl else scen_disp
+        kit_disp = self.kit_var.get();   kit_norm = "All" if kit_disp == all_lbl else kit_disp
+        mod_disp = self.module_var.get(); mod_norm = "All" if mod_disp == all_lbl else mod_disp
+
+        type_disp = self.type_var.get()
+        if type_disp == self.t("type_kit","Kit"): type_norm = "Kit"
+        elif type_disp == self.t("type_module","Module"): type_norm = "Module"
+        elif type_disp == self.t("type_item","Item"): type_norm = "Item"
+        elif type_disp == self.t("type_all","All"): type_norm = "All"
+        else: type_norm = type_disp
+
+        in_type_disp = self.in_type_var.get()
+        in_type_norm = "All" if in_type_disp == all_lbl else in_type_disp
+        out_type_disp = self.out_type_var.get()
+        out_type_norm = "All" if out_type_disp == all_lbl else out_type_disp
+
+        in_move_disp = self.in_move_var.get()
+        in_move_norm = "ALL" if in_move_disp == self.t("movement_all","ALL") else in_move_disp
+        out_move_disp = self.out_move_var.get()
+        out_move_norm = "ALL" if out_move_disp == self.t("movement_all","ALL") else out_move_disp
+
         calc = CombinedCalculator(
-            dataset_mode=self.dataset_mode.get(),
-            management_mode=self.mgmt_var.get(),
-            scenario=self.scenario_var.get(),
-            kit=self.kit_var.get(),
-            module=self.module_var.get(),
-            type_filter=self.type_var.get(),
+            dataset_mode=dataset_mode_norm,
+            management_mode=mgmt_norm,
+            scenario=scen_norm,
+            kit=kit_norm,
+            module=mod_norm,
+            type_filter=type_norm,
             item_search=self.item_search_var.get(),
-            out_type=self.out_type_var.get(),
-            out_movement=self.out_move_var.get(),
-            in_type=self.in_type_var.get(),
-            in_movement=self.in_move_var.get(),
+            out_type=out_type_norm,
+            out_movement=out_move_norm,
+            in_type=in_type_norm,
+            in_movement=in_move_norm,
             document_number=self.doc_var.get(),
             date_from=from_dt,
             date_to=to_dt
@@ -693,26 +744,26 @@ class Consumption(tk.Frame):
             self.draw_or_update_graph()
 
     def clear_filters(self):
-        self.dataset_mode.set("All")
-        self.mgmt_var.set("All")
-        self.scenario_var.set("All")
-        self.kit_var.set("All")
-        self.module_var.set("All")
-        self.type_var.set("All")
+        all_lbl = self.t("all","All")
+        self.dataset_mode.set(self.t("dataset_all","All"))
+        self.mgmt_var.set(all_lbl)
+        self.scenario_var.set(all_lbl)
+        self.kit_var.set(all_lbl)
+        self.module_var.set(all_lbl)
+        self.type_var.set(self.t("type_all","All"))
         self.item_search_var.set("")
-        self.out_type_var.set("All")
-        self.out_move_var.set("ALL")
-        self.in_type_var.set("All")
-        self.in_move_var.set("ALL")
+        self.out_type_var.set(all_lbl)
+        self.out_move_var.set(self.t("movement_all","ALL"))
+        self.in_type_var.set(all_lbl)
+        self.in_move_var.set(self.t("movement_all","ALL"))
         self.doc_var.set("")
         self._set_default_dates()
         self._refresh_movement_lists()
         self._update_filter_states()
         self.refresh()
 
-    # Columns
     def _current_columns(self):
-        mode = self.dataset_mode.get()
+        mode = self._mode_norm()
         month_labels = []
         if mode == "Reception":
             month_labels = [f"{ym_label(y,m)} IN" for (y,m) in self.months_seq]
@@ -740,12 +791,17 @@ class Consumption(tk.Frame):
         self.tree["columns"] = cols
         heading_map = {c: c.replace("_"," ").title() for c in cols}
         heading_map.update({
-            "code":"Code","description":"Description","kit_number":"Kit Number",
-            "module_number":"Module Number","movement_type":"Movement Type",
-            "document_number":"Document Number","in_type":"IN Type","out_type":"Out Type",
+            "code": self.t("code","Code"),
+            "description": self.t("description","Description"),
+            "kit_number": self.t("kit_number","Kit"),
+            "module_number": self.t("module_number","Module"),
+            "movement_type": self.t("movement_type","Movement Type"),
+            "document_number": self.t("document_number","Document Number"),
+            "in_type": self.t("in_type","IN Type"),
+            "out_type": self.t("out_type","Out Type"),
             "total_in": self.t("total_in","Total IN"),
             "total_out": self.t("total_out","Total OUT"),
-            "scenario":"Scenario"
+            "scenario": self.t("scenario","Scenario")
         })
         for c in cols:
             width = 130
@@ -794,7 +850,6 @@ class Consumption(tk.Frame):
         if self.graph_visible:
             self.draw_or_update_graph()
 
-    # Graph popup
     def toggle_graph_popup(self):
         if self.graph_visible: self.close_graph_popup()
         else: self.open_graph_popup()
@@ -820,7 +875,6 @@ class Consumption(tk.Frame):
                   bg=BTN_EXPORT, fg="#FFFFFF", relief="flat",
                   command=self.export_chart_image).pack(side="left", padx=(0,6))
 
-        # Scrollable canvas area (horizontal if needed)
         canvas_container = tk.Frame(self.graph_window, bg=BG_MAIN)
         canvas_container.pack(fill="both", expand=True, padx=8, pady=(0,8))
         hsb = ttk.Scrollbar(canvas_container, orient="horizontal")
@@ -848,17 +902,16 @@ class Consumption(tk.Frame):
 
     def _dynamic_chart_title(self):
         proj = f"{self.project_name} - {self.project_code}"
-        template = lang.t("consumption.chart_title_dynamic",
-                          fallback="{project} Consumption per month (number of items)")
-        mode = self.dataset_mode.get()
-        if mode == "Reception": suffix = " (reception)"
-        elif mode == "Consumption": suffix = " (consumption)"
-        else: suffix = " (reception & consumption)"
+        template = self.t("chart_title_dynamic","{project} Consumption per month (number of items)")
+        mode = self._mode_norm()
+        if mode == "Reception": suffix = self.t("chart_suffix_reception"," (reception)")
+        elif mode == "Consumption": suffix = self.t("chart_suffix_consumption"," (consumption)")
+        else: suffix = self.t("chart_suffix_both"," (reception & consumption)")
         return template.format(project=proj) + suffix
 
     def _aggregate_month_lines(self):
         months = self.months_seq
-        mode = self.dataset_mode.get()
+        mode = self._mode_norm()
         in_line = OrderedDict()
         out_line = OrderedDict()
         for ym in months:
@@ -891,7 +944,7 @@ class Consumption(tk.Frame):
             self.chart_canvas.create_text(w/2,h/2,text=self.t("no_data","No Data"),
                                           font=("Helvetica",12,"bold"), fill="#444")
             return
-        mode = self.dataset_mode.get()
+        mode = self._mode_norm()  # << use normalized mode
         in_line, out_line = self._aggregate_month_lines()
         has_in = (mode in ("All","Reception"))
         has_out = (mode in ("All","Consumption"))
@@ -902,7 +955,6 @@ class Consumption(tk.Frame):
             return
 
         pad = self.chart_pad
-        # If many months, extend virtual width
         months_count = len(self.months_seq)
         extra_width = max(0, (months_count - 14) * 50)
         virtual_width = w + extra_width
@@ -916,7 +968,6 @@ class Consumption(tk.Frame):
         if has_out: max_val = max(max_val, max(out_line.values()) or 0)
         if max_val == 0: max_val = 1
 
-        # Axes
         self.chart_canvas.create_line(left, bottom, right, bottom, width=2)
         self.chart_canvas.create_line(left, bottom, left, top, width=2)
 
@@ -930,7 +981,6 @@ class Consumption(tk.Frame):
             self.chart_canvas.create_text(left-8, y_val, text=str(val_label),
                                           anchor="e", font=("Helvetica",8), fill="#333")
 
-        # X coords
         n = len(self.months_seq)
         if n == 1:
             x_coords = [(left + right)/2]
@@ -973,7 +1023,6 @@ class Consumption(tk.Frame):
                                       text=self._dynamic_chart_title(),
                                       font=("Helvetica",13,"bold"), fill="#111827")
 
-        # Legend
         legend_items = []
         if has_in: legend_items.append((LINE_COLOR_IN, self.t("legend_reception","Reception")))
         if has_out: legend_items.append((LINE_COLOR_OUT, self.t("legend_consumption","Consumption")))
@@ -985,10 +1034,8 @@ class Consumption(tk.Frame):
                                           font=("Helvetica",9))
             lx += 140
 
-        # Configure scroll region
         self.chart_canvas.config(scrollregion=(0,0,virtual_width, h))
 
-    # Exports
     def export_chart_ps(self):
         if not self.chart_canvas:
             custom_popup(self, self.t("error","Error"), self.t("no_data","No Data"), "error"); return
@@ -998,16 +1045,19 @@ class Consumption(tk.Frame):
         if not file_path: return
         try:
             self.chart_canvas.postscript(colormode='color', file=file_path)
-            custom_popup(self, self.t("success","Success"), f"Chart exported: {file_path}", "info")
+            custom_popup(self, self.t("success","Success"),
+                         self.t("chart_export_success","Chart image saved: {f}").format(f=file_path), "info")
         except Exception as e:
-            custom_popup(self, self.t("error","Error"), f"Export failed: {e}", "error")
+            custom_popup(self, self.t("error","Error"),
+                         self.t("chart_export_fail","Image export failed: {err}").format(err=str(e)), "error")
 
     def export_chart_image(self):
         if not self.chart_canvas:
             custom_popup(self, self.t("error","Error"), self.t("no_data","No Data"), "error"); return
         if not PIL_AVAILABLE:
             custom_popup(self, self.t("chart_export_image","Export Chart (Image)"),
-                         "Pillow not installed.\nInstall:\n  pip install Pillow", "warning")
+                         self.t("pillow_missing","Pillow not installed.\nInstall:\n  pip install Pillow"),
+                         "warning")
             return
         file_path = filedialog.asksaveasfilename(defaultextension=".png",
                                                  filetypes=[("PNG","*.png"),("JPEG","*.jpg;*.jpeg"),("All Files","*.*")],
@@ -1047,7 +1097,7 @@ class Consumption(tk.Frame):
                 continue
         if not success_img:
             custom_popup(self, self.t("error","Error"),
-                         "Screenshot capture failed. Use PostScript export instead.",
+                         self.t("screenshot_fail","Screenshot capture failed. Use PostScript export instead."),
                          "error")
             return
         try:
@@ -1078,14 +1128,23 @@ class Consumption(tk.Frame):
             ws = wb.active
             ws.title = "Combined"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ws.append(["Generated", now_str])
-            ws.append(["Stock Action", self.dataset_mode.get()])
-            ws.append(["Mgmt Mode", self.mgmt_var.get(), "Scenario", self.scenario_var.get(), "Type", self.type_var.get()])
-            ws.append(["Kit", self.kit_var.get(), "Module", self.module_var.get(), "Item Search", self.item_search_var.get()])
-            ws.append(["IN Type", self.in_type_var.get(), "IN Movement", self.in_move_var.get(),
-                       "Out Type", self.out_type_var.get(), "Out Movement", self.out_move_var.get()])
-            ws.append(["Document", self.doc_var.get(), "From", self.from_var.get(), "To", self.to_var.get()])
+            ws.append([self.t("generated","Generated"), now_str])
+            ws.append([self.t("stock_action","Stock Action"), self.dataset_mode.get()])
+            ws.append([self.t("mgmt_mode_short","Mgmt Mode"), self.mgmt_var.get(),
+                       self.t("scenario","Scenario"), self.scenario_var.get(),
+                       self.t("type","Type"), self.type_var.get()])
+            ws.append([self.t("kit_number","Kit"), self.kit_var.get(),
+                       self.t("module_number","Module"), self.module_var.get(),
+                       self.t("item_search","Item Search"), self.item_search_var.get()])
+            ws.append([self.t("in_type","IN Type"), self.in_type_var.get(),
+                       self.t("in_movement_short","IN Movement"), self.in_move_var.get(),
+                       self.t("out_type","Out Type"), self.out_type_var.get(),
+                       self.t("out_movement_short","Out Movement"), self.out_move_var.get()])
+            ws.append([self.t("document_short","Document"), self.doc_var.get(),
+                       self.t("from","From"), self.from_var.get(),
+                       self.t("to","To"), self.to_var.get()])
             ws.append([])
+
             cols = self._current_columns()
             ws.append([c.replace("_"," ").title() for c in cols])
 
@@ -1140,7 +1199,7 @@ __all__ = ["Consumption"]
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Stock Actions (Reception & Consumption) v2.1")
+    root.title(lang.t("consumption.window_title","Stock Actions (Reception & Consumption) v2.1"))
     class Dummy: pass
     d = Dummy()
     Consumption(root, d).pack(fill="both", expand=True)

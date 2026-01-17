@@ -31,7 +31,7 @@ BTN_DISABLED   = "#94A3B8"
 # ============================================================
 # EDIT PERMISSIONS
 # Restrict modification for ~ and $
-# Canonical names OR symbols are both checked.
+# Canonical names OR symbols are both checked. 
 # ============================================================
 RESTRICTED_MODIFY = {"manager", "supervisor", "~", "$"}
 
@@ -73,11 +73,11 @@ def ensure_table():
 # TYPE / DESCRIPTION HELPERS
 # ============================================================
 def detect_type(code, designation):
-    if not code:
+    if not code: 
         return "Item"
     code = str(code).strip()
     designation = str(designation or "").lower()
-    if code.upper().startswith("K"):
+    if code. upper().startswith("K"):
         if designation.startswith("kit") or "modules" in designation:
             return "Kit"
         if "module" in designation and not designation.startswith("kit"):
@@ -89,7 +89,7 @@ def generate_unique_id(code):
 
 def get_item_description(code):
     conn = connect_db()
-    if conn is None:
+    if conn is None: 
         return "No Description"
     cursor = conn.cursor()
     try:
@@ -101,18 +101,22 @@ def get_item_description(code):
             return "No Description"
         row_dict = {
             "designation": row[0],
-            "designation_en": row[1],
+            "designation_en":  row[1],
             "designation_fr": row[2],
             "designation_sp": row[3]
         }
-        lang_code = lang.lang_code.lower()
+        lang_code = lang.lang_code. lower()
         mapping = {"en": "designation_en", "fr": "designation_fr", "es": "designation_sp", "sp": "designation_sp"}
         active_col = mapping.get(lang_code, "designation_en")
-        if row_dict.get(active_col):
+        if row_dict. get(active_col):
             return row_dict[active_col]
         if row_dict.get("designation_en"):
             return row_dict["designation_en"]
-        return row_dict.get("designation") or "No Description"
+        if row_dict.get("designation_fr"):
+            return row_dict["designation_fr"]
+        if row_dict.get("designation_sp"):
+            return row_dict["designation_sp"]
+        return row_dict. get("designation") or "No Description"
     finally:
         cursor.close()
         conn.close()
@@ -123,7 +127,7 @@ def get_family_remarks(code):
     try:
         family_manager = ItemFamilyManager()
         return family_manager.get_remarks_by_item_code(code)
-    except Exception:
+    except Exception: 
         return None
 
 # ============================================================
@@ -131,9 +135,9 @@ def get_family_remarks(code):
 # ============================================================
 class ManageItems(tk.Frame):
     """
-    Items management (read/write) with permission control:
+    Items management (read/write) with permission control: 
       - Users with role symbol '~' (manager) or '$' (supervisor), or
-        canonical names 'manager' / 'supervisor' are READ-ONLY.
+        canonical names 'manager' / 'supervisor' are READ-ONLY. 
       - All other roles retain existing functionality.
     """
     def __init__(self, parent, app):
@@ -154,13 +158,26 @@ class ManageItems(tk.Frame):
 
     def _deny(self):
         custom_popup(self,
-                     lang.t("dialog_titles.restricted", "Restricted"),
-                     self.t("no_modify_permission", fallback="You do not have permission to modify items."),
+                     lang.t("dialog_titles.restricted", fallback="Restricted"),
+                     self. t("no_modify_permission", fallback="You do not have permission to modify items."),
                      "warning")
 
     # ---------------- Translation helper ----------------
-    def t(self, key, **kwargs):
-        return lang.t(f"items.{key}", **kwargs)
+    def t(self, key, fallback=None, **kwargs):
+        """Translate a key under 'items' section"""
+        return lang.t(f"items.{key}", fallback=fallback, **kwargs)
+
+    # ---------------- Language-specific column mapping ----------------
+    def get_active_lang_column(self):
+        """Return the designation column name for the active language."""
+        lang_code = lang. lang_code.lower()
+        mapping = {
+            "en": "designation_en",
+            "fr": "designation_fr",
+            "es": "designation_sp",
+            "sp": "designation_sp"
+        }
+        return mapping. get(lang_code, "designation_en")
 
     # ---------------- Style configuration ----------------
     def _configure_styles(self):
@@ -169,8 +186,8 @@ class ManageItems(tk.Frame):
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure(
-            "Items.Treeview",
+        style. configure(
+            "Items. Treeview",
             background=BG_PANEL,
             fieldbackground=BG_PANEL,
             foreground=COLOR_PRIMARY,
@@ -215,7 +232,7 @@ class ManageItems(tk.Frame):
             if value in (None, "", "nan"):
                 return None
             return int(value)
-        except Exception:
+        except Exception: 
             return None
 
     def determine_type(self, code, designation, db_type=None):
@@ -224,13 +241,21 @@ class ManageItems(tk.Frame):
         return detect_type(code, designation)
 
     def get_active_designation(self, row):
-        lang_code = lang.lang_code.lower()
+        """Get designation in order of priority:  active language > en > fr > sp."""
+        lang_code = lang. lang_code.lower()
         mapping = {"en": "designation_en", "fr": "designation_fr", "es": "designation_sp", "sp": "designation_sp"}
         active_col = mapping.get(lang_code, "designation_en")
-        if row.get(active_col):
+        
+        # First try active language
+        if row. get(active_col):
             return row[active_col]
+        # Fallback priority:  en > fr > sp
         if row.get("designation_en"):
             return row["designation_en"]
+        if row.get("designation_fr"):
+            return row["designation_fr"]
+        if row.get("designation_sp"):
+            return row["designation_sp"]
         return row.get("designation") or ""
 
     # ---------------- UI Construction ----------------
@@ -246,11 +271,11 @@ class ManageItems(tk.Frame):
         ).pack(fill="x", padx=12, pady=(12, 6))
 
         # Search panel
-        search_frame = tk.Frame(self, bg=BG_MAIN)
+        search_frame = tk. Frame(self, bg=BG_MAIN)
         search_frame.pack(fill="x", padx=12, pady=(0, 8))
 
         tk.Label(search_frame,
-                 text=self.t("search_label", fallback="Search:"),
+                 text=self.t("search_label", fallback="Search: "),
                  bg=BG_MAIN, fg=COLOR_PRIMARY,
                  font=("Helvetica", 10),
                  anchor="w").pack(side="left", padx=(0, 6))
@@ -266,7 +291,7 @@ class ManageItems(tk.Frame):
 
         tk.Button(search_frame,
                   text=self.t("search_button", fallback="Search"),
-                  command=self.search_items,
+                  command=self. search_items,
                   bg=COLOR_ACCENT, fg="#FFFFFF",
                   activebackground="#1D4ED8",
                   relief="flat", padx=12, pady=5,
@@ -274,7 +299,7 @@ class ManageItems(tk.Frame):
 
         tk.Button(search_frame,
                   text=self.t("clear_button", fallback="Clear"),
-                  command=self.load_data,
+                  command=self. load_data,
                   bg=BTN_MISC, fg="#FFFFFF",
                   activebackground="#64748B",
                   relief="flat", padx=12, pady=5,
@@ -295,33 +320,33 @@ class ManageItems(tk.Frame):
                                  height=20,
                                  style="Items.Treeview")
         col_config = {
-            "code": {"width": 140, "anchor": "w"},
+            "code": {"width":  140, "anchor": "w"},
             "designation": {"width": 380, "anchor": "w"},
             "type": {"width": 80, "anchor": "w"},
             "pack": {"width": 80, "anchor": "e"},
             "price_per_pack_euros": {"width": 110, "anchor": "e"},
-            "unit_price_euros": {"width": 110, "anchor": "e"},
-            "weight_per_pack_kg": {"width": 110, "anchor": "e"},
-            "volume_per_pack_dm3": {"width": 110, "anchor": "e"},
+            "unit_price_euros":  {"width": 110, "anchor": "e"},
+            "weight_per_pack_kg": {"width": 110, "anchor":  "e"},
+            "volume_per_pack_dm3": {"width": 110, "anchor":  "e"},
             "shelf_life_months": {"width": 110, "anchor": "e"},
-            "remarks": {"width": 160, "anchor": "w"},
+            "remarks": {"width":  160, "anchor": "w"},
             "account_code": {"width": 120, "anchor": "e"}
         }
         header_names = {
             "code": self.t("col_code", fallback="Code"),
             "designation": self.t("col_designation", fallback="Designation"),
-            "type": self.t("col_type", fallback="Type"),
+            "type":  self.t("col_type", fallback="Type"),
             "pack": self.t("col_pack", fallback="Pack"),
             "price_per_pack_euros": self.t("col_price_per_pack", fallback="Price/Pack"),
-            "unit_price_euros": self.t("col_unit_price", fallback="Unit Price"),
+            "unit_price_euros":  self.t("col_unit_price", fallback="Unit Price"),
             "weight_per_pack_kg": self.t("col_weight_pack", fallback="Weight/Pack (kg)"),
-            "volume_per_pack_dm3": self.t("col_volume_pack", fallback="Volume/Pack (dm3)"),
+            "volume_per_pack_dm3": self.t("col_volume_pack", fallback="Volume/Pack (dm³)"),
             "shelf_life_months": self.t("col_shelf_life", fallback="Shelf Life (m)"),
             "remarks": self.t("col_remarks", fallback="Remarks"),
             "account_code": self.t("col_account_code", fallback="Account Code")
         }
         for col in columns:
-            self.tree.heading(col, text=header_names.get(col, col.title()))
+            self.tree. heading(col, text=header_names. get(col, col. title()))
             self.tree.column(col, **col_config[col])
         self.tree.pack(side="left", fill="both", expand=True)
         vsb = ttk.Scrollbar(tree_outer, orient="vertical", command=self.tree.yview)
@@ -333,42 +358,39 @@ class ManageItems(tk.Frame):
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
         can_modify = self._can_modify()
 
-        def guarded(cmd):
-            return cmd if can_modify else self._deny
-
-        def mk_btn(label, cmd, color):
+        def mk_btn(label, cmd, color, allow_readonly=False):
+            is_allowed = can_modify or allow_readonly
             return tk.Button(btn_frame,
                              text=label,
-                             command=guarded(cmd),
-                             bg=color if can_modify or label==self.t("export_button", fallback="Export") else BTN_DISABLED,
+                             command=cmd if is_allowed else self._deny,
+                             bg=color if is_allowed else BTN_DISABLED,
                              fg="#FFFFFF",
-                             activebackground=color if can_modify or label==self.t("export_button", fallback="Export") else BTN_DISABLED,
+                             activebackground=color if is_allowed else BTN_DISABLED,
                              relief="flat",
                              padx=14, pady=6,
                              font=("Helvetica", 10, "bold"))
 
         btn_import = mk_btn(self.t("import_button", fallback="Import"), self.import_excel, BTN_IMPORT)
-        btn_export = mk_btn(self.t("export_button", fallback="Export"), self.export_excel, BTN_EXPORT)
+        btn_export = mk_btn(self.t("export_button", fallback="Export"), self.export_excel, BTN_EXPORT, allow_readonly=True)
         btn_add = mk_btn(self.t("add_button", fallback="Add"), self.add_item, BTN_ADD)
         btn_edit = mk_btn(self.t("edit_button", fallback="Edit"), self.edit_item, BTN_EDIT)
-        btn_delete = mk_btn(self.t("delete_button", fallback="Delete"), self.delete_item, BTN_DELETE)
+        btn_delete = mk_btn(self. t("delete_button", fallback="Delete"), self.delete_item, BTN_DELETE)
         btn_clear_all = mk_btn(self.t("clear_all_button", fallback="Clear All"), self.clear_all, BTN_CLEAR)
 
-        # Always allow export & search; others depend on can_modify
         for b in [btn_import, btn_export, btn_add, btn_edit, btn_delete, btn_clear_all]:
-            b.pack(side="left", padx=4)
+            b. pack(side="left", padx=4)
 
         if not can_modify:
             custom_popup(self,
-                         lang.t("dialog_titles.restricted", "Restricted"),
-                         self.t("read_only_mode", fallback="Read-only mode: you cannot modify items."),
+                         lang.t("dialog_titles. restricted", fallback="Restricted"),
+                         self.t("read_only_mode", fallback="Read-only mode:  you cannot modify items."),
                          "warning")
 
         # Status bar
         status_frame = tk.Frame(self, bg=BG_MAIN)
         status_frame.pack(fill="x", padx=12, pady=(0, 8))
         self.total_label = tk.Label(status_frame,
-                                    text=self.t("total_items", count=0),
+                                    text=self.t("total_items", count=0, fallback="Total Items:  0"),
                                     bg=BG_MAIN, fg=COLOR_PRIMARY,
                                     anchor="w",
                                     font=("Helvetica", 10))
@@ -380,19 +402,19 @@ class ManageItems(tk.Frame):
             self.tree.delete(iid)
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT * FROM items_list")
-            cols = [d[0] for d in cursor.description]
+            cols = [d[0] for d in cursor. description]
             rows = cursor.fetchall()
             for idx, row in enumerate(rows):
                 row_dict = dict(zip(cols, row))
                 designation = self.get_active_designation(row_dict)
-                item_type = self.determine_type(row_dict['code'], designation, row_dict.get('type'))
+                item_type = self.determine_type(row_dict['code'], designation, row_dict. get('type'))
                 display_tuple = (
                     row_dict["code"],
                     designation or "",
@@ -411,7 +433,7 @@ class ManageItems(tk.Frame):
             self._configure_row_tags()
             cursor.execute("SELECT COUNT(*) FROM items_list")
             total = cursor.fetchone()[0]
-            self.total_label.config(text=self.t("total_items", count=total))
+            self.total_label.config(text=self.t("total_items", count=total, fallback=f"Total Items: {total}"))
         finally:
             cursor.close()
             conn.close()
@@ -431,8 +453,8 @@ class ManageItems(tk.Frame):
             self.tree.delete(iid)
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database connection failed"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -486,7 +508,7 @@ class ManageItems(tk.Frame):
             self._configure_row_tags()
             cursor.execute(count_query, count_params)
             total = cursor.fetchone()[0]
-            self.total_label.config(text=self.t("total_items", count=total))
+            self.total_label.config(text=self.t("total_items", count=total, fallback=f"Total Items: {total}"))
         finally:
             cursor.close()
             conn.close()
@@ -503,8 +525,8 @@ class ManageItems(tk.Frame):
             return
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database connection failed"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -517,10 +539,20 @@ class ManageItems(tk.Frame):
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Items List"
+            
+            # Export with active language designation
             headers = [
-                "Code", "Designation", "Type", "Pack", "Price/Pack (Euros)",
-                "Unit Price (Euros)", "Weight/Pack (Kg)", "Volume/Pack (dm3)",
-                "Shelf Life (months)", "Remarks", "Account Code"
+                self.t("excel_header_code", fallback="Code"),
+                self.t("excel_header_designation", fallback="Designation"),
+                self.t("excel_header_type", fallback="Type"),
+                self.t("excel_header_pack", fallback="Pack"),
+                self. t("excel_header_price_per_pack_euros", fallback="Price/Pack[Euros]"),
+                self.t("excel_header_unit_price_euros", fallback="Unit price[Euros]"),
+                self.t("excel_header_weight_per_pack_kg", fallback="Weight/pack[kg]"),
+                self.t("excel_header_volume_per_pack_dm3", fallback="Volume/pack[dm3]"),
+                self.t("excel_header_shelf_life_months", fallback="Shelf life (months)"),
+                self.t("excel_header_remarks", fallback="Remarks"),
+                self. t("excel_header_account_code", fallback="Account code")
             ]
             ws.append(headers)
 
@@ -544,22 +576,22 @@ class ManageItems(tk.Frame):
             for col in ws.columns:
                 max_len = 0
                 letter = col[0].column_letter
-                for cell in col:
+                for cell in col: 
                     try:
                         l = len(str(cell.value)) if cell.value is not None else 0
-                        if l > max_len:
+                        if l > max_len: 
                             max_len = l
                     except Exception:
                         pass
-                ws.column_dimensions[letter].width = min(max_len + 2, 60)
+                ws.column_dimensions[letter]. width = min(max_len + 2, 60)
 
             wb.save(file_path)
-            custom_popup(self, lang.t("dialog_titles.success", "Success"),
-                         self.t("export_success", fallback="Export completed") + f": {file_path}",
+            custom_popup(self, lang.t("dialog_titles.success", fallback="Success"),
+                         self.t("export_success", fallback="Exported to {path}").format(path=file_path),
                          "info")
         except Exception as e:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("export_failed", fallback="Export failed: {err}").format(err=str(e)),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("export_failed", fallback="Export failed: {err}").format(err=str(e)),
                          "error")
         finally:
             cursor.close()
@@ -572,8 +604,8 @@ class ManageItems(tk.Frame):
             return
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database connection failed"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -581,23 +613,24 @@ class ManageItems(tk.Frame):
             cursor.execute("SELECT COUNT(*) FROM compositions")
             count = cursor.fetchone()[0]
             if count > 0:
-                custom_popup(self,
-                             lang.t("dialog_titles.warning", "Warning"),
-                             self.t("cannot_clear_items",
-                                    fallback="Cannot clear Items List while Standard List has data. Clear it first."),
-                             "warning")
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.warning", fallback="Warning"),
+                    self.t("cannot_clear_items", fallback="Cannot clear Items List while Standard List has data.  Clear it first."),
+                    "warning"
+                )
                 return
             ans = custom_askyesno(self,
-                                  lang.t("dialog_titles.confirm", "Confirm"),
-                                  self.t("confirm_clear_all",
-                                         fallback="Clear all items? This cannot be undone."))
+                                  lang.t("dialog_titles.confirm", fallback="Confirm"),
+                                  self. t("confirm_clear_all",
+                                         fallback="Clear all items?  This cannot be undone."))
             if ans != "yes":
                 return
             cursor.execute("DELETE FROM items_list")
             conn.commit()
             self.load_data()
-            custom_popup(self, lang.t("dialog_titles.success", "Success"),
-                         self.t("cleared_items", fallback="All items cleared."),
+            custom_popup(self, lang. t("dialog_titles.success", fallback="Success"),
+                         self.t("cleared_items", fallback="All items cleared.", count=0),
                          "info")
         finally:
             cursor.close()
@@ -616,63 +649,94 @@ class ManageItems(tk.Frame):
             return
         ans = custom_askyesno(
             self,
-            lang.t("dialog_titles.confirm", "Confirm"),
-            self.t("confirm_import", fallback="Import and merge items from this file?")
+            lang.t("dialog_titles.confirm", fallback="Confirm"),
+            self.t("confirm_import", fallback="Import and merge items from this file? ")
         )
         if ans != "yes":
             return
         try:
             df = pd.read_excel(file_path)
         except Exception as e:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
                          self.t("import_failed", fallback="Failed to read file: {err}").format(err=str(e)),
                          "error")
             return
+        
+        # Extended column mapping to include all designation variants
         column_mapping = {
             "Code": "code",
             "Pack": "pack",
             "Price/pack[Euros]": "price_per_pack_euros",
-            "Unit price[Euros]": "unit_price_euros",
+            "Unit price[Euros]":  "unit_price_euros",
             "Weight/pack[kg]": "weight_per_pack_kg",
             "Volume/pack[dm3]": "volume_per_pack_dm3",
             "Shelf life (months)": "shelf_life_months",
             "Remarks": "remarks",
             "Account code": "account_code",
+            "Designation": "designation",
             "Designation_EN": "designation_en",
             "Designation_FR": "designation_fr",
-            "Designation_SP": "designation_sp"
+            "Designation_SP": "designation_sp",
+            # Alternative column names
+            "Designation EN": "designation_en",
+            "Designation FR": "designation_fr",
+            "Designation SP": "designation_sp",
+            "Designation ES": "designation_sp",
         }
-        for col in column_mapping:
-            if col not in df.columns:
+        
+        # Add missing columns with None
+        for col in column_mapping: 
+            if col not in df. columns:
                 df[col] = None
+        
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database connection failed"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
         success = 0
         try:
             for _, r in df.iterrows():
-                code = self.clean_str(r["Code"])
+                code = self. clean_str(r["Code"])
                 if not code:
                     continue
+                
+                # Collect all designation fields from import
+                designation_data = {
+                    "designation":  self.clean_str(r. get("Designation")),
+                    "designation_en": self.clean_str(r.get("Designation_EN")) or self.clean_str(r.get("Designation EN")),
+                    "designation_fr": self.clean_str(r.get("Designation_FR")) or self.clean_str(r.get("Designation FR")),
+                    "designation_sp": self.clean_str(r.get("Designation_SP")) or self.clean_str(r.get("Designation SP")) or self.clean_str(r.get("Designation ES")),
+                }
+                
+                # If no language-specific designation provided, use generic "Designation" for all
+                if not designation_data["designation_en"] and designation_data["designation"]:
+                    designation_data["designation_en"] = designation_data["designation"]
+                
+                # Priority fallback for main designation field
+                main_designation = (designation_data["designation_en"] or 
+                                  designation_data["designation_fr"] or 
+                                  designation_data["designation_sp"] or 
+                                  designation_data["designation"])
+                
                 data = {
                     "pack": self.clean_str(r["Pack"]),
-                    "price_per_pack_euros": self.safe_float(r["Price/pack[Euros]"]),
-                    "unit_price_euros": self.safe_float(r["Unit price[Euros]"]),
+                    "price_per_pack_euros":  self.safe_float(r["Price/pack[Euros]"]),
+                    "unit_price_euros":  self.safe_float(r["Unit price[Euros]"]),
                     "weight_per_pack_kg": self.safe_float(r["Weight/pack[kg]"]),
                     "volume_per_pack_dm3": self.safe_float(r["Volume/pack[dm3]"]),
                     "shelf_life_months": self.safe_int(r["Shelf life (months)"]),
                     "remarks": self.clean_str(r["Remarks"]),
                     "account_code": self.clean_str(r["Account code"]),
-                    "designation_en": self.clean_str(r["Designation_EN"]),
-                    "designation_fr": self.clean_str(r["Designation_FR"]),
-                    "designation_sp": self.clean_str(r["Designation_SP"]),
+                    "designation": main_designation,
+                    "designation_en": designation_data["designation_en"],
+                    "designation_fr": designation_data["designation_fr"],
+                    "designation_sp": designation_data["designation_sp"],
                 }
-                data["designation"] = data["designation_en"]
-                data["type"] = self.determine_type(code, data["designation"])
+                
+                data["type"] = self.determine_type(code, main_designation)
                 unique_id_1 = generate_unique_id(code)
 
                 family_remarks = get_family_remarks(code)
@@ -685,12 +749,12 @@ class ManageItems(tk.Frame):
                 cursor.execute("SELECT code FROM items_list WHERE code=?", (code,))
                 exists = cursor.fetchone()
                 if exists:
-                    cursor.execute("""
+                    cursor. execute("""
                         UPDATE items_list SET
                             pack=?, price_per_pack_euros=?, unit_price_euros=?,
                             weight_per_pack_kg=?, volume_per_pack_dm3=?, shelf_life_months=?,
                             remarks=?, account_code=?, designation=?, designation_en=?,
-                            designation_fr=?, designation_sp=?, type=?, unique_id_1=?
+                            designation_fr=?, designation_sp=?, type=?, unique_id_1=? 
                         WHERE code=?
                     """, (
                         data["pack"], data["price_per_pack_euros"], data["unit_price_euros"],
@@ -699,7 +763,7 @@ class ManageItems(tk.Frame):
                         data["designation_fr"], data["designation_sp"], data["type"], unique_id_1, code
                     ))
                 else:
-                    if len(code) < 8 or not data["designation"] or len(data["designation"]) < 15:
+                    if len(code) < 8 or not main_designation or len(main_designation) < 15:
                         continue
                     cursor.execute("""
                         INSERT INTO items_list (
@@ -717,7 +781,7 @@ class ManageItems(tk.Frame):
                 success += 1
             conn.commit()
             custom_popup(self,
-                         lang.t("dialog_titles.success", "Success"),
+                         lang.t("dialog_titles.success", fallback="Success"),
                          self.t("import_complete",
                                 fallback="Imported {success} / {total} rows",
                                 success=success, total=len(df)),
@@ -725,19 +789,19 @@ class ManageItems(tk.Frame):
             self.load_data()
         except Exception as e:
             conn.rollback()
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                         self.t("import_failed", fallback="Import failed: {err}").format(err=str(e)),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
+                         self. t("import_failed", fallback="Import failed: {err}").format(err=str(e)),
                          "error")
         finally:
             cursor.close()
             conn.close()
 
-    # ---------------- CRUD: Add/Edit/Delete ----------------
+    # ---------------- CRUD:  Add/Edit/Delete ----------------
     def add_item(self):
         if not self._can_modify():
             self._deny()
             return
-        self._item_form(self.t("add_button", fallback="Add"))
+        self._item_form(self.t("add_title", fallback="Add Item"))
 
     def edit_item(self):
         if not self._can_modify():
@@ -745,12 +809,35 @@ class ManageItems(tk.Frame):
             return
         sel = self.tree.selection()
         if not sel:
-            custom_popup(self, lang.t("dialog_titles.warning", "Warning"),
+            custom_popup(self, lang.t("dialog_titles.warning", fallback="Warning"),
                          self.t("select_edit", fallback="Select an item to edit"),
                          "warning")
             return
         values = self.tree.item(sel[0])["values"]
-        self._item_form(self.t("edit_button", fallback="Edit"), values)
+        code = values[0]
+        
+        # Fetch full record from DB to get all designation fields
+        conn = connect_db()
+        if conn is None: 
+            custom_popup(self, lang.t("dialog_titles. error", fallback="Error"),
+                         self.t("db_error", fallback="Database connection failed"),
+                         "error")
+            return
+        cursor = conn. cursor()
+        try:
+            cursor.execute("SELECT * FROM items_list WHERE code=?", (code,))
+            cols = [d[0] for d in cursor.description]
+            row = cursor.fetchone()
+            if row:
+                full_record = dict(zip(cols, row))
+                self._item_form(self.t("edit_title", fallback="Edit Item"), values, full_record)
+            else:
+                custom_popup(self, lang.t("dialog_titles. error", fallback="Error"),
+                             self.t("item_not_found", fallback="Item not found"),
+                             "error")
+        finally:
+            cursor.close()
+            conn.close()
 
     def delete_item(self):
         if not self._can_modify():
@@ -758,30 +845,30 @@ class ManageItems(tk.Frame):
             return
         sel = self.tree.selection()
         if not sel:
-            custom_popup(self, lang.t("dialog_titles.warning", "Warning"),
+            custom_popup(self, lang.t("dialog_titles.warning", fallback="Warning"),
                          self.t("select_delete", fallback="Select an item to delete"),
                          "warning")
             return
         code = self.tree.item(sel[0])["values"][0]
         ans = custom_askyesno(
             self,
-            lang.t("dialog_titles.confirm", "Confirm"),
+            lang.t("dialog_titles.confirm", fallback="Confirm"),
             self.t("confirm_delete", fallback="Delete item {code}?").format(code=code)
         )
         if ans != "yes":
             return
         conn = connect_db()
         if conn is None:
-            custom_popup(self, lang.t("dialog_titles.error", "Error"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM items_list WHERE code=?", (code,))
+            cursor.execute("DELETE FROM items_list WHERE code=? ", (code,))
             conn.commit()
             self.load_data()
-            custom_popup(self, lang.t("dialog_titles.success", "Success"),
+            custom_popup(self, lang.t("dialog_titles.success", fallback="Success"),
                          self.t("delete_success", fallback="Item deleted"),
                          "info")
         finally:
@@ -789,12 +876,12 @@ class ManageItems(tk.Frame):
             conn.close()
 
     # ---------------- Item Form (Add/Edit) ----------------
-    def _item_form(self, title, values=None):
+    def _item_form(self, title, values=None, full_record=None):
         # Extra safety
         if not self._can_modify():
             self._deny()
             return
-        form = tk.Toplevel(self)
+        form = tk. Toplevel(self)
         form.title(title)
         form.configure(bg=BG_MAIN)
         form.geometry("520x840")
@@ -824,8 +911,11 @@ class ManageItems(tk.Frame):
         entries = {}
 
         def add_field(fname, required):
+            # Translate field labels
+            label_key = f"field_{fname}"
+            label_text = self.t(label_key, fallback=fname.replace('_', ' ').title())
             tk.Label(form,
-                     text=f"{fname.replace('_', ' ').title()}{' *' if required else ''}:",
+                     text=f"{label_text}{' *' if required else ''}:",
                      font=("Helvetica", 10),
                      fg=COLOR_PRIMARY,
                      bg=BG_MAIN,
@@ -840,27 +930,38 @@ class ManageItems(tk.Frame):
         for fname, req in fields:
             add_field(fname, req)
 
-        if values:
-            for i, (fname, _) in enumerate(fields):
-                entries[fname].insert(0, values[i] if values[i] is not None else "")
+        if values and full_record:
+            # When editing, show the active language's designation
+            active_designation = self.get_active_designation(full_record)
+            entries["code"].insert(0, values[0] if values[0] is not None else "")
+            entries["designation"].insert(0, active_designation)
+            entries["type"].insert(0, values[2] if values[2] is not None else "")
+            entries["pack"].insert(0, values[3] if values[3] is not None else "")
+            entries["price_per_pack_euros"].insert(0, values[4] if values[4] is not None and values[4] != "" else "")
+            entries["unit_price_euros"].insert(0, values[5] if values[5] is not None and values[5] != "" else "")
+            entries["weight_per_pack_kg"].insert(0, values[6] if values[6] is not None and values[6] != "" else "")
+            entries["volume_per_pack_dm3"]. insert(0, values[7] if values[7] is not None and values[7] != "" else "")
+            entries["shelf_life_months"].insert(0, values[8] if values[8] is not None and values[8] != "" else "")
+            entries["remarks"].insert(0, values[9] if values[9] is not None else "")
+            entries["account_code"].insert(0, values[10] if values[10] is not None else "")
             entries["code"].config(state="disabled")
 
         def save():
             code = entries["code"].get().strip()
             designation = entries["designation"].get().strip()
             if not code or not designation:
-                custom_popup(form, lang.t("dialog_titles.error", "Error"),
+                custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
                              self.t("required_fields", fallback="Code and Designation are required"),
                              "error")
                 return
-            if not values:
+            if not values:  # Adding new item
                 if len(code) < 8:
-                    custom_popup(form, lang.t("dialog_titles.error", "Error"),
+                    custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
                                  self.t("code_length", fallback="Code must be at least 8 characters"),
                                  "error")
                     return
                 if len(designation) < 15:
-                    custom_popup(form, lang.t("dialog_titles.error", "Error"),
+                    custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
                                  self.t("designation_length", fallback="Designation must be at least 15 characters"),
                                  "error")
                     return
@@ -875,9 +976,34 @@ class ManageItems(tk.Frame):
                 payload[fname] = raw if raw else None
 
             payload["type"] = final_type
-            payload["designation_en"] = designation
-            payload["designation_fr"] = None
-            payload["designation_sp"] = None
+
+            # Get active language column
+            active_lang_col = self.get_active_lang_column()
+            
+            # When editing, fetch existing designations to preserve other languages
+            if full_record:
+                payload["designation_en"] = full_record.get("designation_en")
+                payload["designation_fr"] = full_record.get("designation_fr")
+                payload["designation_sp"] = full_record.get("designation_sp")
+            else:
+                # New item - initialize all to None
+                payload["designation_en"] = None
+                payload["designation_fr"] = None
+                payload["designation_sp"] = None
+            
+            # Update the active language designation
+            if active_lang_col == "designation_en":
+                payload["designation_en"] = designation
+            elif active_lang_col == "designation_fr":
+                payload["designation_fr"] = designation
+            elif active_lang_col == "designation_sp":
+                payload["designation_sp"] = designation
+            
+            # Set main designation field (priority:  en > fr > sp)
+            payload["designation"] = (payload["designation_en"] or 
+                                     payload["designation_fr"] or 
+                                     payload["designation_sp"] or 
+                                     designation)
 
             fam_rem = get_family_remarks(code)
             if fam_rem:
@@ -888,17 +1014,19 @@ class ManageItems(tk.Frame):
 
             conn = connect_db()
             if conn is None:
-                custom_popup(form, lang.t("dialog_titles.error", "Error"),
-                             self.t("db_error", fallback="Database connection failed"),
+                custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
+                             self. t("db_error", fallback="Database connection failed"),
                              "error")
                 return
             cursor = conn.cursor()
             try:
-                if values:
+                if values:  # Update
                     cursor.execute("""
                         UPDATE items_list
                            SET designation=?,
                                designation_en=?,
+                               designation_fr=?,
+                               designation_sp=?,
                                pack=?,
                                price_per_pack_euros=?,
                                unit_price_euros=?,
@@ -911,57 +1039,66 @@ class ManageItems(tk.Frame):
                                unique_id_1=?
                          WHERE code=?
                     """, (
-                        payload["designation"], payload["designation_en"], payload["pack"],
+                        payload["designation"],
+                        payload["designation_en"],
+                        payload["designation_fr"],
+                        payload["designation_sp"],
+                        payload["pack"],
                         self.safe_float(payload["price_per_pack_euros"]),
                         self.safe_float(payload["unit_price_euros"]),
                         self.safe_float(payload["weight_per_pack_kg"]),
                         self.safe_float(payload["volume_per_pack_dm3"]),
-                        self.safe_int(payload["shelf_life_months"]),
+                        self. safe_int(payload["shelf_life_months"]),
                         payload["remarks"],
                         payload["account_code"],
                         payload["type"],
                         unique_id_1,
                         code
                     ))
-                else:
+                else:   # Insert
                     cursor.execute("""
                         INSERT INTO items_list (
-                            code, designation, designation_en, pack,
-                            price_per_pack_euros, unit_price_euros,
+                            code, designation, designation_en, designation_fr, designation_sp,
+                            pack, price_per_pack_euros, unit_price_euros,
                             weight_per_pack_kg, volume_per_pack_dm3,
                             shelf_life_months, remarks, account_code,
-                            type, unique_id_1, designation_fr, designation_sp
+                            type, unique_id_1
                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
-                        code, payload["designation"], payload["designation_en"], payload["pack"],
+                        code,
+                        payload["designation"],
+                        payload["designation_en"],
+                        payload["designation_fr"],
+                        payload["designation_sp"],
+                        payload["pack"],
                         self.safe_float(payload["price_per_pack_euros"]),
                         self.safe_float(payload["unit_price_euros"]),
                         self.safe_float(payload["weight_per_pack_kg"]),
-                        self.safe_float(payload["volume_per_pack_dm3"]),
+                        self. safe_float(payload["volume_per_pack_dm3"]),
                         self.safe_int(payload["shelf_life_months"]),
                         payload["remarks"],
                         payload["account_code"],
                         payload["type"],
-                        unique_id_1,
-                        payload["designation_fr"],
-                        payload["designation_sp"]
+                        unique_id_1
                     ))
                 conn.commit()
                 form.destroy()
                 self.load_data()
-                custom_popup(self,
-                             lang.t("dialog_titles.success", "Success"),
-                             self.t("save_success", fallback="Item saved successfully"),
-                             "info")
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.success", fallback="Success"),
+                    self. t("save_success", fallback="Item saved successfully. "),
+                    "info"
+                )
             except sqlite3.IntegrityError:
-                custom_popup(form, lang.t("dialog_titles.error", "Error"),
+                custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
                              self.t("duplicate_code", fallback="Code already exists"),
                              "error")
             except Exception as e:
-                custom_popup(form, lang.t("dialog_titles.error", "Error"),
+                custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
                              self.t("save_failed", fallback="Save failed: {err}").format(err=str(e)),
                              "error")
-            finally:
+            finally: 
                 cursor.close()
                 conn.close()
 
@@ -979,12 +1116,12 @@ class ManageItems(tk.Frame):
         self.load_data()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     root = tk.Tk()
-    class DummyApp: pass
+    class DummyApp:  pass
     dummy = DummyApp()
-    # Try roles: "admin", "manager", "~", "$"
-    dummy.role = "manager"  # Should be read-only
+    # Try roles:  "admin", "manager", "~", "$"
+    dummy.role = "admin"  # Full access for testing
     root.title("Manage Items")
     ManageItems(root, dummy)
     root.geometry("1200x780")

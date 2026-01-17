@@ -114,7 +114,6 @@ LOSS_TYPES = [
     "Theft",
     "Other Losses"
 ]
-
 LOSS_TYPES_SET = set(LOSS_TYPES)
 
 # ---------------- Date Parsing ----------------
@@ -170,9 +169,7 @@ def fetch_scenarios():
         cur.close(); conn.close()
 
 def fetch_kit_numbers():
-    """
-    Kit numbers from stock_data.kit_number
-    """
+    """Kit numbers from stock_data.kit_number"""
     conn = connect_db()
     if conn is None: return []
     cur = conn.cursor()
@@ -189,9 +186,7 @@ def fetch_kit_numbers():
         cur.close(); conn.close()
 
 def fetch_module_numbers():
-    """
-    Module numbers from stock_data.module_number
-    """
+    """Module numbers from stock_data.module_number"""
     conn = connect_db()
     if conn is None: return []
     cur = conn.cursor()
@@ -219,8 +214,6 @@ def aggregate_losses(filters):
     date_from = filters.get("date_from")
     date_to = filters.get("date_to")
 
-    # Build WHERE conditions for transactions
-    # We look only at rows whose Out_Type is in loss categories
     where = ["t.Out_Type IN ({})".format(",".join("?" for _ in LOSS_TYPES_SET))]
     params = list(LOSS_TYPES_SET)
 
@@ -236,12 +229,9 @@ def aggregate_losses(filters):
     if date_to:
         where.append("t.Date <= ?")
         params.append(date_to.strftime("%Y-%m-%d"))
-    # Filter by specific loss type if not All
     if loss_filter and loss_filter.lower() != "all":
         where.append("t.Out_Type = ?")
         params.append(loss_filter)
-
-    # Kit / Module number filters are from stock_data (joined)
     if kit_number and kit_number.lower() != "all":
         where.append("sd.kit_number = ?")
         params.append(kit_number)
@@ -274,7 +264,6 @@ def aggregate_losses(filters):
         cur.close(); conn.close()
         return []
 
-    # Aggregation key: (Date, code, out_type)
     groups = {}
     scen_map = defaultdict(set)
     kit_map = defaultdict(set)
@@ -290,12 +279,10 @@ def aggregate_losses(filters):
         desc = get_item_description(code)
         dtype = detect_type(code, desc)
 
-        # Type filter
         if type_filter and type_filter.lower() != "all":
             if dtype.lower() != type_filter.lower():
                 continue
 
-        # Item search (only when item_search provided; limit to Items as requested)
         if item_search:
             if dtype.lower() != "item":
                 continue
@@ -304,13 +291,12 @@ def aggregate_losses(filters):
                 continue
 
         key = (dt_str, code, out_type)
-
         rec = groups.setdefault(key, {
             "date": dt_str,
             "code": code,
             "type": dtype,
             "description": desc,
-            "out_type": out_type,     # Type of Loss
+            "out_type": out_type,
             "quantity": 0
         })
 
@@ -337,7 +323,6 @@ def aggregate_losses(filters):
         rec["remarks"] = ", ".join(sorted(remarks_map[key])) if remarks_map[key] else ""
         rows.append(rec)
 
-    # Sort by Date, then Type (Kit/Module/Item), then Code, then Out_Type
     rows.sort(key=lambda r: (r["date"], r["type"], r["code"], r["out_type"]))
     cur.close(); conn.close()
     return rows
@@ -356,12 +341,12 @@ class Losses(tk.Frame):
         self.rows = []
         self.simple_mode = False
 
-        # Filter variables
-        self.scenario_var = tk.StringVar(value="All")
-        self.kit_var = tk.StringVar(value="All")
-        self.module_var = tk.StringVar(value="All")
-        self.type_var = tk.StringVar(value="All")
-        self.loss_type_var = tk.StringVar(value="All")
+        all_lbl = self._all_label()
+        self.scenario_var = tk.StringVar(value=all_lbl)
+        self.kit_var = tk.StringVar(value=all_lbl)
+        self.module_var = tk.StringVar(value=all_lbl)
+        self.type_var = tk.StringVar(value=all_lbl)
+        self.loss_type_var = tk.StringVar(value=all_lbl)
         self.item_search_var = tk.StringVar()
         self.doc_var = tk.StringVar()
         self.from_var = tk.StringVar()
@@ -374,6 +359,42 @@ class Losses(tk.Frame):
         self.populate_filters()
         self._set_default_dates()
         self.refresh()
+
+    def _all_label(self):
+        return lang.t("losses.all", "All")
+
+    def _norm(self, val):
+        all_lbl = self._all_label()
+        return "All" if (val is None or val == "" or val == all_lbl) else val
+
+    def _norm_type(self, val):
+        if val in (None, "", self._all_label()):
+            return "All"
+        if val == lang.t("losses.type_kit","Kit"):
+            return "Kit"
+        if val == lang.t("losses.type_module","Module"):
+            return "Module"
+        if val == lang.t("losses.type_item","Item"):
+            return "Item"
+        return val
+
+    def _loss_display_pairs(self):
+        return [
+            ("Expired Items",   lang.t("losses.loss_expired","Expired Items")),
+            ("Damaged Items",   lang.t("losses.loss_damaged","Damaged Items")),
+            ("Cold Chain Break",lang.t("losses.loss_cold_chain","Cold Chain Break")),
+            ("Batch Recall",    lang.t("losses.loss_batch_recall","Batch Recall")),
+            ("Theft",           lang.t("losses.loss_theft","Theft")),
+            ("Other Losses",    lang.t("losses.loss_other","Other Losses")),
+        ]
+
+    def _norm_loss_type(self, display_val):
+        if display_val in (None, "", self._all_label()):
+            return "All"
+        for canonical, disp in self._loss_display_pairs():
+            if display_val == disp:
+                return canonical
+        return display_val
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -408,6 +429,12 @@ class Losses(tk.Frame):
         filters = tk.Frame(self, bg=BG_MAIN)
         filters.pack(fill="x", padx=12, pady=(0,8))
 
+        all_lbl = self._all_label()
+        type_all_lbl   = all_lbl
+        type_kit_lbl   = lang.t("losses.type_kit","Kit")
+        type_mod_lbl   = lang.t("losses.type_module","Module")
+        type_item_lbl  = lang.t("losses.type_item","Item")
+
         # Row 1
         r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
 
@@ -433,14 +460,15 @@ class Losses(tk.Frame):
             .grid(row=0,column=6,sticky="w",padx=(0,4))
         self.type_cb = ttk.Combobox(r1, textvariable=self.type_var,
                                     state="readonly", width=12,
-                                    values=["All","Kit","Module","Item"])
+                                    values=[type_all_lbl, type_kit_lbl, type_mod_lbl, type_item_lbl])
         self.type_cb.grid(row=0,column=7,padx=(0,12))
 
         tk.Label(r1, text=lang.t("losses.type_of_loss","Type of Losses"), bg=BG_MAIN)\
             .grid(row=0,column=8,sticky="w",padx=(0,4))
+        loss_display = [disp for _, disp in self._loss_display_pairs()]
         self.loss_type_cb = ttk.Combobox(r1, textvariable=self.loss_type_var,
                                          state="readonly", width=18,
-                                         values=["All"] + LOSS_TYPES)
+                                         values=[all_lbl] + loss_display)
         self.loss_type_cb.grid(row=0,column=9,padx=(0,4))
 
         # Row 2
@@ -543,10 +571,11 @@ class Losses(tk.Frame):
         scenarios = fetch_scenarios()
         kits = fetch_kit_numbers()
         modules = fetch_module_numbers()
+        all_lbl = self._all_label()
 
-        self.scenario_cb['values'] = ["All"] + scenarios
-        self.kit_cb['values'] = ["All"] + kits
-        self.module_cb['values'] = ["All"] + modules
+        self.scenario_cb['values'] = [all_lbl] + scenarios
+        self.kit_cb['values'] = [all_lbl] + kits
+        self.module_cb['values'] = [all_lbl] + modules
 
         for var, cb in [
             (self.scenario_var, self.scenario_cb),
@@ -554,7 +583,7 @@ class Losses(tk.Frame):
             (self.module_var, self.module_cb)
         ]:
             if var.get() not in cb['values']:
-                var.set("All")
+                var.set(all_lbl)
 
     # ---------- Mode toggle ----------
     def toggle_mode(self):
@@ -568,11 +597,11 @@ class Losses(tk.Frame):
     # ---------- Refresh ----------
     def refresh(self):
         filters = {
-            "scenario": self.scenario_var.get(),
-            "kit": self.kit_var.get(),
-            "module": self.module_var.get(),
-            "type": self.type_var.get(),
-            "loss_type": self.loss_type_var.get(),
+            "scenario": self._norm(self.scenario_var.get()),
+            "kit": self._norm(self.kit_var.get()),
+            "module": self._norm(self.module_var.get()),
+            "type": self._norm_type(self.type_var.get()),
+            "loss_type": self._norm_loss_type(self.loss_type_var.get()),
             "item_search": self.item_search_var.get().strip(),
             "doc_number": self.doc_var.get().strip(),
             "date_from": parse_user_date(self.from_var.get().strip(), "from") if self.from_var.get().strip() else None,
@@ -585,11 +614,12 @@ class Losses(tk.Frame):
         self.status_var.set(lang.t("losses.loaded","Loaded {n} rows").format(n=len(self.rows)))
 
     def clear_filters(self):
-        self.scenario_var.set("All")
-        self.kit_var.set("All")
-        self.module_var.set("All")
-        self.type_var.set("All")
-        self.loss_type_var.set("All")
+        all_lbl = self._all_label()
+        self.scenario_var.set(all_lbl)
+        self.kit_var.set(all_lbl)
+        self.module_var.set(all_lbl)
+        self.type_var.set(all_lbl)
+        self.loss_type_var.set(all_lbl)
         self.item_search_var.set("")
         self.doc_var.set("")
         self._set_default_dates()
@@ -660,7 +690,7 @@ class Losses(tk.Frame):
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            filetypes=[("Excel Files","*.xlsx")],
+            filetypes=[("Excel","*.xlsx")],
             title=lang.t("losses.export_title","Save Losses Report"),
             initialfile=f"Losses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         )
@@ -712,7 +742,6 @@ class Losses(tk.Frame):
                 elif dtype == "MODULE":
                     for c in ws[ws.max_row]: c.fill = module_fill
 
-            # Autosize
             for col in ws.columns:
                 max_len = 0
                 letter = get_column_letter(col[0].column)

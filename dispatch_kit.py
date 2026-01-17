@@ -6,18 +6,17 @@ import openpyxl
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from datetime import datetime
-from popup_utils import custom_popup, custom_askyesno
 import os
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 from db import connect_db
 from manage_items import get_item_description, detect_type
 from language_manager import lang
-from popup_utils import custom_popup
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
 
+# ------------------------- DB HELPERS -------------------------
 def fetch_end_users():
     conn = connect_db()
     if conn is None:
@@ -56,16 +55,16 @@ def fetch_project_details():
     conn = connect_db()
     if conn is None:
         logging.error("[DISPATCH] DB connection failed (fetch_project_details)")
-        return "Unknown Project", "Unknown Code"
+        return lang.t("dispatch_kit.unknown_project", "Unknown Project"), lang.t("dispatch_kit.unknown_code", "Unknown Code")
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         row = cur.fetchone()
-        return (row[0] if row and row[0] else "Unknown Project",
-                row[1] if row and row[1] else "Unknown Code")
+        return (row[0] if row and row[0] else lang.t("dispatch_kit.unknown_project", "Unknown Project"),
+                row[1] if row and row[1] else lang.t("dispatch_kit.unknown_code", "Unknown Code"))
     except sqlite3.Error as e:
         logging.error(f"[DISPATCH] fetch_project_details error: {e}")
-        return "Unknown Project", "Unknown Code"
+        return lang.t("dispatch_kit.unknown_project", "Unknown Project"), lang.t("dispatch_kit.unknown_code", "Unknown Code")
     finally:
         cur.close()
         conn.close()
@@ -101,20 +100,16 @@ def log_transaction(unique_id, code, description, expiry_date, batch_number,
     finally:
         cur.close()
         conn.close()
+
+
 def configure_db_pragmas():
-    """
-    Apply SQLite pragmas to reduce 'database is locked' errors.
-    Call once at startup (e.g., in __init__ or before first write).
-    """
     conn = connect_db()
     if conn is None:
         return
     try:
         cur = conn.cursor()
-        # WAL allows readers during writes; adjust synchronous for speed/safety tradeoff.
         cur.execute("PRAGMA journal_mode=WAL;")
-        cur.execute("PRAGMA busy_timeout=5000;")  # ms
-        # cur.execute("PRAGMA synchronous=NORMAL;")  # uncomment if acceptable
+        cur.execute("PRAGMA busy_timeout=5000;")
         conn.commit()
     except Exception:
         pass
@@ -124,6 +119,10 @@ def configure_db_pragmas():
         except:
             pass
 
+
+# =============================================================
+#                        MAIN CLASS
+# =============================================================
 class StockDispatchKit(tk.Frame):
     """
     Dispatch (Issue Out) Module
@@ -141,12 +140,11 @@ class StockDispatchKit(tk.Frame):
         self.parent = parent
         self.app = app
         self.role = role.lower()
-    # Apply DB pragmas (optional)
         try:
             configure_db_pragmas()
         except Exception:
             pass
-        # Scenario state
+
         self.scenario_map = self.fetch_scenario_map()
         self.selected_scenario_id = None
         self.selected_scenario_name = None
@@ -179,17 +177,59 @@ class StockDispatchKit(tk.Frame):
         self.editing_cell = None
 
         # Data caches
-        self.row_data = {}          # iid -> metadata
-        self.full_items = []        # raw enriched rows (Kit/Module/Item without headers)
+        self.row_data = {}
+        self.full_items = []
         self.search_min_chars = 2
 
         if self.parent and self.parent.winfo_exists():
             self.pack(fill="both", expand=True)
             self.after(50, self.render_ui)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # Helpers for "All" label and out-type mapping
+    # ---------------------------------------------------------
+    def _all_label(self):
+        return lang.t("dispatch_kit.all", "All")
+
+    def _norm_all(self, val):
+        all_lbl = self._all_label()
+        return "All" if (val is None or val == "" or val == all_lbl) else val
+
+    def _out_type_options(self):
+        """
+        Returns list of (value, display_label) tuples.
+        Value stays English (used in DB / calculations); display is translated.
+        """
+        opts = [
+            ("Issue to End User",      lang.t("dispatch_kit.out_issue_end_user", "Issue to End User")),
+            ("Expired Items",          lang.t("dispatch_kit.out_expired", "Expired Items")),
+            ("Damaged Items",          lang.t("dispatch_kit.out_damaged", "Damaged Items")),
+            ("Cold Chain Break",       lang.t("dispatch_kit.out_cold_chain", "Cold Chain Break")),
+            ("Batch Recall",           lang.t("dispatch_kit.out_batch_recall", "Batch Recall")),
+            ("Theft",                  lang.t("dispatch_kit.out_theft", "Theft")),
+            ("Other Losses",           lang.t("dispatch_kit.out_other_losses", "Other Losses")),
+            ("Out Donation",           lang.t("dispatch_kit.out_donation", "Out Donation")),
+            ("Loan",                   lang.t("dispatch_kit.out_loan", "Loan")),
+            ("Return of Borrowing",    lang.t("dispatch_kit.out_return_borrowing", "Return of Borrowing")),
+            ("Quarantine",             lang.t("dispatch_kit.out_quarantine", "Quarantine"))
+        ]
+        return opts
+
+    def _display_for_out_type(self, value):
+        for v, lbl in self._out_type_options():
+            if v == value:
+                return lbl
+        return value
+
+    def _value_for_out_type(self, display):
+        for v, lbl in self._out_type_options():
+            if lbl == display or v == display:
+                return v
+        return display
+
+    # ---------------------------------------------------------
     # Index / Parsing / Enrichment
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def ensure_item_index(self, scenario_id):
         if hasattr(self, "_item_index_cache") and self._item_index_cache.get("scenario_id") == scenario_id:
             return
@@ -316,7 +356,6 @@ class StockDispatchKit(tk.Frame):
             final_type = forced_type
         else:
             # forced_type == 'Kit'; keep detected_norm only if it is not narrower
-            # (If detection said Module/Item but unique_id lacks those segments, detection is wrong; keep Kit)
             final_type = "Kit" if detected_norm not in ("Kit",) else detected_norm
 
         return {
@@ -334,9 +373,10 @@ class StockDispatchKit(tk.Frame):
             "module_number": module_number,
             "std_qty": std_qty if final_type == "Item" else None
         }
-    # ------------------------------------------------------------------
+
+    # ---------------------------------------------------------
     # Scenario / Modes
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def fetch_scenario_map(self):
         conn = connect_db()
         if conn is None:
@@ -360,35 +400,27 @@ class StockDispatchKit(tk.Frame):
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
-            ("dispatch_Kit",
-             lang.t("dispatch_Kit.mode_dispatch_Kit", "Dispatch Kit")),
-            ("issue_standalone",
-             lang.t("dispatch_Kit.mode_issue_standalone", "Issue standalone item/s from {scenario}", scenario=scenario)),
-            ("issue_module_scenario",
-             lang.t("dispatch_Kit.mode_issue_module_scenario", "Issue module from {scenario}", scenario=scenario)),
-            ("issue_module_Kit",
-             lang.t("dispatch_Kit.mode_issue_module_Kit", "Issue module from a Kit")),
-            ("issue_items_Kit",
-             lang.t("dispatch_Kit.mode_issue_items_Kit", "Issue items from a Kit")),
-            ("issue_items_module",
-             lang.t("dispatch_Kit.mode_issue_items_module", "Issue items from a module"))
+            ("dispatch_Kit", lang.t("dispatch_kit.mode_dispatch_kit", "Dispatch Kit")),
+            ("issue_standalone", lang.t("dispatch_kit.mode_issue_standalone", "Issue standalone item/s from {scenario}", scenario=scenario)),
+            ("issue_module_scenario", lang.t("dispatch_kit.mode_issue_module_scenario", "Issue module from {scenario}", scenario=scenario)),
+            ("issue_module_Kit", lang.t("dispatch_kit.mode_issue_module_Kit", "Issue module from a Kit")),
+            ("issue_items_Kit", lang.t("dispatch_kit.mode_issue_items_Kit", "Issue items from a Kit")),
+            ("issue_items_module", lang.t("dispatch_kit.mode_issue_items_module", "Issue items from a module")),
         ]
-        self.mode_label_to_key = {lbl: key for key, lbl in self.mode_definitions}
+        self.mode_label_to_key = {label: key for key, label in self.mode_definitions}
 
     def current_mode_key(self):
         return self.mode_label_to_key.get(self.mode_var.get())
 
     def load_scenarios(self):
         values = [f"{sid} - {name}" for sid, name in self.scenario_map.items()]
-        logging.info(f"[DISPATCH] Populating scenario combobox with {len(values)} entries")
         self.scenario_cb['values'] = values
-        logging.info(f"[DISPATCH] scenario_cb values set: {self.scenario_cb['values']}")
         if values:
             self.scenario_cb.current(0)
             self.on_scenario_selected()
         else:
             if self.status_var:
-                self.status_var.set("No scenarios found (check DB).")
+                self.status_var.set(lang.t("dispatch_kit.no_scenarios", "No scenarios found (check DB)."))
 
     def on_scenario_selected(self, event=None):
         sel = self.scenario_var.get()
@@ -398,7 +430,6 @@ class StockDispatchKit(tk.Frame):
             return
         self.selected_scenario_id = sel.split(" - ")[0]
         self.selected_scenario_name = sel.split(" - ", 1)[1] if " - " in sel else ""
-        logging.info(f"[DISPATCH] Scenario selected: id={self.selected_scenario_id} name={self.selected_scenario_name}")
         self.build_mode_definitions()
         self.mode_cb['values'] = [lbl for _, lbl in self.mode_definitions]
         if self.mode_definitions:
@@ -406,15 +437,8 @@ class StockDispatchKit(tk.Frame):
         self.on_mode_changed()
 
     def on_mode_changed(self, event=None):
-        """
-        Reset UI and enable only the first-level selectors appropriate
-        to the chosen mode. Kit numbers and module numbers remain disabled
-        until their parent (Kit or module) is selected.
-        """
         mode_key = self.current_mode_key()
-        logging.info(f"[DISPATCH] Mode changed to: {mode_key}")
 
-        # Reset dependent comboboxes
         for cb in [self.Kit_cb, self.Kit_number_cb, self.module_cb, self.module_number_cb]:
             cb.config(state="disabled")
 
@@ -443,9 +467,9 @@ class StockDispatchKit(tk.Frame):
             self.module_cb.config(state="readonly")
             self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Structural Helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def fetch_Kits(self, scenario_id):
         conn = connect_db()
         if conn is None:
@@ -513,7 +537,6 @@ class StockDispatchKit(tk.Frame):
                      ORDER BY Kit_number
                 """, (f"{scenario_id}/%",))
             vals = [r[0] for r in cur.fetchall()]
-            logging.info(f"[DISPATCH] Kit numbers loaded: {len(vals)}")
             return vals
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_available_Kit_numbers error: {e}")
@@ -545,7 +568,6 @@ class StockDispatchKit(tk.Frame):
             """
             cur.execute(sql, params)
             vals = [r[0] for r in cur.fetchall()]
-            logging.info(f"[DISPATCH] Module numbers loaded: {len(vals)}")
             return vals
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_module_numbers error: {e}")
@@ -554,11 +576,10 @@ class StockDispatchKit(tk.Frame):
             cur.close()
             conn.close()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Stock Fetching
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def fetch_stock_data_for_Kit_number(self, scenario_id, Kit_number, Kit_code=None):
-        logging.info(f"[DISPATCH] fetch_stock_data_for_Kit_number Kit_number={Kit_number} Kit_code={Kit_code}")
         self.ensure_item_index(scenario_id)
         conn = connect_db()
         if conn is None:
@@ -585,7 +606,6 @@ class StockDispatchKit(tk.Frame):
                     Kit_number=r["Kit_number"],
                     module_number=r["module_number"]
                 ))
-            logging.info(f"[DISPATCH] Kit_number={Kit_number} -> {len(items)} rows enriched")
             self._debug_log_items(f"Kit_number={Kit_number}", items)
             return items
         except sqlite3.Error as e:
@@ -596,7 +616,6 @@ class StockDispatchKit(tk.Frame):
             conn.close()
 
     def fetch_stock_data_for_module_number(self, scenario_id, module_number, Kit_code=None, module_code=None):
-        logging.info(f"[DISPATCH] fetch_stock_data_for_module_number module_number={module_number} Kit_code={Kit_code} module_code={module_code}")
         self.ensure_item_index(scenario_id)
         conn = connect_db()
         if conn is None:
@@ -623,7 +642,6 @@ class StockDispatchKit(tk.Frame):
                     Kit_number=r["Kit_number"],
                     module_number=r["module_number"]
                 ))
-            logging.info(f"[DISPATCH] module_number={module_number} -> {len(items)} rows enriched")
             self._debug_log_items(f"module_number={module_number}", items)
             return items
         except sqlite3.Error as e:
@@ -634,7 +652,6 @@ class StockDispatchKit(tk.Frame):
             conn.close()
 
     def fetch_standalone_stock_items(self, scenario_id):
-        logging.info(f"[DISPATCH] Fetching standalone stock scenario={scenario_id}")
         self.ensure_item_index(scenario_id)
         conn = connect_db()
         if conn is None:
@@ -662,7 +679,6 @@ class StockDispatchKit(tk.Frame):
                     Kit_number=r["Kit_number"],
                     module_number=r["module_number"]
                 ))
-            logging.info(f"[DISPATCH] standalone -> {len(items)} raw rows")
             return items
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_standalone_stock_items error: {e}")
@@ -671,11 +687,10 @@ class StockDispatchKit(tk.Frame):
             cur.close()
             conn.close()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # UI
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def render_ui(self):
-        logging.info("Rendering Dispatch UI")
         if not self.parent:
             return
         for w in self.parent.winfo_children():
@@ -684,134 +699,113 @@ class StockDispatchKit(tk.Frame):
             except:
                 pass
 
-        # Title
         title_frame = tk.Frame(self.parent, bg="#F0F4F8")
         title_frame.pack(fill="x")
         tk.Label(title_frame,
-                 text=lang.t("dispatch_Kit.title", "Dispatch Kit-Module"),
+                 text=lang.t("dispatch_kit.title", "Dispatch Kit-Module"),
                  font=("Helvetica", 20, "bold"),
                  bg="#F0F4F8").pack(pady=(10, 0))
 
-        # Instruction (moved here so it does not interfere with grid rows)
         instruct_frame = tk.Frame(self.parent, bg="#FFF9C4", highlightbackground="#E0D890",
                                   highlightthickness=1, bd=0)
         instruct_frame.pack(fill="x", padx=10, pady=(6, 4))
         tk.Label(
-    instruct_frame,
-    text="Cells marked with ★ are editable. Enter quantities only there; other cells are automatic.For Kits and modules quantity entered can be either 1 or 0",
-    fg="#444",
-    bg="#FFF9C4",
-    font=("Helvetica", 10, "italic")
-).pack(padx=8, pady=4, anchor="w")
+            instruct_frame,
+            text=lang.t("dispatch_kit.instructions",
+                        "Cells marked with ★ are editable. Enter quantities only there; other cells are automatic. "
+                        "For Kits and modules quantity entered can be either 1 or 0."),
+            fg="#444",
+            bg="#FFF9C4",
+            font=("Helvetica", 10, "italic")
+        ).pack(padx=8, pady=4, anchor="w")
 
-        # Main content frame (grid layout)
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
 
-
-
-        # Scenario
-        tk.Label(main, text=lang.t("receive_Kit.scenario", "Scenario:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.scenario", "Scenario:"), bg="#F0F4F8")\
             .grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.scenario_var = tk.StringVar()
         self.scenario_cb = ttk.Combobox(main, textvariable=self.scenario_var, state="readonly", width=40)
         self.scenario_cb.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_scenario_selected)
 
-        # Mode
-        tk.Label(main, text=lang.t("receive_Kit.movement_type", "Movement Type:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.movement_type", "Movement Type:"), bg="#F0F4F8")\
             .grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.mode_var = tk.StringVar()
         self.mode_cb = ttk.Combobox(main, textvariable=self.mode_var, state="readonly", width=40)
         self.mode_cb.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.mode_cb.bind("<<ComboboxSelected>>", self.on_mode_changed)
 
-        # Kit selection
         self.Kit_var = tk.StringVar()
         self.Kit_cb = ttk.Combobox(main, textvariable=self.Kit_var, state="disabled", width=40)
-        tk.Label(main, text=lang.t("receive_Kit.select_Kit", "Select Kit:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.select_kit", "Select Kit:"), bg="#F0F4F8")\
             .grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.Kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.Kit_cb.bind("<<ComboboxSelected>>", self.on_Kit_selected)
 
         self.Kit_number_var = tk.StringVar()
         self.Kit_number_cb = ttk.Combobox(main, textvariable=self.Kit_number_var, state="disabled", width=20)
-        tk.Label(main, text=lang.t("receive_Kit.select_Kit_number", "Select Kit Number:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.select_kit_number", "Select Kit Number:"), bg="#F0F4F8")\
             .grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.Kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.Kit_number_cb.bind("<<ComboboxSelected>>", self.on_Kit_number_selected)
 
-        # Module selection
         self.module_var = tk.StringVar()
         self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
-        tk.Label(main, text=lang.t("receive_Kit.select_module", "Select Module:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.select_module", "Select Module:"), bg="#F0F4F8")\
             .grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
 
         self.module_number_var = tk.StringVar()
         self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, state="disabled", width=20)
-        tk.Label(main, text=lang.t("receive_Kit.select_module_number", "Select Module Number:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.select_module_number", "Select Module Number:"), bg="#F0F4F8")\
             .grid(row=3, column=2, padx=5, pady=5, sticky="w")
         self.module_number_cb.grid(row=3, column=3, padx=5, pady=5, sticky="w")
         self.module_number_cb.bind("<<ComboboxSelected>>", self.on_module_number_selected)
 
-        # Out Type & dependencies
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
-        tk.Label(type_frame, text=lang.t("dispatch_Kit.out_type", "OUT Type:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("dispatch_kit.out_type", "OUT Type:"), bg="#F0F4F8")\
             .grid(row=0, column=0, padx=5, sticky="w")
         self.trans_type_var = tk.StringVar()
+        out_type_values = [lbl for _, lbl in self._out_type_options()]
         self.trans_type_cb = ttk.Combobox(
             type_frame,
             textvariable=self.trans_type_var,
-            values=[
-                lang.t("dispatch_Kit.out_issue_end_user", "Issue to End User"),
-                lang.t("dispatch_Kit.out_expired", "Expired Items"),
-                lang.t("dispatch_Kit.out_damaged", "Damaged Items"),
-                lang.t("dispatch_Kit.out_cold_chain", "Cold Chain Break"),
-                lang.t("dispatch_Kit.out_batch_recall", "Batch Recall"),
-                lang.t("dispatch_Kit.out_theft", "Theft"),
-                lang.t("dispatch_Kit.out_other_losses", "Other Losses"),
-                lang.t("dispatch_Kit.out_donation", "Out Donation"),
-                lang.t("dispatch_Kit.out_loan", "Loan"),
-                lang.t("dispatch_Kit.out_return_borrowing", "Return of Borrowing"),
-                lang.t("dispatch_Kit.out_quarantine", "Quarantine")
-            ],
+            values=out_type_values,
             state="readonly", width=30
         )
         self.trans_type_cb.grid(row=0, column=1, padx=5, pady=5)
         self.trans_type_cb.bind("<<ComboboxSelected>>", self.on_out_type_selected)
 
-        tk.Label(type_frame, text=lang.t("receive_Kit.end_user", "End User:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("dispatch_kit.end_user", "End User:"), bg="#F0F4F8")\
             .grid(row=0, column=2, padx=5, sticky="w")
         self.end_user_var = tk.StringVar()
         self.end_user_cb = ttk.Combobox(type_frame, textvariable=self.end_user_var, state="disabled", width=30)
         self.end_user_cb['values'] = fetch_end_users()
         self.end_user_cb.grid(row=0, column=3, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("receive_Kit.third_party", "Third Party:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("dispatch_kit.third_party", "Third Party:"), bg="#F0F4F8")\
             .grid(row=0, column=4, padx=5, sticky="w")
         self.third_party_var = tk.StringVar()
         self.third_party_cb = ttk.Combobox(type_frame, textvariable=self.third_party_var, state="disabled", width=30)
         self.third_party_cb['values'] = fetch_third_parties()
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("receive_Kit.remarks", "Remarks:"), bg="#F0F4F8")\
+        tk.Label(type_frame, text=lang.t("dispatch_kit.remarks", "Remarks:"), bg="#F0F4F8")\
             .grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
 
-        # Search
-        tk.Label(main, text=lang.t("receive_Kit.item", "Kit/Module/Item:"), bg="#F0F4F8")\
+        tk.Label(main, text=lang.t("dispatch_kit.item_search", "Kit/Module/Item:"), bg="#F0F4F8")\
             .grid(row=5, column=0, padx=5, pady=5, sticky="w")
         self.search_var = tk.StringVar()
         self.search_entry = tk.Entry(main, textvariable=self.search_var, width=40)
         self.search_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
         self.search_entry.bind("<KeyRelease>", self.search_items)
 
-
-        tk.Button(main, text=lang.t("receive_Kit.clear_search", "Clear Search"),
+        tk.Button(main, text=lang.t("dispatch_kit.clear_search", "Clear Search"),
                   bg="#7F8C8D", fg="white", command=self.clear_search)\
             .grid(row=5, column=2, padx=5, pady=5)
 
@@ -822,18 +816,19 @@ class StockDispatchKit(tk.Frame):
                 "current_stock", "expiry_date", "batch_no", "qty_to_issue", "unique_id")
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=18)
 
-        headers = {
-            "code": lang.t("dispatch_Kit.code", "Code"),
-            "description": lang.t("dispatch_Kit.description", "Description"),
-            "type": lang.t("dispatch_Kit.type", "Type"),
-            "Kit": lang.t("dispatch_Kit.Kit", "Kit"),
-            "module": lang.t("dispatch_Kit.module", "Module"),
-            "current_stock": lang.t("dispatch_Kit.current_stock", "Current Stock"),
-            "expiry_date": lang.t("dispatch_Kit.expiry_date", "Expiry Date"),
-            "batch_no": lang.t("dispatch_Kit.batch_no", "Batch Number"),
-            "qty_to_issue": lang.t("dispatch_Kit.qty_to_issue", "Quantity to Issue"),
+        headings = {
+            "code": lang.t("dispatch_kit.code", "Code"),
+            "description": lang.t("dispatch_kit.description", "Description"),
+            "type": lang.t("dispatch_kit.type", "Type"),
+            "Kit": lang.t("dispatch_kit.kit", "Kit"),
+            "module": lang.t("dispatch_kit.module", "Module"),
+            "current_stock": lang.t("dispatch_kit.current_stock", "Current Stock"),
+            "expiry_date": lang.t("dispatch_kit.expiry_date", "Expiry Date"),
+            "batch_no": lang.t("dispatch_kit.batch_no", "Batch Number"),
+            "qty_to_issue": lang.t("dispatch_kit.qty_to_issue", "Quantity to Issue"),
             "unique_id": "Unique ID"
         }
+
         widths = {
             "code": 160, "description": 380, "type": 120, "Kit": 120, "module": 120,
             "current_stock": 110, "expiry_date": 150, "batch_no": 140, "qty_to_issue": 140,
@@ -845,7 +840,7 @@ class StockDispatchKit(tk.Frame):
             "unique_id": "w"
         }
         for c in cols:
-            self.tree.heading(c, text=headers[c])
+            self.tree.heading(c, text=headings[c])
             self.tree.column(
                 c,
                 width=widths[c],
@@ -864,7 +859,6 @@ class StockDispatchKit(tk.Frame):
         main.grid_rowconfigure(7, weight=1)
         main.grid_columnconfigure(1, weight=1)
 
-        # Bindings
         self.tree.bind("<Double-1>", self.start_edit)
         self.tree.bind("<KeyPress-Return>", self.start_edit)
         self.tree.bind("<KeyPress-Tab>", self.start_edit)
@@ -873,24 +867,24 @@ class StockDispatchKit(tk.Frame):
 
         btnf = tk.Frame(main, bg="#F0F4F8")
         btnf.grid(row=9, column=0, columnspan=4, pady=5)
-        tk.Button(btnf, text=lang.t("receive_Kit.save", "Save"),
+        tk.Button(btnf, text=lang.t("dispatch_kit.save", "Save"),
                   bg="#27AE60", fg="white",
                   command=self.save_all,
                   state="normal" if self.role in ["admin", "manager"] else "disabled").pack(side="left", padx=5)
-        tk.Button(btnf, text=lang.t("receive_Kit.clear", "Clear"),
+        tk.Button(btnf, text=lang.t("dispatch_kit.clear", "Clear"),
                   bg="#7F8C8D", fg="white", command=self.clear_form).pack(side="left", padx=5)
-        tk.Button(btnf, text=lang.t("receive_Kit.export", "Export"),
+        tk.Button(btnf, text=lang.t("dispatch_kit.export", "Export"),
                   bg="#2980B9", fg="white", command=self.export_data).pack(side="left", padx=5)
 
-        self.status_var = tk.StringVar(value=lang.t("receive_Kit.ready", "Ready"))
+        self.status_var = tk.StringVar(value=lang.t("dispatch_kit.ready", "Ready"))
         tk.Label(main, textvariable=self.status_var, relief="sunken",
                  anchor="w", bg="#F0F4F8").grid(row=10, column=0, columnspan=4, sticky="ew")
 
         self.load_scenarios()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Headers + Display Assembly
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def _build_with_headers(self, rows):
         def sort_key(it):
             return (
@@ -952,14 +946,10 @@ class StockDispatchKit(tk.Frame):
             result.append(it)
         return result
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Mode Rules & Quantity Logic
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def get_mode_rules(self):
-        """
-        Returns mode rules. Type set kept in original mixed case for display,
-        but downstream comparisons are case-insensitive.
-        """
         mode = self.current_mode_key()
         rules = {
             "editable_types": set(),
@@ -982,17 +972,11 @@ class StockDispatchKit(tk.Frame):
                 "editable_types": {"Item"}
             })
         return rules
-    
 
     def initialize_quantities_and_highlight(self):
-        """
-        Force Kit data rows to default to 1 in dispatch_Kit mode (even if stock 0).
-        Case-insensitive row type checks; highlight Kit & Module rows.
-        """
         rules = self.get_mode_rules()
         mode_key = self.current_mode_key()
 
-        # 1. Base init
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
@@ -1020,13 +1004,11 @@ class StockDispatchKit(tk.Frame):
             vals[8] = str(qty)
             self.tree.item(iid, values=vals)
 
-        # 2. Derivations
         if rules.get("derive_modules_from_Kit") and hasattr(self, "_derive_modules_from_Kits"):
             self._derive_modules_from_Kits()
         if rules.get("derive_items_from_modules"):
             self._derive_items_from_modules()
 
-        # 3. Header highlight
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if not meta.get("is_header"):
@@ -1038,7 +1020,6 @@ class StockDispatchKit(tk.Frame):
             elif rt == "module":
                 self.tree.item(iid, tags=("module_header", "Kit_module_highlight"))
 
-        # 4. Mark editable
         editable_types_lower = {t.lower() for t in rules["editable_types"]}
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
@@ -1058,12 +1039,8 @@ class StockDispatchKit(tk.Frame):
             else:
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
-                
-                            
+
     def _derive_modules_from_Kits(self):
-        """
-        Derive Module quantities from Kit quantities (case-insensitive).
-        """
         kit_quantities = {}
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
@@ -1093,12 +1070,7 @@ class StockDispatchKit(tk.Frame):
                 vals[8] = str(base_qty)
                 self.tree.item(iid, values=vals)
 
-    
     def _reapply_editable_icons(self, rules):
-        """
-        Reapply star and highlight after propagation; case-insensitive.
-        Ensures only one authoritative definition of this method.
-        """
         editable_lower = {t.lower() for t in rules["editable_types"]}
 
         for iid in self.tree.get_children():
@@ -1129,14 +1101,8 @@ class StockDispatchKit(tk.Frame):
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
 
-
     def _derive_items_from_modules(self):
-        """
-        For each Module row, set Item rows quantity =
-        std_qty * module_qty (capped by stock). Strip any leading star.
-        """
         module_qty_map = {}
-        # Collect module quantities
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
@@ -1149,7 +1115,6 @@ class StockDispatchKit(tk.Frame):
                 mqty = int(raw) if raw.isdigit() else 0
                 module_qty_map[meta.get("module_number")] = mqty
 
-        # Apply to items
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
@@ -1172,28 +1137,18 @@ class StockDispatchKit(tk.Frame):
             vals[8] = str(desired)
             self.tree.item(iid, values=vals)
 
-
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Out Type Dependents
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def on_out_type_selected(self, event=None):
-        out_type = self.trans_type_var.get()
-        third_party_required = {
-            lang.t("dispatch_Kit.out_donation", "Out Donation"),
-            lang.t("dispatch_Kit.out_loan", "Loan"),
-            lang.t("dispatch_Kit.out_return_borrowing", "Return of Borrowing")
-        }
-        end_user_required = {
-            lang.t("dispatch_Kit.out_issue_end_user", "Issue to End User")
-        }
+        out_type_display = self.trans_type_var.get()
+        out_type = self._value_for_out_type(out_type_display)
+
+        third_party_required = {"Out Donation", "Loan", "Return of Borrowing"}
+        end_user_required = {"Issue to End User"}
         remarks_required = {
-            lang.t("dispatch_Kit.out_expired", "Expired Items"),
-            lang.t("dispatch_Kit.out_damaged", "Damaged Items"),
-            lang.t("dispatch_Kit.out_cold_chain", "Cold Chain Break"),
-            lang.t("dispatch_Kit.out_batch_recall", "Batch Recall"),
-            lang.t("dispatch_Kit.out_theft", "Theft"),
-            lang.t("dispatch_Kit.out_other_losses", "Other Losses"),
-            lang.t("dispatch_Kit.out_quarantine", "Quarantine")
+            "Expired Items", "Damaged Items", "Cold Chain Break",
+            "Batch Recall", "Theft", "Other Losses", "Quarantine"
         }
 
         self.end_user_cb.config(state="disabled")
@@ -1214,15 +1169,10 @@ class StockDispatchKit(tk.Frame):
         if out_type in remarks_required:
             self.remarks_entry.config(state="normal")
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Event Handlers / Loading
-    # ------------------------------------------------------------------
-        
+    # ---------------------------------------------------------
     def on_Kit_selected(self, event=None):
-        """
-        When a Kit code is selected, enable and populate the Kit number list.
-        If cleared, disable the Kit number field.
-        """
         Kit_code = (self.Kit_var.get() or "").strip()
 
         if not Kit_code:
@@ -1248,13 +1198,10 @@ class StockDispatchKit(tk.Frame):
         items = self.fetch_stock_data_for_Kit_number(self.selected_scenario_id, Kit_number, Kit_code)
         self.full_items = items[:]
         self.populate_rows(self.full_items,
-                           f"Loaded {len(self.full_items)} stock rows for Kit number {Kit_number}")
+                           lang.t("dispatch_kit.loaded_rows_kit", "Loaded {n} stock rows for Kit number {k}")
+                           .format(n=len(self.full_items), k=Kit_number))
 
     def on_module_selected(self, event=None):
-        """
-        When a module code is selected, enable and populate the module number list.
-        If cleared, disable the module number field.
-        """
         module_code = (self.module_var.get() or "").strip()
         Kit_code = (self.Kit_var.get() or "").strip() or None
 
@@ -1288,7 +1235,8 @@ class StockDispatchKit(tk.Frame):
         )
         self.full_items = items[:]
         self.populate_rows(self.full_items,
-                           f"Loaded {len(self.full_items)} stock rows for module number {module_number}")
+                           lang.t("dispatch_kit.loaded_rows_module", "Loaded {n} stock rows for module number {m}")
+                           .format(n=len(self.full_items), m=module_number))
 
     def populate_standalone_items(self):
         if not self.selected_scenario_id:
@@ -1296,22 +1244,18 @@ class StockDispatchKit(tk.Frame):
         items = self.fetch_standalone_stock_items(self.selected_scenario_id)
         self.full_items = items[:]
         self.populate_rows(self.full_items,
-                           lang.t("dispatch_Kit.loaded_standalone",
-                                  f"Loaded {len(self.full_items)} standalone rows"))
+                           lang.t("dispatch_kit.loaded_standalone", "Loaded {n} standalone item rows")
+                           .format(n=len(self.full_items)))
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Table Helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def clear_table_only(self):
         if self.tree:
             self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
 
     def populate_rows(self, items=None, status_msg=""):
-        """
-        Populate the tree, insert headers + data rows, configure row tags.
-        Now: ALL Kit & Module rows (headers + data) get yellow highlight.
-        """
         if items is None:
             items = self.full_items
         display_rows = self._build_with_headers(items)
@@ -1350,44 +1294,30 @@ class StockDispatchKit(tk.Frame):
                     "std_qty": row.get("std_qty")
                 }
 
-        # Style tags
-        # Header tags keep bold font; background will be overridden by Kit_module_highlight
+        # Tags
         self.tree.tag_configure("Kit_header", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("module_header", font=("Helvetica", 10, "bold"))
-        # Unified yellow highlight for any Kit / Module (header or data)
         self.tree.tag_configure("Kit_module_highlight", background="#FFF9C4")
-        # Editable just sets foreground (no background to avoid overriding highlight)
         self.tree.tag_configure("editable_row", foreground="#000000")
-        # Non-editable rows (items or disallowed types) gray text
         self.tree.tag_configure("non_editable", foreground="#666666")
 
-        # Initialize quantities & mark editable/non-editable + highlight
         self.initialize_quantities_and_highlight()
 
         if status_msg:
             self.status_var.set(status_msg)
         else:
             self.status_var.set(
-                lang.t("dispatch_Kit.showing_rows",
-                       f"Showing {len(display_rows)} rows (incl. headers)")
+                lang.t("dispatch_kit.showing_rows",
+                       "Showing {n} rows (incl. headers)").format(n=len(display_rows))
             )
 
-            
-        # Header tag styles
+        # Header colors (optional)
         self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
-        # Editable cell tag (light yellow)
         self.tree.tag_configure("editable_cell", background="#FFF9C4")
 
-        # Initialize + propagate + highlight editable
         self.initialize_quantities_and_highlight()
 
-        if status_msg:
-            self.status_var.set(status_msg)
-        else:
-            self.status_var.set(lang.t("dispatch_Kit.showing_rows",
-                                       f"Showing {len(display_rows)} rows (incl. headers)"))
-            
     def get_selected_unique_ids(self):
         uids = []
         for iid in self.tree.selection():
@@ -1410,9 +1340,9 @@ class StockDispatchKit(tk.Frame):
                 f"Kit_no={it.get('Kit_number')} module_no={it.get('module_number')} std_qty={it.get('std_qty')}"
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Editing
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def _flatten_rows(self):
         out = []
         def dive(iids):
@@ -1446,14 +1376,8 @@ class StockDispatchKit(tk.Frame):
             self.start_edit_cell(rows[idx + 1], 8)
         elif event.keysym in ("Return", "Tab"):
             self.start_edit_cell(cur, 8)
+
     def start_edit(self, event):
-        """
-        Wrapper bound to double-click / Return / Tab.
-        Decides the target row & column, then calls start_edit_cell.
-        Only qty_to_issue (column index 8) is allowed, further filtered
-        inside start_edit_cell based on mode rules and editable_types.
-        """
-        # Keyboard trigger: edit currently selected row’s qty cell.
         if event.type == tk.EventType.KeyPress:
             sel = self.tree.selection()
             if not sel:
@@ -1461,12 +1385,11 @@ class StockDispatchKit(tk.Frame):
             self.start_edit_cell(sel[0], 8)
             return
 
-        # Mouse double-click: ensure it's a cell in qty_to_issue column
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
         row_id = self.tree.identify_row(event.y)
-        col_id = self.tree.identify_column(event.x)  # e.g. "#9" for qty_to_issue
+        col_id = self.tree.identify_column(event.x)
         if not row_id or not col_id:
             return
         col_index = int(col_id.replace("#", "")) - 1
@@ -1475,11 +1398,6 @@ class StockDispatchKit(tk.Frame):
         self.start_edit_cell(row_id, 8)
 
     def start_edit_cell(self, row_id, col_index):
-        """
-        Edit Quantity to Issue (column 8).
-        - Kit & Module: only 0 or 1
-        - Item: non-negative integer, capped by stock
-        """
         if col_index != 8:
             return
 
@@ -1527,29 +1445,28 @@ class StockDispatchKit(tk.Frame):
 
             if rt_low in ("kit", "module"):
                 if val not in ("0", "1"):
-                    set_status("Only 0 or 1 allowed – auto-corrected.")
+                    set_status(lang.t("dispatch_kit.msg_qty_binary", "Only 0 or 1 allowed – auto-corrected."))
                     val = old_clean if old_clean in ("0", "1") else ("1" if stock > 0 else "0")
                 if stock == 0 and val == "1":
                     val = "0"
             else:  # item
                 if not val.isdigit():
-                    set_status("Invalid number – set to 0.")
+                    set_status(lang.t("dispatch_kit.msg_invalid_number", "Invalid number – set to 0."))
                     val = "0"
                 else:
                     iv = int(val)
                     if iv < 0:
                         iv = 0
-                        set_status("Negative not allowed – set to 0.")
+                        set_status(lang.t("dispatch_kit.msg_negative", "Negative not allowed – set to 0."))
                     if iv > stock:
                         iv = stock
-                        set_status("Exceeded stock – capped.")
+                        set_status(lang.t("dispatch_kit.msg_exceeded_stock", "Exceeded stock – capped."))
                     val = str(iv)
 
             self.tree.set(row_id, "qty_to_issue", f"★ {val}")
             entry.destroy()
             self.editing_cell = None
 
-            # Propagation
             if rt_low == "kit" and rules.get("derive_modules_from_Kit") and hasattr(self, "_derive_modules_from_Kits"):
                 self._derive_modules_from_Kits()
                 if rules.get("derive_items_from_modules"):
@@ -1564,23 +1481,22 @@ class StockDispatchKit(tk.Frame):
         entry.bind("<FocusOut>", save)
         entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self, "editing_cell", None)))
 
-        
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Search
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def search_items(self, event=None):
         query_raw = (self.search_var.get() or "").strip()
         query = query_raw.lower()
         if query == "":
             count = len(self.full_items)
             self.populate_rows(self.full_items,
-                               lang.t("dispatch_Kit.showing_rows_reset",
-                                      f"Showing {count} rows (reset)"))
+                               lang.t("dispatch_kit.showing_rows_reset",
+                                      "Showing {n} rows (reset)").format(n=count))
             return
         if len(query) < self.search_min_chars:
             self.status_var.set(
-                lang.t("dispatch_Kit.search_min_chars",
-                       f"Type at least {self.search_min_chars} characters to search...")
+                lang.t("dispatch_kit.search_min_chars",
+                       "Type at least {n} characters to search...").format(n=self.search_min_chars)
             )
             return
         filtered = []
@@ -1590,170 +1506,32 @@ class StockDispatchKit(tk.Frame):
             if query in code_l or query in desc_l:
                 filtered.append(it)
         count = len(filtered)
-        msg = lang.t("dispatch_Kit.found_items_count",
-                     f"Found {count} matching rows")
+        msg = lang.t("dispatch_kit.found_items_count",
+                     "Found {n} matching rows").format(n=count)
         self.populate_rows(filtered, msg)
 
-    def _insert_transaction_issue(self, cur, *, unique_id, code, description,
-                                  expiry_date, batch_number, scenario, kit_number,
-                                  module_number, qty_out, out_type,
-                                  third_party, end_user, remarks, movement_type,
-                                  ts_date, ts_time, document_number):
-        """
-        Insert a single stock issue transaction using an existing cursor.
-        Now includes document_number column.
-        """
-        cur.execute("""
-            INSERT INTO stock_transactions
-            (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-             Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-             Third_Party, End_User, Remarks, Movement_Type, document_number)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            ts_date, ts_time,
-            unique_id, code, description, expiry_date, batch_number,
-            scenario, kit_number, module_number,
-            None, None, qty_out, out_type,
-            third_party, end_user, remarks, movement_type, document_number
-        ))
-
-    # ------------------------------------------------------------------
-    # Generate Document Number
-    # ------------------------------------------------------------------
-
-    def generate_document_number(self, out_type_text: str) -> str:
-        """
-        Generate a document number for OUT (dispatch) operations.
-
-        Format:
-            YYYY/MM/<PROJECT_CODE>/<ABBR>/<SERIAL>
-
-        - PROJECT_CODE retrieved from project_details.project_code
-        - ABBR: derived from out_type_text using a mapping; if no direct match,
-                build from significant uppercase initials (skip small stopwords)
-        - SERIAL: 4-digit increment per prefix (0001, 0002, ...)
-
-        Stores in self.current_document_number and returns it.
-        """
-        project_name, project_code = fetch_project_details()
-        project_code = (project_code or "PRJ").strip().upper()
-
-        # Base mapping (keys are English canonical forms; we fuzzy-normalize input)
-        base_map = {
-            "Issue to End User": "OEU",
-            "Expired Items": "OEXP",
-            "Damaged Items": "ODMG",
-            "Cold Chain Break": "OCCB",
-            "Batch Recall": "OBRC",
-            "Theft": "OTHF",
-            "Other Losses": "OLS",
-            "Out Donation": "ODN",
-            "Loan": "OLOAN",
-            "Return of Borrowing": "OROB",
-            "Quarantine": "OQRT"
-        }
-
-        raw = (out_type_text or "").strip()
-        import re
-        norm_raw = re.sub(r'[^a-z0-9]+', '', raw.lower())
-        abbr = None
-        for k, v in base_map.items():
-            if re.sub(r'[^a-z0-9]+', '', k.lower()) == norm_raw:
-                abbr = v
-                break
-
-        if not abbr:
-            # Dynamic abbreviation: keep 'MSF' intact, take first letter of other words
-            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES"}
-            parts = []
-            for token in re.split(r'\s+', raw.upper()):
-                if not token or token in stop:
-                    continue
-                if token == "MSF":
-                    parts.append("MSF")
-                else:
-                    parts.append(token[0])
-            if not parts:
-                abbr = (raw[:4].upper() or "DOC").replace(" ", "")
-            else:
-                # Merge, respecting MSF
-                merged = []
-                for p in parts:
-                    merged.append(p)
-                abbr = "".join(merged)
-            if len(abbr) > 8:
-                abbr = abbr[:8]
-
-        now = datetime.now()
-        prefix = f"{now.year:04d}/{now.month:02d}/{project_code}/{abbr}"
-
-        # Find latest serial for this prefix
-        conn = connect_db()
-        serial_num = 1
-        if conn is not None:
-            cur = conn.cursor()
-            try:
-                cur.execute("""
-                    SELECT document_number
-                      FROM stock_transactions
-                     WHERE document_number LIKE ?
-                     ORDER BY document_number DESC
-                     LIMIT 1
-                """, (prefix + "/%",))
-                row = cur.fetchone()
-                if row and row[0]:
-                    last_serial = row[0].rsplit("/", 1)[-1]
-                    if last_serial.isdigit():
-                        serial_num = int(last_serial) + 1
-            except Exception as e:
-                logging.error(f"[DISPATCH] Error fetching last document_number: {e}")
-            finally:
-                cur.close()
-                conn.close()
-
-        document_number = f"{prefix}/{serial_num:04d}"
-        self.current_document_number = document_number
-        return document_number
-
-    
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Save (Issue)
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def save_all(self):
-        """
-        Issue (dispatch) selected quantities.
-
-        CHANGE: Adds document_number creation (one per batch).
-        All other behavior retained. Export formatting untouched.
-        """
         logging.info("[DISPATCH] save_all called")
         if self.role not in ["admin", "manager"]:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("receive_Kit.no_permission", "Only admin or manager roles can save changes."), "error")
+                         lang.t("dispatch_kit.no_permission", "Only admin or manager roles can save changes."), "error")
             return
 
-        out_type = (self.trans_type_var.get() or "").strip()
+        out_type_display = (self.trans_type_var.get() or "").strip()
+        out_type = self._value_for_out_type(out_type_display)
         if not out_type:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
                          lang.t("dispatch_kit.no_out_type", "OUT Type is mandatory."), "error")
             return
 
-        third_party_required = {
-            lang.t("dispatch_Kit.out_donation", "Out Donation"),
-            lang.t("dispatch_Kit.out_loan", "Loan"),
-            lang.t("dispatch_Kit.out_return_borrowing", "Return of Borrowing")
-        }
-        end_user_required = {
-            lang.t("dispatch_Kit.out_issue_end_user", "Issue to End User")
-        }
+        third_party_required = {"Out Donation", "Loan", "Return of Borrowing"}
+        end_user_required = {"Issue to End User"}
         remarks_required = {
-            lang.t("dispatch_Kit.out_expired", "Expired Items"),
-            lang.t("dispatch_Kit.out_damaged", "Damaged Items"),
-            lang.t("dispatch_Kit.out_cold_chain", "Cold Chain Break"),
-            lang.t("dispatch_Kit.out_batch_recall", "Batch Recall"),
-            lang.t("dispatch_Kit.out_theft", "Theft"),
-            lang.t("dispatch_Kit.out_other_losses", "Other Losses"),
-            lang.t("dispatch_Kit.out_quarantine", "Quarantine")
+            "Expired Items", "Damaged Items", "Cold Chain Break",
+            "Batch Recall", "Theft", "Other Losses", "Quarantine"
         }
 
         end_user = (self.end_user_var.get() or "").strip()
@@ -1762,18 +1540,17 @@ class StockDispatchKit(tk.Frame):
 
         if out_type in end_user_required and not end_user:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_Kit.err_end_user_required", "End User is required for this Out Type."), "error")
+                         lang.t("dispatch_kit.err_end_user_required", "End User is required for this Out Type."), "error")
             return
         if out_type in third_party_required and not third_party:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_Kit.err_third_party_required", "Third Party is required for this Out Type."), "error")
+                         lang.t("dispatch_kit.err_third_party_required", "Third Party is required for this Out Type."), "error")
             return
         if out_type in remarks_required and (len(remarks) < 3):
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_Kit.err_remarks_required", "Remarks are required (min 3 chars) for this Out Type."), "error")
+                         lang.t("dispatch_kit.err_remarks_required", "Remarks are required (min 3 chars) for this Out Type."), "error")
             return
 
-        # Collect rows to issue
         rows_to_issue = []
         for iid in self.tree.get_children():
             vals = self.tree.item(iid, "values")
@@ -1798,30 +1575,30 @@ class StockDispatchKit(tk.Frame):
 
         if not rows_to_issue:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_Kit.no_issue_qty", "No quantities entered to issue."), "error")
+                         lang.t("dispatch_kit.no_issue_qty", "No quantities entered to issue."), "error")
             return
 
         over = [code for (_, code, _, _, stock, qty, _, _, _) in rows_to_issue if qty > stock and stock > 0]
         if over:
             custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_Kit.over_issue",
-                                f"Cannot issue more than stock for: {', '.join(over)}"), "error")
+                         lang.t("dispatch_kit.over_issue",
+                                "Cannot issue more than stock for: {list}").format(list=", ".join(over)), "error")
             return
 
         scenario_name = self.scenario_map.get(self.selected_scenario_id, "")
         movement_label = self.mode_var.get()
 
-        # Generate ONE outbound document number for the whole batch
         doc_number = self.generate_document_number(out_type)
-        self.status_var.set(f"Pending dispatch... Document Number: {doc_number}")
+        self.status_var.set(lang.t("dispatch_kit.pending_dispatch", "Pending dispatch... Document Number: {doc}")
+                            .format(doc=doc_number))
 
-        import time, sqlite3
+        import time
         max_attempts = 4
         for attempt in range(1, max_attempts + 1):
             conn = connect_db()
             if conn is None:
                 custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                             lang.t("receive_Kit.db_error", "Database connection failed"), "error")
+                             lang.t("dispatch_kit.db_error", "Database connection failed"), "error")
                 return
             try:
                 conn.execute("PRAGMA busy_timeout=5000;")
@@ -1830,7 +1607,6 @@ class StockDispatchKit(tk.Frame):
                 now_time = datetime.now().strftime('%H:%M:%S')
 
                 for (iid, code, desc, type_field, stock, qty, exp_date, batch_no, unique_id) in rows_to_issue:
-                    # Update stock_data (ensure available final_qty by checking qty_out only logically)
                     cur.execute("""
                         SELECT final_qty FROM stock_data WHERE unique_id = ?
                     """, (unique_id,))
@@ -1875,12 +1651,13 @@ class StockDispatchKit(tk.Frame):
 
                 conn.commit()
                 custom_popup(self.parent, lang.t("dialog_titles.success", "Success"),
-                             lang.t("dispatch_Kit.issue_success", "Stock issued successfully."), "info")
-                self.status_var.set(f"Issue complete. Document Number: {doc_number}")
+                             lang.t("dispatch_kit.issue_success", "Stock issued successfully."), "info")
+                self.status_var.set(lang.t("dispatch_kit.issue_complete", "Issue complete. Document Number: {doc}")
+                                    .format(doc=doc_number))
 
                 if custom_askyesno(self.parent,
                                    lang.t("dialog_titles.confirm", "Confirm"),
-                                   lang.t("dispatch_Kit.ask_export", "Do you want to export the issuance to Excel?")) == "yes":
+                                   lang.t("dispatch_kit.ask_export", "Do you want to export the issuance to Excel?")) == "yes":
                     export_tuples = [(iid, code, desc, stock, qty, exp_date, batch_no)
                                      for (iid, code, desc, _type, stock, qty, exp_date, batch_no, _uid) in rows_to_issue]
                     self.export_data(export_tuples)
@@ -1902,7 +1679,7 @@ class StockDispatchKit(tk.Frame):
                         pass
                     logging.error(f"[DISPATCH] Issue failed: {e}")
                     custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("dispatch_Kit.issue_failed", f"Issue failed: {e}"), "error")
+                                 lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), "error")
                     return
             except Exception as e:
                 try:
@@ -1911,7 +1688,7 @@ class StockDispatchKit(tk.Frame):
                     pass
                 logging.error(f"[DISPATCH] Issue failed: {e}")
                 custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                             lang.t("dispatch_Kit.issue_failed", f"Issue failed: {e}"), "error")
+                             lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), "error")
                 return
             finally:
                 try:
@@ -1924,17 +1701,115 @@ class StockDispatchKit(tk.Frame):
                     pass
 
         custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                     lang.t("dispatch_Kit.issue_failed", "Issue failed: database remained locked."), "error")
-            
+                     lang.t("dispatch_kit.issue_failed_locked", "Issue failed: database remained locked."), "error")
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # Helper: insert transaction using existing cursor
+    # ---------------------------------------------------------
+    def _insert_transaction_issue(self, cur, *, unique_id, code, description,
+                                  expiry_date, batch_number, scenario, kit_number,
+                                  module_number, qty_out, out_type,
+                                  third_party, end_user, remarks, movement_type,
+                                  ts_date, ts_time, document_number):
+        cur.execute("""
+            INSERT INTO stock_transactions
+            (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
+             Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
+             Third_Party, End_User, Remarks, Movement_Type, document_number)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            ts_date, ts_time,
+            unique_id, code, description, expiry_date, batch_number,
+            scenario, kit_number, module_number,
+            None, None, qty_out, out_type,
+            third_party, end_user, remarks, movement_type, document_number
+        ))
+
+    # ---------------------------------------------------------
+    # Generate Document Number
+    # ---------------------------------------------------------
+    def generate_document_number(self, out_type_text: str) -> str:
+        project_name, project_code = fetch_project_details()
+        project_code = (project_code or "PRJ").strip().upper()
+
+        base_map = {
+            "Issue to End User": "OEU",
+            "Expired Items": "OEXP",
+            "Damaged Items": "ODMG",
+            "Cold Chain Break": "OCCB",
+            "Batch Recall": "OBRC",
+            "Theft": "OTHF",
+            "Other Losses": "OLS",
+            "Out Donation": "ODN",
+            "Loan": "OLOAN",
+            "Return of Borrowing": "OROB",
+            "Quarantine": "OQRT"
+        }
+
+        raw = (out_type_text or "").strip()
+        import re
+        norm_raw = re.sub(r'[^a-z0-9]+', '', raw.lower())
+        abbr = None
+        for k, v in base_map.items():
+            if re.sub(r'[^a-z0-9]+', '', k.lower()) == norm_raw:
+                abbr = v
+                break
+
+        if not abbr:
+            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES"}
+            parts = []
+            for token in re.split(r'\s+', raw.upper()):
+                if not token or token in stop:
+                    continue
+                if token == "MSF":
+                    parts.append("MSF")
+                else:
+                    parts.append(token[0])
+            if not parts:
+                abbr = (raw[:4].upper() or "DOC").replace(" ", "")
+            else:
+                abbr = "".join(parts)
+            if len(abbr) > 8:
+                abbr = abbr[:8]
+
+        now = datetime.now()
+        prefix = f"{now.year:04d}/{now.month:02d}/{project_code}/{abbr}"
+
+        conn = connect_db()
+        serial_num = 1
+        if conn is not None:
+            cur = conn.cursor()
+            try:
+                cur.execute("""
+                    SELECT document_number
+                      FROM stock_transactions
+                     WHERE document_number LIKE ?
+                     ORDER BY document_number DESC
+                     LIMIT 1
+                """, (prefix + "/%",))
+                row = cur.fetchone()
+                if row and row[0]:
+                    last_serial = row[0].rsplit("/", 1)[-1]
+                    if last_serial.isdigit():
+                        serial_num = int(last_serial) + 1
+            except Exception as e:
+                logging.error(f"[DISPATCH] Error fetching last document_number: {e}")
+            finally:
+                cur.close()
+                conn.close()
+
+        document_number = f"{prefix}/{serial_num:04d}"
+        self.current_document_number = document_number
+        return document_number
+
+    # ---------------------------------------------------------
     # Utility / Clear / Export
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     def clear_search(self):
         self.search_var.set("")
         self.populate_rows(self.full_items,
-                           lang.t("dispatch_Kit.showing_rows_reset",
-                                  f"Showing {len(self.full_items)} rows (reset)"))
+                           lang.t("dispatch_kit.showing_rows_reset",
+                                  "Showing {n} rows (reset)").format(n=len(self.full_items)))
 
     def clear_form(self):
         self.clear_table_only()
@@ -1950,23 +1825,16 @@ class StockDispatchKit(tk.Frame):
         self.remarks_entry.config(state="normal")
         self.remarks_entry.delete(0, tk.END)
         self.remarks_entry.config(state="disabled")
-        self.status_var.set(lang.t("receive_Kit.ready", "Ready"))
+        self.status_var.set(lang.t("dispatch_kit.ready", "Ready"))
         self.scenario_map = self.fetch_scenario_map()
         self.load_scenarios()
 
     def export_data(self, rows_to_issue=None):
-        """
-        Export issued rows to Excel (no unique_id column).
-        rows_to_issue: optional list of tuples (iid, code, desc, stock, qty, exp_date, batch_no)
-                       If None, will re-scan tree (post-save normally we pass it in).
-        Adds Document Number (if available) after Date with 8 spaces separation.
-        """
         logging.info("[DISPATCH] export_data called")
         if self.parent is None or not self.parent.winfo_exists():
             logging.error("Parent window is None or does not exist in export_data")
             return
         try:
-            # Always scan the tree recursively to get all rows
             export_rows = []
             all_iids = []
 
@@ -2000,7 +1868,6 @@ class StockDispatchKit(tk.Frame):
                     "qty_issued": qty
                 })
 
-            # If rows_to_issue is provided, update the corresponding entries
             if rows_to_issue is not None:
                 for row in rows_to_issue:
                     if len(row) != 7:
@@ -2015,7 +1882,6 @@ class StockDispatchKit(tk.Frame):
                             er["batch_number"] = batch_no or er["batch_number"]
                             break
 
-            # Check if there is any issued qty
             has_issued = any(r["qty_issued"] > 0 for r in export_rows)
             if not has_issued:
                 custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
@@ -2028,7 +1894,6 @@ class StockDispatchKit(tk.Frame):
             scenario_name = self.selected_scenario_name or "N/A"
             doc_number = getattr(self, "current_document_number", None)
 
-            # Helper to sanitize for filenames
             import re
             def sanitize(s: str) -> str:
                 s = re.sub(r'[^A-Za-z0-9]+', '_', s)
@@ -2038,7 +1903,6 @@ class StockDispatchKit(tk.Frame):
             out_type_slug = sanitize(out_type_raw)
             movement_type_slug = sanitize(movement_type_raw)
 
-            # Ask for path
             default_dir = "D:/ISEPREP"
             if not os.path.exists(default_dir):
                 os.makedirs(default_dir)
@@ -2058,62 +1922,56 @@ class StockDispatchKit(tk.Frame):
             wb = openpyxl.Workbook()
             ws = wb.active
 
-            # Worksheet title (Excel limit 31 chars)
-            ws_title_base = "Dispatch"
-            ws_title = f"{ws_title_base[:15]}-{movement_type_slug[:12]}"
-            ws.title = ws_title
-
-            # Row 1: Date + 8 spaces + Document Number (if available)
             if doc_number:
-                ws['A1'] = f"Date: {current_time}{' ' * 8}Document Number: {doc_number}"
+                ws['A1'] = lang.t("dispatch_kit.date_doc", "Date: {date}        Document Number: {doc}")\
+                    .format(date=current_time, doc=doc_number)
             else:
-                ws['A1'] = f"Date: {current_time}"
+                ws['A1'] = lang.t("dispatch_kit.date_only", "Date: {date}").format(date=current_time)
             ws['A1'].font = Font(name="Calibri", size=11)
             ws['A1'].alignment = Alignment(horizontal="left")
 
             project_name, project_code = fetch_project_details()
 
-            # A2: Movement line
-            ws['A2'] = f"{ws_title_base} – Movement: {movement_type_raw}"
+            ws_title_base = lang.t("dispatch_kit.sheet_title_base", "Dispatch")
+            ws_title = f"{ws_title_base[:15]}-{movement_type_slug[:12]}"
+            ws.title = ws_title
+
+            ws['A2'] = f"{ws_title_base} – {lang.t('dispatch_kit.movement', 'Movement')}: {movement_type_raw}"
             ws['A2'].font = Font(name="Tahoma", size=14, bold=True)
             ws['A2'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A2:I2')
 
-            # A3: Project
             ws['A3'] = f"{project_name} - {project_code}"
             ws['A3'].font = Font(name="Tahoma", size=14, bold=True)
             ws['A3'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A3:I3')
 
-            # A4: OUT Type
             ws['A4'] = f"{lang.t('dispatch_kit.out_type', 'OUT Type')}: {out_type_raw}"
             ws['A4'].font = Font(name="Tahoma", size=12, bold=True)
             ws['A4'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A4:I4')
 
-            # A5: Scenario
-            ws['A5'] = f"Scenario: {scenario_name}"
+            ws['A5'] = f"{lang.t('dispatch_kit.scenario', 'Scenario')}: {scenario_name}"
             ws['A5'].font = Font(name="Tahoma", size=12, bold=True)
             ws['A5'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A5:I5')
 
-            ws.append([])  # Empty row 6
+            ws.append([])
             ws['A6'].font = Font(name="Tahoma", size=11, bold=True)
 
             headers = [
                 lang.t("dispatch_kit.code", "Code"),
                 lang.t("dispatch_kit.description", "Description"),
                 lang.t("dispatch_kit.type", "Type"),
-                lang.t("dispatch_kit.kit", "Kit Number"),
-                lang.t("dispatch_kit.module", "Module Number"),
+                lang.t("dispatch_kit.kit_number", "Kit Number"),
+                lang.t("dispatch_kit.module_number", "Module Number"),
                 lang.t("dispatch_kit.current_stock", "Current Stock"),
                 lang.t("dispatch_kit.expiry_date", "Expiry Date"),
                 lang.t("dispatch_kit.batch_no", "Batch Number"),
-                lang.t("dispatch_kit.qty_to_issue", "Qty Issued")
+                lang.t("dispatch_kit.qty_to_issue_short", "Qty Issued")
             ]
             ws.append(headers)
 
-            # Header row styling (row 7)
             for col in range(1, len(headers) + 1):
                 cell = ws.cell(row=7, column=col)
                 cell.font = Font(name="Tahoma", size=11, bold=True)
@@ -2140,7 +1998,6 @@ class StockDispatchKit(tk.Frame):
                     elif row_type == "module":
                         cell.fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
-            # Autofit (approx)
             for col in ws.columns:
                 max_length = 0
                 col_letter = get_column_letter(col[0].column)
@@ -2164,17 +2021,18 @@ class StockDispatchKit(tk.Frame):
             wb.save(path)
             custom_popup(self.parent,
                          lang.t("dialog_titles.success", "Success"),
-                         lang.t("dispatch_kit.export_success", f"Exported to {path}"),
+                         lang.t("dispatch_kit.export_success", "Exported to {path}").format(path=path),
                          "info")
-            self.status_var.set(lang.t("dispatch_kit.export_success", f"Export successful: {path}"))
+            self.status_var.set(lang.t("dispatch_kit.export_success", "Exported to {path}").format(path=path))
             logging.info(f"[DISPATCH] Exported file: {path}")
         except Exception as e:
             logging.error(f"[DISPATCH] Export failed: {e}")
             custom_popup(self.parent,
                          lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.export_failed", f"Export failed: {str(e)}"),
+                         lang.t("dispatch_kit.export_failed", "Export failed: {err}").format(err=str(e)),
                          "error")
-            
+
+
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Dispatch")

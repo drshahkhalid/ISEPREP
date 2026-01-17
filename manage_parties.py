@@ -22,13 +22,12 @@ BTN_DELETE     = "#C0392B"
 BTN_DISABLED   = "#94A3B8"
 BTN_MISC       = "#7F8C8D"
 
-# Canonical roles allowed to modify (you can adjust as needed)
-# We explicitly EXCLUDE supervisor. We also handle the symbol "$".
-ALLOWED_CANONICAL_ROLES = {"admin", "manager"}   # leave as your original policy
-SUPERVISOR_SYMBOLS = {"$", "supervisor"}         # anything here is denied editing
+# Canonical roles allowed to modify
+ALLOWED_CANONICAL_ROLES = {"admin", "manager"}
+SUPERVISOR_SYMBOLS = {"$", "supervisor"}
 
 
-def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
+def _center_toplevel(win:  tk.Toplevel, parent: tk.Widget = None):
     """Center a toplevel window relative to parent or screen."""
     win.update_idletasks()
     if parent and parent.winfo_exists():
@@ -49,15 +48,14 @@ def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
 
 class ManageParties(tk.Frame):
     """
-    Themed management UI for Third Parties or End Users.
-    - NOW symbol-aware: role symbol "$" (supervisor) cannot add/edit/delete.
-    - Canonical 'supervisor' also blocked.
-    - Original allowed editors: admin, manager.
+    Themed management UI for Third Parties or End Users. 
+    - Type dropdown:  displays in selected language, stores in English
+    - Symbol-aware: role symbol "$" (supervisor) cannot add/edit/delete
     """
-    def __init__(self, parent, app, party_type: str):
+    def __init__(self, parent, app, party_type:  str):
         super().__init__(parent, bg=BG_MAIN)
         self.app = app
-        self.role = getattr(app, "role", "supervisor")  # may be canonical or symbol
+        self.role = getattr(app, "role", "supervisor")
         self.party_type = party_type  # "third" or "end"
         self.tree = None
         self.entries = {}
@@ -67,46 +65,64 @@ class ManageParties(tk.Frame):
         self.load_data()
 
     # --------------------------------------------------------
-    # Permission logic (centralized)
+    # Permission logic
     # --------------------------------------------------------
     def _can_modify(self) -> bool:
-        """
-        Return True if current role (canonical or symbol) is allowed to modify.
-        Blocks supervisor by canonical name or symbol "$".
-        """
+        """Return True if current role is allowed to modify."""
         raw = (self.role or "").strip().lower()
         if raw in SUPERVISOR_SYMBOLS:
             return False
-        # If role was passed as symbol for an allowed one (e.g. admin -> "@"),
-        # you can map if you later adopt symbols for others; for now we just
-        # match canonical names in ALLOWED_CANONICAL_ROLES.
         return raw in ALLOWED_CANONICAL_ROLES
 
     # --------------------------------------------------------
-    # Context / config
+    # Context / config with translatable types
     # --------------------------------------------------------
     def _define_context(self):
         if self.party_type == "third":
             self.table_name = "third_parties"
-            self.heading = lang.t("manage.third_parties", fallback="Manage Third Parties")
+            self.heading = lang. t("manage.third_parties", fallback="Manage Third Parties")
             self.id_field = "third_party_id"
-            self.type_options = [
+            # Canonical English values (stored in DB)
+            self.type_options_canonical = [
                 "MSF-Same Section", "MSF-Other Section", "Non-MSF", "MOH"
             ]
-            self.default_type = "MSF-Same Section"
+            self.default_type_canonical = "MSF-Same Section"
+            self.type_enum_key = "manage_parties.third_party_types"
             self.form_key_prefix = "third"
-        else:
+        else: 
             self.table_name = "end_users"
             self.heading = lang.t("manage.end_users", fallback="Manage End Users")
             self.id_field = "end_user_id"
-            self.type_options = ["Individual", "Organization"]
-            self.default_type = "Individual"
+            # Canonical English values (stored in DB)
+            self.type_options_canonical = ["Individual", "Organization"]
+            self.default_type_canonical = "Individual"
+            self.type_enum_key = "manage_parties.end_user_types"
             self.form_key_prefix = "end"
 
         self.columns = [
             "ID", "Name", "Type", "City", "Address",
             "Contact Person", "Email", "Phone"
         ]
+
+    def _get_type_options_display(self):
+        """Get translated type options for display"""
+        return lang.enum_to_display_list(self.type_enum_key, self.type_options_canonical)
+
+    def _get_default_type_display(self):
+        """Get translated default type for display"""
+        return lang.enum_to_display(self.type_enum_key, self.default_type_canonical)
+
+    def _canonical_to_display(self, canonical_value):
+        """Convert canonical English type to display language"""
+        if not canonical_value: 
+            return self._get_default_type_display()
+        return lang.enum_to_display(self.type_enum_key, canonical_value, fallback=canonical_value)
+
+    def _display_to_canonical(self, display_value):
+        """Convert display language type to canonical English"""
+        if not display_value:
+            return self. default_type_canonical
+        return lang.enum_to_canonical(self.type_enum_key, display_value, fallback=display_value)
 
     # --------------------------------------------------------
     # Translation helper
@@ -125,7 +141,7 @@ class ManageParties(tk.Frame):
             pass
 
         style.configure(
-            "Parties.Treeview",
+            "Parties. Treeview",
             background=BG_PANEL,
             fieldbackground=BG_PANEL,
             foreground=COLOR_PRIMARY,
@@ -187,8 +203,11 @@ class ManageParties(tk.Frame):
         anchor_map = {col: "w" for col in self.columns}
 
         for col in self.columns:
-            self.tree.heading(col, text=self.t(f"column.{col.lower()}", fallback=col))
-            self.tree.column(col, width=width_map.get(col, 120), anchor=anchor_map.get(col, "w"))
+            # Translate column headers
+            col_key = col.lower().replace(" ", "_")
+            header_text = self.t(f"column. {col_key}", fallback=col)
+            self.tree.heading(col, text=header_text)
+            self.tree.column(col, width=width_map. get(col, 120), anchor=anchor_map.get(col, "w"))
 
         self.tree.pack(side="left", fill="both", expand=True)
 
@@ -217,11 +236,11 @@ class ManageParties(tk.Frame):
                 state="normal"
             )
 
-        self.btn_add = mk_btn("add_button", self.add_party, BTN_ADD, "Add")
+        self.btn_add = mk_btn("add_button", self. add_party, BTN_ADD, "Add")
         self.btn_add.pack(side="left", padx=4)
 
         self.btn_edit = mk_btn("edit_button", self.edit_party, BTN_EDIT, "Edit")
-        self.btn_edit.pack(side="left", padx=4)
+        self.btn_edit. pack(side="left", padx=4)
 
         self.btn_delete = mk_btn("delete_button", self.delete_party, BTN_DELETE, "Delete")
         self.btn_delete.pack(side="left", padx=4)
@@ -238,7 +257,7 @@ class ManageParties(tk.Frame):
         self.status_var = tk.StringVar(value=self.t("ready", fallback="Ready"))
         tk.Label(
             self,
-            textvariable=self.status_var,
+            textvariable=self. status_var,
             anchor="w",
             bg=BG_MAIN,
             fg=COLOR_PRIMARY,
@@ -261,7 +280,7 @@ class ManageParties(tk.Frame):
         self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
 
     # --------------------------------------------------------
-    # Data load
+    # Data load with type translation
     # --------------------------------------------------------
     def load_data(self):
         for r in self.tree.get_children():
@@ -279,10 +298,14 @@ class ManageParties(tk.Frame):
             cur.execute(f'SELECT * FROM "{self.table_name}" ORDER BY {self.id_field}')
             rows = cur.fetchall()
             for idx, row in enumerate(rows):
+                # Convert canonical type (English) to display language
+                type_canonical = row["type"] or ""
+                type_display = self._canonical_to_display(type_canonical)
+                
                 values = (
                     row[self.id_field],
                     (row["name"] or ""),
-                    (row["type"] or ""),
+                    type_display,  # Show translated type
                     (row["city"] or ""),
                     (row["address"] or ""),
                     (row["contact_person"] or ""),
@@ -292,19 +315,18 @@ class ManageParties(tk.Frame):
                 tag = "alt" if idx % 2 else "norm"
                 self.tree.insert("", "end", values=values, tags=(tag,))
             self._row_tags_config()
-            self.status_var.set(self.t("loaded_records",
-                                       fallback="Loaded {n} records").format(n=len(rows)))
+            self.status_var.set(self.t("loaded_records", n=len(rows), fallback=f"Loaded {len(rows)} records"))
         except sqlite3.Error as e:
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
+                         self.t("db_error", fallback="Database error").format(err=str(e)),
                          "error")
         finally:
             cur.close()
             conn.close()
 
     # --------------------------------------------------------
-    # Form
+    # Form with translatable type dropdown
     # --------------------------------------------------------
     def open_form(self, title, save_callback, initial_data=None):
         form = tk.Toplevel(self)
@@ -347,13 +369,15 @@ class ManageParties(tk.Frame):
             ).pack(fill="x", padx=18, pady=(6, 0))
 
             if fname == "type":
-                cb = ttk.Combobox(form, state="readonly", values=self.type_options)
-                cb.set(self.default_type)
+                # Get translated options for display
+                display_options = self._get_type_options_display()
+                cb = ttk.Combobox(form, state="readonly", values=display_options)
+                cb.set(self._get_default_type_display())
                 cb.pack(fill="x", padx=18, pady=(0, 6))
                 self.entries[fname] = cb
             else:
                 ent = tk.Entry(form, font=("Helvetica", 11), relief="solid", bd=1)
-                ent.pack(fill="x", padx=18, pady=(0, 6))
+                ent. pack(fill="x", padx=18, pady=(0, 6))
                 self.entries[fname] = ent
 
         for fname, req in fields:
@@ -364,7 +388,12 @@ class ManageParties(tk.Frame):
             for key, widget in self.entries.items():
                 val = initial_data.get(key, "")
                 if isinstance(widget, ttk.Combobox):
-                    widget.set(val or self.default_type)
+                    if key == "type":
+                        # Convert canonical to display for combobox
+                        display_val = self._canonical_to_display(val) if val else self._get_default_type_display()
+                        widget.set(display_val)
+                    else:
+                        widget.set(val or self._get_default_type_display())
                 else:
                     widget.delete(0, tk.END)
                     widget.insert(0, val or "")
@@ -387,7 +416,7 @@ class ManageParties(tk.Frame):
         form.after(50, lambda: _center_toplevel(form, self))
 
     # --------------------------------------------------------
-    # Add
+    # Add with type conversion
     # --------------------------------------------------------
     def add_party(self):
         if not self._can_modify():
@@ -396,34 +425,39 @@ class ManageParties(tk.Frame):
 
         def save(form):
             data = {k: (w.get().strip() if hasattr(w, "get") else "") for k, w in self.entries.items()}
-            if not data["name"] or not data["type"]:
+            
+            # Convert type from display to canonical before saving
+            if "type" in data:
+                data["type"] = self._display_to_canonical(data["type"])
+            
+            if not data["name"] or not data["type"]: 
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("required_fields", fallback="Name and Type are required."),
+                             self.t("required_fields", fallback="Name and Type are required. "),
                              "error")
                 return
             conn = connect_db()
             if conn is None:
                 custom_popup(form,
-                             lang.t("dialog_titles.error", "Error"),
+                             lang.t("dialog_titles. error", "Error"),
                              self.t("db_error", fallback="Database connection failed"),
                              "error")
                 return
             cur = conn.cursor()
             try:
                 cur.execute(f"""
-                    INSERT INTO "{self.table_name}"
+                    INSERT INTO "{self. table_name}"
                       (name, type, city, address, contact_person, email, phone)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    data["name"], data["type"], data.get("city"),
+                    data["name"], data["type"], data. get("city"),
                     data.get("address"), data.get("contact_person"),
                     data.get("email"), data.get("phone")
                 ))
                 conn.commit()
                 custom_popup(self,
                              lang.t("dialog_titles.success", "Success"),
-                             self.t("add_success", fallback="Record added successfully."),
+                             self.t("add_success", fallback="Record added successfully. "),
                              "info")
                 form.destroy()
                 self.load_data()
@@ -431,9 +465,9 @@ class ManageParties(tk.Frame):
                 conn.rollback()
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
+                             self.t("db_error", fallback="Database error").format(err=str(e)),
                              "error")
-            finally:
+            finally: 
                 cur.close()
                 conn.close()
 
@@ -442,7 +476,7 @@ class ManageParties(tk.Frame):
         self.open_form(title, save)
 
     # --------------------------------------------------------
-    # Edit
+    # Edit with type conversion
     # --------------------------------------------------------
     def edit_party(self):
         if not self._can_modify():
@@ -451,24 +485,44 @@ class ManageParties(tk.Frame):
         sel = self.tree.selection()
         if not sel:
             custom_popup(self,
-                         lang.t("dialog_titles.error", "Error"),
+                         lang.t("dialog_titles. error", "Error"),
                          self.t("select_record", fallback="Please select a record to edit"),
                          "error")
             return
         values = self.tree.item(sel[0])["values"]
         party_id = values[0]
-        initial_data = {
-            "name": values[1],
-            "type": values[2],
-            "city": values[3],
-            "address": values[4],
-            "contact_person": values[5],
-            "email": values[6],
-            "phone": values[7]
-        }
+        
+        # Get canonical type from database
+        conn = connect_db()
+        if conn is None: 
+            return
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute(f'SELECT * FROM "{self.table_name}" WHERE {self.id_field} = ? ', (party_id,))
+            row = cur.fetchone()
+            if not row:
+                return
+            initial_data = {
+                "name": row["name"] or "",
+                "type": row["type"] or "",  # Canonical English type
+                "city": row["city"] or "",
+                "address": row["address"] or "",
+                "contact_person": row["contact_person"] or "",
+                "email": row["email"] or "",
+                "phone": row["phone"] or ""
+            }
+        finally:
+            cur.close()
+            conn.close()
 
         def save(form):
             data = {k: (w.get().strip() if hasattr(w, "get") else "") for k, w in self.entries.items()}
+            
+            # Convert type from display to canonical before saving
+            if "type" in data:
+                data["type"] = self._display_to_canonical(data["type"])
+            
             if not data["name"] or not data["type"]:
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
@@ -476,13 +530,13 @@ class ManageParties(tk.Frame):
                              "error")
                 return
             conn = connect_db()
-            if conn is None:
+            if conn is None: 
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
                              self.t("db_error", fallback="Database connection failed"),
                              "error")
                 return
-            cur = conn.cursor()
+            cur = conn. cursor()
             try:
                 cur.execute(f"""
                     UPDATE "{self.table_name}"
@@ -504,9 +558,9 @@ class ManageParties(tk.Frame):
                 conn.rollback()
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
+                             self.t("db_error", fallback="Database error").format(err=str(e)),
                              "error")
-            finally:
+            finally: 
                 cur.close()
                 conn.close()
 
@@ -521,7 +575,7 @@ class ManageParties(tk.Frame):
         if not self._can_modify():
             self._show_restricted()
             return
-        sel = self.tree.selection()
+        sel = self. tree.selection()
         if not sel:
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
@@ -540,13 +594,13 @@ class ManageParties(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self,
-                         lang.t("dialog_titles.error", "Error"),
+                         lang.t("dialog_titles. error", "Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cur = conn.cursor()
         try:
-            cur.execute(f'DELETE FROM "{self.table_name}" WHERE {self.id_field} = ?', (party_id,))
+            cur. execute(f'DELETE FROM "{self.table_name}" WHERE {self.id_field} = ?', (party_id,))
             conn.commit()
             custom_popup(self,
                          lang.t("dialog_titles.success", "Success"),
@@ -557,7 +611,7 @@ class ManageParties(tk.Frame):
             conn.rollback()
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
+                         self.t("db_error", fallback="Database error").format(err=str(e)),
                          "error")
         finally:
             cur.close()
@@ -572,10 +626,9 @@ class ManageParties(tk.Frame):
 
 # Standalone test
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = tk. Tk()
     class DummyApp:
-        # Try role values: "admin", "manager", "$", "supervisor"
-        role = "$"   # Should be read-only
+        role = "admin"  # Try:  "admin", "manager", "$", "supervisor"
         project_title = "IsEPREP"
     app = DummyApp()
     root.title("Manage Parties - Test")

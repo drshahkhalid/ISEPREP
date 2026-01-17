@@ -1,26 +1,15 @@
 """
-expiry_data.py  (Stock Expiry / Expiry Projection)  v1.5
+expiry_data.py  (Stock Expiry / Expiry Projection)  v1.5 (modified)
 
-Change Log v1.5:
-  * All quantity figures (Expired, This Month, each projected month column, Total)
-    are now strictly integers (rounded) — no decimals.
-  * Projection logic now produces integer quantities: projected_qty =
-        int(round(max(original_qty - (AMC * months_inclusive), 0)))
-  * Row total and numeric totals are recomputed after integer conversion to stay consistent.
-  * AMC values remain in decimal form (two decimals as before, e.g. 0.0 / 3.27).
-  * Simple / Detailed toggle & Enter-to-refresh behavior retained from v1.4.
+Filtering adjustment:
+  * Rows now only displayed if (This Month + all projected month quantities) > 0.
+    - Rows with all zeros across these months are removed.
+    - Rows that have only 'Already Expired' quantities (and zero in current/future months) are also removed.
 
-Notes:
-  - Original qty sources (qty_in - qty_out) are assumed integers; intermediary
-    projection math can create floats before rounding.
-  - If AMC is large enough to exceed lot quantity, projected quantity becomes 0.
-  - Rounding uses round() then int() to follow normal .5-up rounding.
-
-Previous v1.4 features retained:
-  * Simple / Detailed mode (Simple: Code, Description, Already Expired, This Month, Total)
-  * Export always uses full detailed set
-  * Dropdown kit/module filters, AMC=0 override
-  * Robust schema fallbacks & scenario mapping
+Other previously described changes retained:
+  * Horizontal + vertical scrollbars.
+  * Translation keys for UI text.
+  * Integer quantities for projections.
 """
 
 import tkinter as tk
@@ -29,7 +18,7 @@ import sqlite3
 from datetime import date, datetime
 from calendar import monthrange
 import openpyxl
-from openpyxl.styles import PatternFill, Alignment, Font
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
 from db import connect_db
@@ -85,7 +74,7 @@ class ExpiryDataCalculator:
         self.item_search = (item_search or "").strip()
         self.type_filter = (type_filter or "All").strip()
         self.expiry_period = max(1, min(int(expiry_period_months or 1), 99))
-        self.amc_months = max(0, min(int(amc_months or 0), 99))  # allow 0
+        self.amc_months = max(0, min(int(amc_months or 0), 99))
         today = date.today()
         self.current_year = today.year
         self.current_month = today.month
@@ -239,22 +228,17 @@ class ExpiryDataCalculator:
                 comments_val = (r.get("comments") or "").strip()
                 exp_date = r.get("exp_date")
 
-                if self.mgmt_mode.lower() != "all":
-                    if norm(mgmt_mode) != self.mgmt_mode.lower():
-                        continue
+                if self.mgmt_mode.lower() != "all" and norm(mgmt_mode) != self.mgmt_mode.lower():
+                    continue
                 if self.scenario_filter.lower() != "all":
                     if not scenario_val or scenario_val.lower() != self.scenario_filter.lower():
                         continue
-                if self.kit_number_filter.lower() != "all":
-                    if kit_num.lower() != self.kit_number_filter.lower():
-                        continue
-                if self.module_number_filter.lower() != "all":
-                    if module_num.lower() != self.module_number_filter.lower():
-                        continue
+                if self.kit_number_filter.lower() != "all" and kit_num.lower() != self.kit_number_filter.lower():
+                    continue
+                if self.module_number_filter.lower() != "all" and module_num.lower() != self.module_number_filter.lower():
+                    continue
 
-                code_type = type_map.get(code)
-                if not code_type:
-                    code_type = detect_type(code, "")
+                code_type = type_map.get(code) or detect_type(code, "")
 
                 if self.type_filter.lower() != "all":
                     if not code_type or code_type.lower() != self.type_filter.lower():
@@ -280,7 +264,7 @@ class ExpiryDataCalculator:
 
                 lot_key = (code, exp_year, exp_month)
                 per_code_expiry.setdefault(lot_key, 0)
-                per_code_expiry[lot_key] += int(final_qty)  # ensure integer accumulation
+                per_code_expiry[lot_key] += int(final_qty)
 
                 if comments_val:
                     code_comments.setdefault(code, set()).add(comments_val)
@@ -342,10 +326,9 @@ class ExpiryDataCalculator:
                     row[k] = int(row.get(k, 0)) + int(qty)
 
             for code, row in per_code_rows.items():
-                # Keep AMC as decimal (two decimals)
                 row["amc"] = round(amc_map.get(code, 0.0), 2)
 
-            # Projection -> integer quantities
+            # Project future months
             for code, row in per_code_rows.items():
                 amc_val = row["amc"] if self.amc_months > 0 else 0.0
                 for (y, m) in horizon_months_sorted:
@@ -361,20 +344,30 @@ class ExpiryDataCalculator:
                     row[k] = int(round(projected))
 
             dynamic_keys = [k for k, _ in dynamic_cols]
+
+            # Row total (still includes expired for informational purposes)
             for row in per_code_rows.values():
-                total_val = int(row.get("expired_qty", 0)) + int(row.get("this_month_qty", 0)) + sum(int(row.get(k, 0)) for k in dynamic_keys)
+                total_val = int(row.get("expired_qty", 0)) + int(row.get("this_month_qty", 0)) + \
+                            sum(int(row.get(k, 0)) for k in dynamic_keys)
                 row["row_total"] = int(total_val)
+
+            # FILTER: Keep only rows where (This Month + all projected months) > 0
+            filtered_rows = []
+            for row in per_code_rows.values():
+                horizon_sum = int(row.get("this_month_qty", 0)) + sum(int(row.get(k, 0)) for k in dynamic_keys)
+                if horizon_sum > 0:
+                    filtered_rows.append(row)
 
             all_columns = static_cols + dynamic_cols + [("row_total", lang.t("expiry_data.total", "Total"))]
 
-            rows_list = list(per_code_rows.values())
+            rows_list = filtered_rows
             rows_list.sort(key=lambda r: r["code"])
 
+            # Totals (only across displayed rows)
             totals = {}
             numeric_keys = {k for k, _ in all_columns if k not in ("code", "description", "comments", "amc")}
             for k in numeric_keys:
                 totals[k] = int(sum(int(r.get(k, 0)) for r in rows_list))
-            # AMC total (optional aggregate, keep decimal if needed)
             totals["amc"] = round(sum(r.get("amc", 0.0) for r in rows_list), 2)
 
             return all_columns, rows_list, totals, [c[0] for c in dynamic_cols]
@@ -398,7 +391,7 @@ class ExpiryDataView(tk.Frame):
         self.totals_cache = {}
         self.future_month_keys = []
         self.scenario_map = self._load_scenario_map()
-        self.simple_mode = False  # start Detailed
+        self.simple_mode = False
         self._build_ui()
         self.populate_kit_module_lists()
         self.refresh()
@@ -442,85 +435,93 @@ class ExpiryDataView(tk.Frame):
         filters.pack(fill="x", padx=12, pady=(0, 10))
 
         r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
-
-        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=BG_MAIN)\
-            .grid(row=0, column=0, sticky="w", padx=(0,4))
-        self.mgmt_mode_var = tk.StringVar(value="All")
-        self.mgmt_mode_cb = ttk.Combobox(r1, textvariable=self.mgmt_mode_var, state="readonly", width=14,
-                                         values=["All","on-shelf","in-box"])
+        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
+        self.mgmt_mode_var = tk.StringVar(value=self.t("all", "All"))
+        self.mgmt_mode_cb = ttk.Combobox(
+            r1,
+            textvariable=self.mgmt_mode_var,
+            state="readonly",
+            width=14,
+            values=[
+                self.t("all", "All"),
+                self.t("management_on_shelf", "On-Shelf"),
+                self.t("management_in_box", "In-Box")
+            ]
+        )
         self.mgmt_mode_cb.grid(row=0, column=1, padx=(0,14))
 
-        tk.Label(r1, text=self.t("scenario","Scenario"), bg=BG_MAIN)\
-            .grid(row=0, column=2, sticky="w", padx=(0,4))
-        self.scenario_var = tk.StringVar(value="All")
+        tk.Label(r1, text=self.t("scenario","Scenario"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        self.scenario_var = tk.StringVar(value=self.t("all", "All"))
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var, state="readonly", width=20)
         self.scenario_cb.grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r1, text=self.t("kit_number","Kit Number"), bg=BG_MAIN)\
-            .grid(row=0, column=4, sticky="w", padx=(0,4))
-        self.kit_var = tk.StringVar(value="All")
-        self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_var, state="readonly", width=16, values=["All"])
+        tk.Label(r1, text=self.t("kit_number","Kit Number"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
+        self.kit_var = tk.StringVar(value=self.t("all", "All"))
+        self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_var, state="readonly", width=16, values=[self.t("all", "All")])
         self.kit_cb.grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r1, text=self.t("module_number","Module Number"), bg=BG_MAIN)\
-            .grid(row=0, column=6, sticky="w", padx=(0,4))
-        self.module_var = tk.StringVar(value="All")
-        self.module_cb = ttk.Combobox(r1, textvariable=self.module_var, state="readonly", width=16, values=["All"])
+        tk.Label(r1, text=self.t("module_number","Module Number"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
+        self.module_var = tk.StringVar(value=self.t("all", "All"))
+        self.module_cb = ttk.Combobox(r1, textvariable=self.module_var, state="readonly", width=16, values=[self.t("all", "All")])
         self.module_cb.grid(row=0, column=7, padx=(0,14))
 
         r2 = tk.Frame(filters, bg=BG_MAIN); r2.pack(fill="x", pady=2)
-
-        tk.Label(r2, text=self.t("item_search","Item Search"), bg=BG_MAIN)\
-            .grid(row=0, column=0, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("item_search","Item Search"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
         self.item_search_var = tk.StringVar()
         item_entry = tk.Entry(r2, textvariable=self.item_search_var, width=22)
         item_entry.grid(row=0, column=1, padx=(0,14))
         item_entry.bind("<Return>", lambda e: self.refresh())
 
-        tk.Label(r2, text=self.t("type","Type"), bg=BG_MAIN)\
-            .grid(row=0, column=2, sticky="w", padx=(0,4))
-        self.type_var = tk.StringVar(value="All")
-        self.type_cb = ttk.Combobox(r2, textvariable=self.type_var, state="readonly", width=12,
-                                    values=["All","Kit","Module","Item"])
+        tk.Label(r2, text=self.t("type","Type"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        self.type_var = tk.StringVar(value=self.t("type_all", "All"))
+        self.type_cb = ttk.Combobox(
+            r2,
+            textvariable=self.type_var,
+            state="readonly",
+            width=12,
+            values=[
+                self.t("type_all", "All"),
+                self.t("type_kit", "Kit"),
+                self.t("type_module", "Module"),
+                self.t("type_item", "Item")
+            ]
+        )
         self.type_cb.grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=BG_MAIN)\
-            .grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
         self.expiry_period_var = tk.StringVar(value="12")
         tk.Entry(r2, textvariable=self.expiry_period_var, width=6,
-                 validate="key", validatecommand=(self.register(self._val_1_99), "%P"))\
-            .grid(row=0, column=5, padx=(0,14))
+                 validate="key", validatecommand=(self.register(self._val_1_99), "%P")).grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r2, text=self.t("amc_months","AMC Months (0=No Consumption)"), bg=BG_MAIN)\
-            .grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("amc_months","AMC Months (0=No Consumption)"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
         self.amc_months_var = tk.StringVar(value="6")
         tk.Entry(r2, textvariable=self.amc_months_var, width=6,
-                 validate="key", validatecommand=(self.register(self._val_0_99), "%P"))\
-            .grid(row=0, column=7, padx=(0,14))
+                 validate="key", validatecommand=(self.register(self._val_0_99), "%P")).grid(row=0, column=7, padx=(0,14))
 
         btn_row = tk.Frame(filters, bg=BG_MAIN); btn_row.pack(fill="x", pady=(6,4))
-        tk.Button(btn_row, text=self.t("refresh","Refresh"),
-                  bg=BTN_REFRESH, fg="#FFFFFF", relief="flat",
-                  padx=14, pady=6, command=self.refresh).pack(side="left", padx=(0,6))
-        tk.Button(btn_row, text=self.t("clear","Clear"),
-                  bg=BTN_CLEAR, fg="#FFFFFF", relief="flat",
-                  padx=14, pady=6, command=self.clear_filters).pack(side="left", padx=(0,6))
-        tk.Button(btn_row, text=self.t("export","Export"),
-                  bg=BTN_EXPORT, fg="#FFFFFF", relief="flat",
-                  padx=14, pady=6, command=self.export_excel).pack(side="left", padx=(0,6))
+        tk.Button(btn_row, text=self.t("refresh","Refresh"), bg=BTN_REFRESH, fg="#FFFFFF",
+                  relief="flat", padx=14, pady=6, command=self.refresh).pack(side="left", padx=(0,6))
+        tk.Button(btn_row, text=self.t("clear","Clear"), bg=BTN_CLEAR, fg="#FFFFFF",
+                  relief="flat", padx=14, pady=6, command=self.clear_filters).pack(side="left", padx=(0,6))
+        tk.Button(btn_row, text=self.t("export","Export"), bg=BTN_EXPORT, fg="#FFFFFF",
+                  relief="flat", padx=14, pady=6, command=self.export_excel).pack(side="left", padx=(0,6))
 
         self.status_var = tk.StringVar(value=self.t("ready","Ready"))
         tk.Label(self, textvariable=self.status_var, anchor="w",
-                 bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken")\
-            .pack(fill="x", padx=12, pady=(0,8))
+                 bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken").pack(fill="x", padx=12, pady=(0,8))
 
         outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
         outer.pack(fill="both", expand=True, padx=12, pady=(0,12))
+        outer.grid_rowconfigure(0, weight=1)
+        outer.grid_columnconfigure(0, weight=1)
+
         self.tree = ttk.Treeview(outer, columns=(), show="headings", height=22)
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.grid(row=0, column=0, sticky="nsew")
         vsb = ttk.Scrollbar(outer, orient="vertical", command=self.tree.yview)
-        vsb.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=vsb.set)
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb = ttk.Scrollbar(outer, orient="horizontal", command=self.tree.xview)
+        hsb.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         style = ttk.Style()
         try: style.theme_use("clam")
@@ -560,9 +561,10 @@ class ExpiryDataView(tk.Frame):
             names = []
         finally:
             cur.close(); conn.close()
-        self.scenario_cb['values'] = ["All"] + names
+        all_lbl = self.t("all", "All")
+        self.scenario_cb['values'] = [all_lbl] + names
         if self.scenario_var.get() not in self.scenario_cb['values']:
-            self.scenario_var.set("All")
+            self.scenario_var.set(all_lbl)
 
     def populate_kit_module_lists(self):
         conn = connect_db()
@@ -586,14 +588,16 @@ class ExpiryDataView(tk.Frame):
                         if m: modules.add(str(m))
             finally:
                 cur.close(); conn.close()
-        kit_vals = ["All"] + sorted(kits, key=lambda x: (len(x), x))
-        mod_vals = ["All"] + sorted(modules, key=lambda x: (len(x), x))
+
+        all_lbl = self.t("all", "All")
+        kit_vals = [all_lbl] + sorted(kits, key=lambda x: (len(x), x))
+        mod_vals = [all_lbl] + sorted(modules, key=lambda x: (len(x), x))
         self.kit_cb['values'] = kit_vals
         self.module_cb['values'] = mod_vals
         if self.kit_var.get() not in kit_vals:
-            self.kit_var.set("All")
+            self.kit_var.set(all_lbl)
         if self.module_var.get() not in mod_vals:
-            self.module_var.set("All")
+            self.module_var.set(all_lbl)
 
     def refresh(self):
         self.load_scenarios()
@@ -607,14 +611,48 @@ class ExpiryDataView(tk.Frame):
         except ValueError:
             amc_months = 6; self.amc_months_var.set("6")
 
+                # Normalize translated selections back to canonical internal values, INSERTED FROM HERE. (KHALID 1 start)
+        all_lbl = self.t("all", "All")
+        mgmt = self.mgmt_mode_var.get()
+        if mgmt == all_lbl:
+            mgmt_norm = "All"
+        elif mgmt == self.t("management_on_shelf", "On-Shelf"):
+            mgmt_norm = "on-shelf"
+        elif mgmt == self.t("management_in_box", "In-Box"):
+            mgmt_norm = "in-box"
+        else:
+            mgmt_norm = mgmt
+
+        scen_sel = self.scenario_var.get()
+        scen_norm = "All" if scen_sel == all_lbl else scen_sel
+
+        kit_sel = self.kit_var.get()
+        kit_norm = "All" if kit_sel == all_lbl else kit_sel
+
+        mod_sel = self.module_var.get()
+        mod_norm = "All" if mod_sel == all_lbl else mod_sel
+
+        type_sel = self.type_var.get()
+        if type_sel == self.t("type_all", "All"):
+            type_norm = "All"
+        elif type_sel == self.t("type_kit", "Kit"):
+            type_norm = "Kit"
+        elif type_sel == self.t("type_module", "Module"):
+            type_norm = "Module"
+        elif type_sel == self.t("type_item", "Item"):
+            type_norm = "Item"
+        else:
+            type_norm = type_sel
+        # UPTO HERE (KHALID 1 end)
+
         calc = ExpiryDataCalculator(
             scenario_name_map=self.scenario_map,
-            management_mode_filter=self.mgmt_mode_var.get(),
-            scenario_filter=self.scenario_var.get(),
-            kit_number_filter=self.kit_var.get(),
-            module_number_filter=self.module_var.get(),
+            management_mode_filter=mgmt_norm,
+            scenario_filter=scen_norm,
+            kit_number_filter=kit_norm,
+            module_number_filter=mod_norm,
             item_search=self.item_search_var.get(),
-            type_filter=self.type_var.get(),
+            type_filter=type_norm,
             expiry_period_months=expiry_period,
             amc_months=amc_months
         )
@@ -652,14 +690,13 @@ class ExpiryDataView(tk.Frame):
             elif cid == "amc": width = 80
             elif cid.endswith("_qty") or cid.startswith("proj_") or cid == "row_total": width = 110
             self.tree.heading(cid, text=label_map.get(cid, cid))
-            self.tree.column(cid, width=width, anchor="w")
+            self.tree.column(cid, width=width, anchor="w", stretch=False)
 
         for idx, r in enumerate(self.rows_cache):
-            # Ensure integer display for quantity columns (already int but enforce)
             row_display = {}
             for k, v in r.items():
                 if k == "amc":
-                    row_display[k] = v  # keep decimal
+                    row_display[k] = v
                 elif isinstance(v, (int, float)) and (k.endswith("_qty") or k.startswith("proj_") or k == "row_total"):
                     row_display[k] = int(v)
                 else:
@@ -679,12 +716,13 @@ class ExpiryDataView(tk.Frame):
         self._populate_tree()
 
     def clear_filters(self):
-        self.mgmt_mode_var.set("All")
-        self.scenario_var.set("All")
-        self.kit_var.set("All")
-        self.module_var.set("All")
+        all_lbl = self.t("all", "All")
+        self.mgmt_mode_var.set(all_lbl)
+        self.scenario_var.set(all_lbl)
+        self.kit_var.set(all_lbl)
+        self.module_var.set(all_lbl)
+        self.type_var.set(self.t("type_all", "All"))
         self.item_search_var.set("")
-        self.type_var.set("All")
         self.expiry_period_var.set("12")
         self.amc_months_var.set("6")
         self.refresh()
@@ -693,70 +731,76 @@ class ExpiryDataView(tk.Frame):
         if not self.rows_cache:
             custom_popup(self, self.t("no_data","No Data"),
                          self.t("nothing_export","Nothing to export."), "warning")
-            return
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel Files","*.xlsx")],
-            title=self.t("export_dialog","Save Expiry Projection"),
-            initialfile=f"Expiry_Projection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        )
-        if not file_path:
-            return
-        try:
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "ExpiryProjection"
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ws.append([self.t("generated","Generated"), now_str])
-            ws.append([self.t("filters","Filters Used")])
-            ws.append(["Management Mode", self.mgmt_mode_var.get(),
-                       "Scenario", self.scenario_var.get(),
-                       "Type", self.type_var.get()])
-            ws.append(["Expiry Period", self.expiry_period_var.get(),
-                       "AMC Months", self.amc_months_var.get(),
-                       "Mode", "Simple" if self.simple_mode else "Detailed"])
-            ws.append(["Kit Number", self.kit_var.get(),
-                       "Module Number", self.module_var.get(),
-                       "Item Search", self.item_search_var.get()])
-            ws.append([])
+        else:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel Files","*.xlsx")],
+                title=self.t("export_dialog","Save Expiry Projection"),
+                initialfile=f"Expiry_Projection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            )
+            if not file_path:
+                return
+            try:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "ExpiryProjection"
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ws.append([self.t("generated","Generated"), now_str])
+                ws.append([self.t("filters","Filters Used")])
+                ws.append([
+                    self.t("management_mode","Management Mode"), self.mgmt_mode_var.get(),
+                    self.t("scenario","Scenario"), self.scenario_var.get(),
+                    self.t("type","Type"), self.type_var.get()
+                ])
+                ws.append([
+                    self.t("expiry_period","Expiry Period (Months)"), self.expiry_period_var.get(),
+                    self.t("amc_months","AMC Months (0=No Consumption)"), self.amc_months_var.get(),
+                    self.t("mode_label","Mode"), self.t("mode_simple","Simple") if self.simple_mode else self.t("mode_detailed","Detailed")
+                ])
+                ws.append([
+                    self.t("kit_number","Kit Number"), self.kit_var.get(),
+                    self.t("module_number","Module Number"), self.module_var.get(),
+                    self.t("item_search","Item Search"), self.item_search_var.get()
+                ])
+                ws.append([])
 
-            header = [lbl for _cid, lbl in self.columns_meta]
-            ws.append(header)
+                header = [lbl for _cid, lbl in self.columns_meta]
+                ws.append(header)
 
-            kit_fill = PatternFill(start_color="228B22", end_color="228B22", fill_type="solid")
-            module_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+                kit_fill = PatternFill(start_color="228B22", end_color="228B22", fill_type="solid")
+                module_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
-            for r in self.rows_cache:
-                out_row = []
-                for cid, _lbl in self.columns_meta:
-                    val = r.get(cid, "")
-                    if cid != "amc" and isinstance(val, (int, float)) and (cid.endswith("_qty") or cid.startswith("proj_") or cid == "row_total"):
-                        val = int(val)
-                    out_row.append(val)
-                ws.append(out_row)
-                code = r.get("code","")
-                dtype = detect_type(code, r.get("description",""))
-                if dtype.upper() == "KIT":
-                    for c in ws[ws.max_row]: c.fill = kit_fill
-                elif dtype.upper() == "MODULE":
-                    for c in ws[ws.max_row]: c.fill = module_fill
+                for r in self.rows_cache:
+                    out_row = []
+                    for cid, _lbl in self.columns_meta:
+                        val = r.get(cid, "")
+                        if cid != "amc" and isinstance(val, (int, float)) and (cid.endswith("_qty") or cid.startswith("proj_") or cid == "row_total"):
+                            val = int(val)
+                        out_row.append(val)
+                    ws.append(out_row)
+                    code = r.get("code","")
+                    dtype = detect_type(code, r.get("description",""))
+                    if dtype.upper() == "KIT":
+                        for c in ws[ws.max_row]: c.fill = kit_fill
+                    elif dtype.upper() == "MODULE":
+                        for c in ws[ws.max_row]: c.fill = module_fill
 
-            for col in ws.columns:
-                max_len = 0
-                letter = get_column_letter(col[0].column)
-                for cell in col:
-                    v = "" if cell.value is None else str(cell.value)
-                    max_len = max(max_len, len(v))
-                ws.column_dimensions[letter].width = min(max_len + 2, 60)
+                for col in ws.columns:
+                    max_len = 0
+                    letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        v = "" if cell.value is None else str(cell.value)
+                        max_len = max(max_len, len(v))
+                    ws.column_dimensions[letter].width = min(max_len + 2, 60)
 
-            wb.save(file_path)
-            custom_popup(self, self.t("success","Success"),
-                         self.t("export_ok","Export completed: {f}").format(f=file_path),
-                         "info")
-        except Exception as e:
-            custom_popup(self, self.t("error","Error"),
-                         self.t("export_fail","Export failed: {err}").format(err=str(e)),
-                         "error")
+                wb.save(file_path)
+                custom_popup(self, self.t("success","Success"),
+                             self.t("export_ok","Export completed: {f}").format(f=file_path),
+                             "info")
+            except Exception as e:
+                custom_popup(self, self.t("error","Error"),
+                             self.t("export_fail","Export failed: {err}").format(err=str(e)),
+                             "error")
 
 
 class StockExpiry(ExpiryDataView):
@@ -766,9 +810,9 @@ __all__ = ["ExpiryDataView", "StockExpiry"]
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Stock Expiry / Projection v1.5")
+    root.title(lang.t("expiry_data.window_title", "Stock Expiry / Projection v1.5"))
     class Dummy: pass
     d = Dummy()
     StockExpiry(root, d).pack(fill="both", expand=True)
-    root.geometry("1400x760")
+    root.geometry("1200x700")
     root.mainloop()

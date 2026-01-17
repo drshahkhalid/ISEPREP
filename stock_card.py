@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, filedialog
 from datetime import datetime
 import sqlite3
 from db import connect_db
@@ -9,6 +9,7 @@ from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.worksheet.page import PrintPageSetup
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 import os
+
 
 def get_active_designation(code: str) -> str:
     """
@@ -42,6 +43,7 @@ def get_active_designation(code: str) -> str:
         cursor.close()
         conn.close()
 
+
 def get_active_item_type(code: str) -> str:
     """
     Fetch the item type from items_list for a given code.
@@ -56,6 +58,7 @@ def get_active_item_type(code: str) -> str:
     finally:
         cursor.close()
         conn.close()
+
 
 def fetch_kit_numbers(scenario_name: str | None = None) -> list:
     """
@@ -118,15 +121,20 @@ def fetch_module_numbers(scenario_name: str | None = None,
         cur.close()
         conn.close()
 
-        
+
 class StockCard(tk.Frame):
     def __init__(self, parent: tk.Widget, root: tk.Tk, role: str = "supervisor") -> None:
         super().__init__(parent)
         self.root = root
         self.role = role.lower()
+
         self.scenario_map = self.fetch_scenario_map()
         self.kit_numbers = fetch_kit_numbers()
         self.module_numbers = fetch_module_numbers()
+
+        # One-line item info shown on the same line as the search bar
+        self.item_info_var = tk.StringVar(value="")
+
         self.status_var = tk.StringVar(value=lang.t("stock_card.ready", "Ready"))
         self.pack(fill="both", expand=True)
         self.render_ui()
@@ -187,17 +195,49 @@ class StockCard(tk.Frame):
             results = cursor.fetchall()
             return [{'code': row['code'], 'description': get_active_designation(row['code'])} for row in results]
         except Exception as e:
-            messagebox.showerror(lang.t("dialog_titles.error", "Error"),
-                                lang.t("stock_card.search_error", "Search failed: {error}").format(error=str(e)))
+            custom_popup(self, lang.t("dialog_titles.error", "Error"),
+                         lang.t("stock_card.search_error", "Search failed: {error}").format(error=str(e)),
+                         "error")
             return []
         finally:
             cursor.close()
             conn.close()
 
+    # ---------------- Localization helpers ----------------
+    def _to_display_in_type(self, canonical: str) -> str:
+        """
+        Localize IN_Type (canonical English in DB) to the active language.
+        Falls back gracefully to the canonical string.
+        """
+        if not canonical:
+            return ""
+        return lang.enum_to_display("stock_in.in_types_map", canonical, fallback=canonical)
+
+    def _to_display_out_type(self, canonical: str) -> str:
+        """
+        Localize Out_Type (canonical English in DB) to the active language.
+        Expects translations section 'stock_out.out_types_map' (if available).
+        Falls back gracefully to a prettified canonical string.
+        """
+        if not canonical:
+            return ""
+        fallback = canonical.replace("_", " ").title()
+        return lang.enum_to_display("stock_out.out_types_map", canonical, fallback=fallback)
+
+    def _to_display_remarks(self, text: str) -> str:
+        """
+        Localize standardized remarks via 'stock_transactions.remarks_map'.
+        If the text doesn't match a known key, show the original text.
+        """
+        if text is None:
+            return ""
+        return lang.enum_to_display("stock_transactions.remarks_map", text, fallback=text)
+
     def fetch_transactions_for_code(self, code: str) -> list:
         """
         Fetch transactions for the given code, filtered by scenario, kit_number, and module_number.
         Highlight only the last row if final_stock mismatches final_qty in stock_data.
+        Localize origin/destination values (IN_Type / Out_Type) and remarks to the active language.
         """
         conn = connect_db()
         conn.row_factory = sqlite3.Row
@@ -221,21 +261,29 @@ class StockCard(tk.Frame):
             query += " ORDER BY Date, Time"
             cursor.execute(query, params)
             rows = cursor.fetchall()
+
             processed_rows = []
             running_balance = 0
             for row in rows:
                 qty_in = row['Qty_IN'] or 0
                 qty_out = row['Qty_Out'] or 0
                 running_balance += qty_in - qty_out
+
                 origin_destination = ""
                 if row['IN_Type']:
-                    origin_destination = row['IN_Type']
+                    in_disp = self._to_display_in_type(row['IN_Type'])
+                    origin_destination = in_disp
                     if row['Third_Party']:
                         origin_destination += f" ({row['Third_Party']})"
                 elif row['Out_Type']:
-                    origin_destination = row['Out_Type']
+                    out_disp = self._to_display_out_type(row['Out_Type'])
+                    origin_destination = out_disp
                     if row['End_User']:
                         origin_destination += f" ({row['End_User']})"
+
+                # Localize remarks if standardized, else keep as-is
+                remarks_disp = self._to_display_remarks(row['Remarks'])
+
                 processed_rows.append({
                     'date': row['Date'],
                     'time': row['Time'],
@@ -244,9 +292,10 @@ class StockCard(tk.Frame):
                     'qty_out': qty_out,
                     'final_stock': running_balance,
                     'expiry_date': row['Expiry_date'] or "",
-                    'remarks': row['Remarks'] or "",
+                    'remarks': remarks_disp,
                     'mismatch': False
                 })
+
             # Fetch final_qty from stock_data with same filters
             stock_query = "SELECT SUM(final_qty) AS current_final_stock FROM stock_data WHERE item = ?"
             stock_params = [code]
@@ -261,13 +310,16 @@ class StockCard(tk.Frame):
                 stock_params.append(self.module_var.get())
             cursor.execute(stock_query, stock_params)
             current_final_stock = cursor.fetchone()['current_final_stock'] or 0
+
             # Set mismatch flag only for the last row
             if processed_rows:
                 processed_rows[-1]['mismatch'] = processed_rows[-1]['final_stock'] != current_final_stock
+
             return processed_rows
         except Exception as e:
-            messagebox.showerror(lang.t("dialog_titles.error", "Error"),
-                                lang.t("stock_card.transaction_error", "Transaction fetch failed: {error}").format(error=str(e)))
+            custom_popup(self, lang.t("dialog_titles.error", "Error"),
+                         lang.t("stock_card.transaction_error", "Transaction fetch failed: {error}").format(error=str(e)),
+                         "error")
             return []
         finally:
             cursor.close()
@@ -291,18 +343,19 @@ class StockCard(tk.Frame):
     def render_ui(self) -> None:
         """
         Render the UI with scenario, kit_number, and module_number dropdowns, search frame, buttons, and Treeview.
+        Shows a single-line item info (code — description) at the same level as the search bar.
         """
         for w in self.winfo_children():
             w.destroy()
 
+        # Title
         tk.Label(self, text=lang.t("stock_card.title", "Stock Card"),
-                 font=("Helvetica", 20, "bold"), bg="#F5F5F5").pack(pady=10)
+                 font=("Helvetica", 20, "bold"), bg="#F5F5F5").pack(pady=10, fill="x")
 
         # Filter frame for dropdowns
         filter_frame = tk.Frame(self, bg="#F5F5F5")
         filter_frame.pack(pady=5, fill="x")
 
-        # Scenario dropdown
         tk.Label(filter_frame, text=lang.t("stock_card.scenario", "Scenario:"), bg="#F5F5F5").grid(row=0, column=0, padx=5, sticky="w")
         self.scenario_var = tk.StringVar(value=lang.t("stock_card.all_scenarios", "All Scenarios"))
         scenarios = list(self.scenario_map.values()) + [lang.t("stock_card.all_scenarios", "All Scenarios")]
@@ -311,7 +364,6 @@ class StockCard(tk.Frame):
         self.scenario_cb.grid(row=0, column=1, padx=5, pady=5)
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_filter_selected)
 
-        # Kit number dropdown
         tk.Label(filter_frame, text=lang.t("stock_card.kit_number", "Kit Number:"), bg="#F5F5F5").grid(row=0, column=2, padx=5, sticky="w")
         self.kit_var = tk.StringVar(value=lang.t("stock_card.all_kits", "All Kits"))
         kits = self.kit_numbers + [lang.t("stock_card.all_kits", "All Kits")]
@@ -320,7 +372,6 @@ class StockCard(tk.Frame):
         self.kit_cb.grid(row=0, column=3, padx=5, pady=5)
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_filter_selected)
 
-        # Module number dropdown
         tk.Label(filter_frame, text=lang.t("stock_card.module_number", "Module Number:"), bg="#F5F5F5").grid(row=0, column=4, padx=5, sticky="w")
         self.module_var = tk.StringVar(value=lang.t("stock_card.all_modules", "All Modules"))
         modules = self.module_numbers + [lang.t("stock_card.all_modules", "All Modules")]
@@ -337,21 +388,34 @@ class StockCard(tk.Frame):
         tk.Button(btn_frame, text=lang.t("stock_card.export", "Export"), bg="#2980B9", fg="white",
                   command=self.export_data).pack(side="left", padx=5)
 
-        # Search frame
+        # Search + item info on the same line
         search_frame = tk.Frame(self, bg="#F5F5F5")
         search_frame.pack(pady=10, fill="x")
-        tk.Label(search_frame, text=lang.t("stock_card.item_code", "Item Code"), bg="#F5F5F5").grid(row=0, column=0, padx=5, sticky="w")
+        search_frame.grid_columnconfigure(0, weight=0)
+        search_frame.grid_columnconfigure(1, weight=0)
+        search_frame.grid_columnconfigure(2, weight=0)
+        search_frame.grid_columnconfigure(3, weight=1)   # listbox expands
+        search_frame.grid_columnconfigure(4, weight=1)   # info label right side
+
+        tk.Label(search_frame, text=lang.t("stock_card.item_code", "Item Code"), bg="#F5F5F5") \
+            .grid(row=0, column=0, padx=5, sticky="w")
         self.code_entry = tk.Entry(search_frame)
-        self.code_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.code_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         self.code_entry.bind("<KeyRelease>", self.search_items)
         self.code_entry.bind("<Return>", self.select_first_result)
 
-        tk.Button(search_frame, text=lang.t("stock_card.clear_search", "Clear Search"), bg="#7F8C8D", fg="white",
-                  command=self.clear_search).grid(row=0, column=2, padx=5, pady=5)
+        tk.Button(search_frame, text=lang.t("stock_card.clear_search", "Clear Search"),
+                  bg="#7F8C8D", fg="white", command=self.clear_search) \
+            .grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
-        self.search_listbox = tk.Listbox(search_frame, height=5, width=80)
+        self.search_listbox = tk.Listbox(search_frame, height=5)
         self.search_listbox.grid(row=0, column=3, padx=5, pady=5, sticky="we")
         self.search_listbox.bind("<<ListboxSelect>>", self.fill_code_from_search)
+
+        # One-line item info (bold, no headings, at the same level)
+        info_lbl = tk.Label(search_frame, textvariable=self.item_info_var,
+                            font=("Helvetica", 12, "bold"), fg="#2C3E50", bg="#F5F5F5", anchor="e", justify="right")
+        info_lbl.grid(row=0, column=4, padx=8, pady=5, sticky="e")
 
         # Treeview with scrollbars
         tree_frame = tk.Frame(self)
@@ -398,16 +462,21 @@ class StockCard(tk.Frame):
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # Status bar
+        # Status bar (bottom)
         tk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", bg="#F5F5F5").pack(fill="x", pady=(5, 0))
 
     def on_filter_selected(self, event: tk.Event = None) -> None:
         """
         Handle filter selection (scenario, kit_number, module_number), updating search results and Treeview.
+        Also updates the single-line item info.
         """
         self.tree.delete(*self.tree.get_children())
         code = self.code_entry.get().strip()
+
+        # Update one-line item info
         if code:
+            desc = get_active_designation(code)
+            self.item_info_var.set(f"{code} — {desc}")
             self.status_var.set(lang.t("stock_card.loading", "Loading..."))
             self.update_idletasks()
             data = self.fetch_transactions_for_code(code)
@@ -416,9 +485,12 @@ class StockCard(tk.Frame):
             else:
                 for row in data:
                     self.insert_tree_row(row)
-                self.status_var.set(lang.t("stock_card.loaded", "Loaded {count} records for code {code}").format(count=len(self.tree.get_children()), code=code))
+                self.status_var.set(lang.t("stock_card.loaded", "Loaded {count} records for code {code}")
+                                    .format(count=len(self.tree.get_children()), code=code))
         else:
+            self.item_info_var.set("")
             self.status_var.set(lang.t("stock_card.ready", "Ready"))
+
         self.search_items()
 
     def search_items(self, event: tk.Event = None) -> None:
@@ -435,15 +507,17 @@ class StockCard(tk.Frame):
         for item in results:
             text = f"{item['code']} - {item['description'] or lang.t('stock_card.no_description', 'No Description')}"
             self.search_listbox.insert(tk.END, text)
-        self.status_var.set(lang.t("stock_card.found_items", "Found {size} items").format(size=self.search_listbox.size()))
+        # Use 'count' placeholder to match translations and avoid KeyError
+        self.status_var.set(lang.t("stock_card.found_items", "Found {count} items").format(count=self.search_listbox.size()))
 
     def clear_search(self) -> None:
         """
-        Clear the search entry, listbox, and Treeview.
+        Clear the search entry, listbox, Treeview, and item info.
         """
         self.code_entry.delete(0, tk.END)
         self.search_listbox.delete(0, tk.END)
         self.tree.delete(*self.tree.get_children())
+        self.item_info_var.set("")
         self.status_var.set(lang.t("stock_card.ready", "Ready"))
 
     def select_first_result(self, event: tk.Event = None) -> None:
@@ -457,6 +531,7 @@ class StockCard(tk.Frame):
     def fill_code_from_search(self, event: tk.Event = None) -> None:
         """
         Populate the code entry from the selected search result and load transactions.
+        Also updates the single-line item info.
         """
         sel = self.search_listbox.curselection()
         if not sel:
@@ -465,6 +540,10 @@ class StockCard(tk.Frame):
         self.code_entry.delete(0, tk.END)
         self.code_entry.insert(0, code)
         self.search_listbox.delete(0, tk.END)
+
+        # Update one-line item info
+        desc = get_active_designation(code)
+        self.item_info_var.set(f"{code} — {desc}")
 
         self.tree.delete(*self.tree.get_children())
         self.status_var.set(lang.t("stock_card.loading", "Loading..."))
@@ -475,7 +554,8 @@ class StockCard(tk.Frame):
         else:
             for row in data:
                 self.insert_tree_row(row)
-            self.status_var.set(lang.t("stock_card.loaded", "Loaded {count} records for code {code}").format(count=len(self.tree.get_children()), code=code))
+            self.status_var.set(lang.t("stock_card.loaded", "Loaded {count} records for code {code}")
+                                .format(count=len(self.tree.get_children()), code=code))
 
     def insert_tree_row(self, row: dict) -> None:
         """
@@ -503,22 +583,35 @@ class StockCard(tk.Frame):
         self.scenario_var.set(lang.t("stock_card.all_scenarios", "All Scenarios"))
         self.kit_var.set(lang.t("stock_card.all_kits", "All Kits"))
         self.module_var.set(lang.t("stock_card.all_modules", "All Modules"))
+        self.item_info_var.set("")
         self.status_var.set(lang.t("stock_card.ready", "Ready"))
 
     def export_data(self) -> None:
         """
-        Export the Treeview data to an Excel file, matching out_.py format without footer.
+        Export the Treeview data to an Excel file.
+        - Uses the active language for sheet title and file name (localized 'Stock Card').
+        - Uses unified popups (custom_popup) for success/error messages.
         """
         try:
+            # Pre-checks and default directory
             default_dir = "D:/ISEPREP"
             if not os.path.exists(default_dir):
                 os.makedirs(default_dir)
 
+            # Localized label and safe filename
+            localized_label = lang.t("stock_card.stock_card", "Stock Card")
+
+            import re
+            safe_label = re.sub(r"[^\w\-]+", "_", localized_label).strip("_")
+
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             code = self.code_entry.get().strip()
             description = get_active_designation(code) if code else lang.t("stock_card.no_description", "No Description")
-            file_name = f"IsEPREP_Stock-Card_{code}_{current_time}.xlsx" if code else f"IsEPREP_Stock-Card_{current_time}.xlsx"
 
+            base_name = f"IsEPREP_{safe_label}"
+            file_name = f"{base_name}_{code}_{current_time}.xlsx" if code else f"{base_name}_{current_time}.xlsx"
+
+            # Save-as dialog
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel Files", "*.xlsx")],
@@ -530,78 +623,96 @@ class StockCard(tk.Frame):
                 self.status_var.set(lang.t("stock_card.export_cancelled", "Export cancelled"))
                 return
 
+            # Workbook setup
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = lang.t("stock_card.stock_card", "Stock Card")
+            ws.title = localized_label  # Sheet title in active language
 
             project_name, project_code = self.fetch_project_details()
 
-            ws['A1'] = lang.t("stock_card.stock_card", "Stock Card")
-            ws['A1'].font = Font(name="Tahoma", size=14)
-            ws['A1'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A1:H1')
+            # Header rows
+            ws["A1"] = localized_label
+            ws["A1"].font = Font(name="Tahoma", size=14)
+            ws["A1"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A1:H1")
 
-            ws['A2'] = f"{project_name} - {project_code}"
-            ws['A2'].font = Font(name="Tahoma", size=14)
-            ws['A2'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A2:H2')
+            ws["A2"] = f"{project_name} - {project_code}"
+            ws["A2"].font = Font(name="Tahoma", size=14)
+            ws["A2"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A2:H2")
 
-            code_text = f"{lang.t('stock_card.code', 'Code')}: {code} - {description}" if code else ""
-            ws['A3'] = code_text
-            ws['A3'].font = Font(name="Tahoma")
-            ws['A3'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A3:H3')
+            ws["A3"] = f"{lang.t('stock_card.code', 'Code')}: {code} - {description}" if code else ""
+            ws["A3"].font = Font(name="Tahoma")
+            ws["A3"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A3:H3")
 
-            ws.append([])  # Empty row
+            ws.append([])  # Empty row for spacing
 
-            headers = [self.tree.heading(col)['text'] for col in self.cols]
+            # Table headers (localized from UI)
+            headers = [self.tree.heading(col)["text"] for col in self.cols]
             ws.append(headers)
 
+            # Row styling (KIT/MODULE fills)
             kit_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
             module_fill = PatternFill(start_color="F0FFF0", end_color="F0FFF0", fill_type="solid")
 
+            # Collect and write rows
             rows_data = []
-            for item in self.tree.get_children():
-                vals = self.tree.item(item)["values"]
-                rows_data.append(vals)
+            for iid in self.tree.get_children():
+                rows_data.append(self.tree.item(iid)["values"])
 
             for row_idx, values in enumerate(rows_data, start=6):
                 ws.append(values)
-                code = self.code_entry.get().strip()
-                item_type = get_active_item_type(code)
+
+                code_val = self.code_entry.get().strip()
+                item_type = get_active_item_type(code_val)
+
                 if item_type == "KIT":
-                    for col in ws[f"A{row_idx}:H{row_idx}"]:
-                        for cell in col:
+                    for col_cells in ws[f"A{row_idx}:H{row_idx}"]:
+                        for cell in col_cells:
                             cell.fill = kit_fill
                 elif item_type == "MODULE":
-                    for col in ws[f"A{row_idx}:H{row_idx}"]:
-                        for cell in col:
+                    for col_cells in ws[f"A{row_idx}:H{row_idx}"]:
+                        for cell in col_cells:
                             cell.fill = module_fill
 
-            # Set column widths (in Excel units, approximate conversion from pixels)
-            ws.column_dimensions['A'].width = 103.4 / 7  # Date: 100 + 3.4 pixels
-            ws.column_dimensions['B'].width = 100 / 7    # Time
-            ws.column_dimensions['C'].width = 220 / 7    # Origin/Destination: 220 pixels
-            ws.column_dimensions['D'].width = 80 / 7     # IN
-            ws.column_dimensions['E'].width = 80 / 7     # OUT
-            ws.column_dimensions['F'].width = 100 / 7    # Final Stock
-            ws.column_dimensions['G'].width = 110 / 7    # Expiry Date
-            ws.column_dimensions['H'].width = 300 / 7    # Remarks
+            # Column widths
+            ws.column_dimensions["A"].width = 103.4 / 7  # Date
+            ws.column_dimensions["B"].width = 100 / 7    # Time
+            ws.column_dimensions["C"].width = 220 / 7    # Origin/Destination
+            ws.column_dimensions["D"].width = 80 / 7     # IN
+            ws.column_dimensions["E"].width = 80 / 7     # OUT
+            ws.column_dimensions["F"].width = 100 / 7    # Final Stock
+            ws.column_dimensions["G"].width = 110 / 7    # Expiry Date
+            ws.column_dimensions["H"].width = 300 / 7    # Remarks
 
+            # Print setup
             ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
             ws.page_setup.fitToPage = True
             ws.page_setup.fitToHeight = 1
             ws.page_setup.fitToWidth = 1
 
+            # Save and notify
             wb.save(file_path)
             wb.close()
-            messagebox.showinfo(lang.t("dialog_titles.success", "Success"),
-                                lang.t("stock_card.exported", "Exported to {path}").format(path=file_path))
+
+            custom_popup(
+                self,
+                lang.t("dialog_titles.success", "Success"),
+                lang.t("stock_card.exported", "Exported to {path}").format(path=file_path),
+                "success"
+            )
             self.status_var.set(lang.t("stock_card.export_success", "Export successful: {path}").format(path=file_path))
+
         except Exception as e:
-            messagebox.showerror(lang.t("dialog_titles.error", "Error"),
-                                lang.t("stock_card.export_failed", "Export failed: {error}").format(error=str(e)))
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("stock_card.export_failed", "Export failed: {error}").format(error=str(e)),
+                "error"
+            )
             self.status_var.set(lang.t("stock_card.export_error", "Export error: {error}").format(error=str(e)))
+
 
 if __name__ == "__main__":
     root = tk.Tk()

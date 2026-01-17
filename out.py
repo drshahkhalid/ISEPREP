@@ -90,17 +90,75 @@ def check_expiry_required(code):
 def fetch_project_details():
     conn = connect_db()
     if conn is None:
-        return ("Unknown Project", "Unknown Code")
+        return (lang.t("stock_out.unknown_project", "Unknown Project"),
+                lang.t("stock_out.unknown_code", "Unknown Code"))
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         row = cur.fetchone()
         if not row:
-            return ("Unknown Project", "Unknown Code")
-        return (row[0] or "Unknown Project", row[1] or "Unknown Code")
+            return (lang.t("stock_out.unknown_project", "Unknown Project"),
+                    lang.t("stock_out.unknown_code", "Unknown Code"))
+        return (row[0] or lang.t("stock_out.unknown_project", "Unknown Project"),
+                row[1] or lang.t("stock_out.unknown_code", "Unknown Code"))
     finally:
         cur.close()
         conn.close()
+
+
+# ---------------- OUT type helpers ---------------- #
+
+_OUT_TYPE_CANONICALS = [
+    "Issue to End User",
+    "Expired Items",
+    "Damaged Items",
+    "Cold Chain Break",
+    "Batch Recall",
+    "Theft",
+    "Other Losses",
+    "Out Donation",
+    "Loan",
+    "Return of Borrowing",
+    "Quarantine",
+]
+
+_OUT_TYPE_KEYS = {
+    "Issue to End User": "stock_out.issue_to_end_user",
+    "Expired Items": "stock_out.expired_items",
+    "Damaged Items": "stock_out.damaged_items",
+    "Cold Chain Break": "stock_out.cold_chain_break",
+    "Batch Recall": "stock_out.batch_recall",
+    "Theft": "stock_out.theft",
+    "Other Losses": "stock_out.other_losses",
+    "Out Donation": "stock_out.out_donation",
+    "Loan": "stock_out.loan",
+    "Return of Borrowing": "stock_out.return_of_borrowing",
+    "Quarantine": "stock_out.quarantine",
+}
+
+
+def _out_type_label(canonical: str) -> str:
+    key = _OUT_TYPE_KEYS.get(canonical, "")
+    return lang.t(key, canonical)
+
+
+def _build_out_type_options():
+    return [(canon, _out_type_label(canon)) for canon in _OUT_TYPE_CANONICALS]
+
+
+def _canonical_out_type(display_text: str) -> str | None:
+    if not display_text:
+        return None
+    # direct match
+    for canon, label in _build_out_type_options():
+        if display_text == label or display_text == canon:
+            return canon
+    # fallback normalize
+    norm = re.sub(r'[^a-z0-9]+', '', display_text.lower())
+    for canon in _OUT_TYPE_CANONICALS:
+        if re.sub(r'[^a-z0-9]+', '', canon.lower()) == norm:
+            return canon
+    return None
 
 
 # ---------------- Main Class ---------------- #
@@ -148,7 +206,8 @@ class StockOut(tk.Frame):
             conn.close()
 
     # ---- Document Number ----
-    def generate_document_number(self, out_type_text: str) -> str:
+    def generate_document_number(self, out_type_display: str) -> str:
+        canonical = _canonical_out_type(out_type_display) or "Out Donation"
         project_name, project_code = fetch_project_details()
         project_code = (project_code or "PRJ").upper()
         base_map = {
@@ -164,7 +223,7 @@ class StockOut(tk.Frame):
             "Return of Borrowing": "OROB",
             "Quarantine": "OQRT"
         }
-        raw = (out_type_text or "").strip()
+        raw = canonical
         norm = re.sub(r'[^a-z0-9]+', '', raw.lower())
         abbr = None
         for k, v in base_map.items():
@@ -197,7 +256,7 @@ class StockOut(tk.Frame):
                     tail = r[0].rsplit('/', 1)[-1]
                     if tail.isdigit():
                         serial = int(tail) + 1
-            except:
+            except Exception:
                 pass
             finally:
                 cur.close(); conn.close()
@@ -262,7 +321,7 @@ class StockOut(tk.Frame):
             cur.close()
             conn.close()
 
-    # ---- UI construction (unchanged layout) ----
+    # ---- UI construction ----
     def _build_ui(self):
         bg = "#F5F7FA"
         self.configure(bg=bg)
@@ -291,20 +350,10 @@ class StockOut(tk.Frame):
         type_frame = tk.Frame(self, bg=bg); type_frame.pack(fill="x", pady=5)
         tk.Label(type_frame, text=lang.t("stock_out.out_type", "OUT Type:"), bg=bg).grid(row=0, column=0, padx=5, sticky="w")
         self.trans_type_var = tk.StringVar()
+        self.out_type_options = _build_out_type_options()
         self.trans_type_cb = ttk.Combobox(type_frame, textvariable=self.trans_type_var,
-                                          values=[
-                                              lang.t("stock_out.issue_to_end_user", "Issue to End User"),
-                                              lang.t("stock_out.expired_items", "Expired Items"),
-                                              lang.t("stock_out.damaged_items", "Damaged Items"),
-                                              lang.t("stock_out.cold_chain_break", "Cold Chain Break"),
-                                              lang.t("stock_out.batch_recall", "Batch Recall"),
-                                              lang.t("stock_out.theft", "Theft"),
-                                              lang.t("stock_out.other_losses", "Other Losses"),
-                                              lang.t("stock_out.out_donation", "Out Donation"),
-                                              lang.t("stock_out.loan", "Loan"),
-                                              lang.t("stock_out.return_of_borrowing", "Return of Borrowing"),
-                                              lang.t("stock_out.quarantine", "Quarantine"),
-                                          ], state="readonly", width=30)
+                                          values=[label for _, label in self.out_type_options],
+                                          state="readonly", width=30)
         self.trans_type_cb.grid(row=0, column=1, padx=5, pady=3)
         self.trans_type_cb.bind("<<ComboboxSelected>>", self._update_party_enable)
 
@@ -376,6 +425,23 @@ class StockOut(tk.Frame):
         tk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken",
                  bg=bg).pack(fill="x", pady=(4, 0))
 
+    # ---- Out type dependent enables ----
+    def _update_party_enable(self, event=None):
+        out_display = self.trans_type_var.get()
+        canon = _canonical_out_type(out_display)
+        end_user_required = {"Issue to End User"}
+        third_party_required = {"Out Donation", "Loan", "Return of Borrowing"}
+        self.end_user_cb.config(state="disabled")
+        self.third_party_cb.config(state="disabled")
+        if canon in end_user_required:
+            self.end_user_cb.config(state="readonly")
+        else:
+            self.end_user_var.set("")
+        if canon in third_party_required:
+            self.third_party_cb.config(state="readonly")
+        else:
+            self.third_party_var.set("")
+
     # ---- Search & populate ----
     def _live_search(self, event=None):
         q = self.code_entry.get().strip()
@@ -414,11 +480,11 @@ class StockOut(tk.Frame):
         self.tree.delete(*self.tree.get_children())
         rows = self._fetch_rows(code, self.scenario_var.get())
         if not rows:
-            self.status_var.set(lang.t("stock_out.no_items", "No items found for code {code}").format(code=code))
+            self.status_var.set(lang.t("stock_out.no_items_code", "No items found for code {code}").format(code=code))
             return
         for r in rows:
             self._insert_row(r, restore=True)
-        self.status_var.set(lang.t("stock_out.loaded", "Loaded {count} records for code {code}")
+        self.status_var.set(lang.t("stock_out.loaded_code", "Loaded {count} records for code {code}")
                             .format(count=len(self.tree.get_children()), code=code))
 
     def populate_table(self):
@@ -524,10 +590,6 @@ class StockOut(tk.Frame):
 
     # ---- Direct delta application (NO final_qty touch) ----
     def _apply_stock_out_delta(self, unique_id, delta_qty_out, expiry_date=None, scenario_name=None):
-        """
-        Increment qty_out by delta_qty_out exactly once.
-        Relies on DB triggers to recompute final_qty.
-        """
         if delta_qty_out <= 0:
             return
         conn = connect_db()
@@ -535,7 +597,6 @@ class StockOut(tk.Frame):
             raise RuntimeError("DB connection failed")
         cur = conn.cursor()
         try:
-            # Debug before
             cur.execute("SELECT qty_in, qty_out, final_qty FROM stock_data WHERE unique_id=?", (unique_id,))
             before = cur.fetchone()
             logging.info(f"[STOCK_OUT][BEFORE] {unique_id} -> {before}")
@@ -548,14 +609,12 @@ class StockOut(tk.Frame):
                  WHERE unique_id = ?
             """, (delta_qty_out, expiry_date, scenario_name, unique_id))
             if cur.rowcount == 0:
-                # Optionally insert if missing (rare)
                 cur.execute("""
                     INSERT INTO stock_data (unique_id, scenario, qty_in, qty_out, exp_date)
                     VALUES (?, ?, 0, ?, ?)
                 """, (unique_id, scenario_name, delta_qty_out, expiry_date))
             conn.commit()
 
-            # Debug after
             cur.execute("SELECT qty_in, qty_out, final_qty FROM stock_data WHERE unique_id=?", (unique_id,))
             after = cur.fetchone()
             logging.info(f"[STOCK_OUT][AFTER] {unique_id} -> {after}")
@@ -584,7 +643,6 @@ class StockOut(tk.Frame):
             conn.close()
 
     def _has_stock(self, unique_id, qty_out_int):
-        # Use current final_qty
         return self._current_final(unique_id) >= qty_out_int
 
     # ---- SAVE ----
@@ -596,7 +654,8 @@ class StockOut(tk.Frame):
         if not rows:
             self._err("stock_out.no_rows", "No rows to save.")
             return
-        out_type = self.trans_type_var.get()
+        out_display = self.trans_type_var.get()
+        out_type = _canonical_out_type(out_display)
         if not out_type:
             self._err("stock_out.no_out_type", "OUT Type is required.")
             return
@@ -605,26 +664,21 @@ class StockOut(tk.Frame):
         third_party = self.third_party_var.get().strip()
         remarks = self.remarks_entry.get().strip()
 
-        if out_type == lang.t("stock_out.issue_to_end_user", "Issue to End User"):
+        if out_type == "Issue to End User":
             if not end_user or end_user not in self.end_user_cb['values']:
                 self._err("stock_out.invalid_end_user", "A valid End User must be selected.")
                 return
-        if out_type in [
-            lang.t("stock_out.out_donation", "Out Donation"),
-            lang.t("stock_out.loan", "Loan"),
-            lang.t("stock_out.return_of_borrowing", "Return of Borrowing")
-        ]:
+        if out_type in ["Out Donation", "Loan", "Return of Borrowing"]:
             if not third_party or third_party not in self.third_party_cb['values']:
                 self._err("stock_out.invalid_third_party",
                           "A valid Third Party must be selected for {ttype}.",
-                          ttype=out_type)
+                          ttype=out_display or out_type)
                 return
 
-        doc_number = self.generate_document_number(out_type)
+        doc_number = self.generate_document_number(out_display)
         invalid = []
         export_rows = []
 
-        # Validate
         for iid in rows:
             vals = self.tree.item(iid, "values")
             if not vals or len(vals) < 9:
@@ -645,7 +699,6 @@ class StockOut(tk.Frame):
                       items=", ".join(invalid))
             return
 
-        # Apply each delta
         for iid in rows:
             vals = self.tree.item(iid, "values")
             if not vals or len(vals) < 9:
@@ -656,8 +709,6 @@ class StockOut(tk.Frame):
             delta_qty_out = int(qty_out_txt)
             if delta_qty_out <= 0:
                 continue
-
-            # Guard final stock before applying
             if not self._has_stock(unique_id, delta_qty_out):
                 self._err("stock_out.qty_exceeds_stock",
                           "Qty Out ({new_val}) cannot exceed Current Stock ({current_stock})",
@@ -692,7 +743,7 @@ class StockOut(tk.Frame):
                     Qty_IN=None,
                     IN_Type=None,
                     Qty_Out=delta_qty_out,
-                    Out_Type=out_type,
+                    Out_Type=out_type,  # canonical English
                     Third_Party=third_party if third_party else None,
                     End_User=end_user if end_user else None,
                     Remarks=remarks,
@@ -714,7 +765,7 @@ class StockOut(tk.Frame):
                 self._err("stock_out.save_failed", "Failed to log transaction: {error}", error=str(e))
                 continue
 
-        self._info("stock_out.saved", "Stock OUT saved successfully.")
+        self._info("stock_out.save_success", "Stock OUT saved successfully.")
         self.status_var.set(lang.t("stock_out.document_number_saved",
                                    "Saved. Document Number: {doc}").format(doc=doc_number))
 
@@ -792,35 +843,37 @@ class StockOut(tk.Frame):
                         "batch_number": "",
                         "qty_issued": int(qty_out)
                     })
-            else:
-                rows = [r for r in rows_to_issue if r.get("qty_issued", 0) > 0]
+                rows_to_issue = rows
 
-            if not rows:
-                custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                             lang.t("stock_out.no_issue_qty", "No quantities entered to issue."), "error")
+            has_issued = any(r["qty_issued"] > 0 for r in rows_to_issue)
+            if not has_issued:
+                self._err("stock_out.no_issue_qty", "No quantities entered to issue.")
                 return
 
-            project_name, project_code = fetch_project_details()
-            out_type_raw = self.trans_type_var.get() or lang.t("stock_out.unknown", "Unknown")
-            scenario_name = self.scenario_var.get()
-            doc_number = getattr(self, "current_document_number", None)
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            out_type_display = self.trans_type_var.get() or lang.t("stock_out.unknown", "Unknown")
+            movement_type_raw = "stock_out"
+            scenario_name = self.scenario_var.get() or "N/A"
+            doc_number = getattr(self, "current_document_number", None)
 
             def sanitize(s: str) -> str:
                 s = re.sub(r'[^A-Za-z0-9]+', '_', s)
                 s = re.sub(r'_+', '_', s)
                 return s.strip('_') or "Unknown"
 
-            out_slug = sanitize(out_type_raw)
+            out_type_slug = sanitize(out_type_display)
+            movement_type_slug = sanitize(movement_type_raw)
+
             default_dir = "D:/ISEPREP"
             if not os.path.exists(default_dir):
                 os.makedirs(default_dir)
-            filename = f"StockOut_{out_slug}_{current_time.replace(':','-')}.xlsx"
+
+            file_name = f"StockOut_{movement_type_slug}_{out_type_slug}_{current_time.replace(':', '-')}.xlsx"
 
             path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel Files", "*.xlsx")],
-                initialfile=filename,
+                initialfile=file_name,
                 initialdir=default_dir
             )
             if not path:
@@ -829,7 +882,10 @@ class StockOut(tk.Frame):
 
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "StockOut"[:31]
+
+            ws_title_base = "StockOut"
+            ws_title = f"{ws_title_base[:15]}-{movement_type_slug[:12]}"
+            ws.title = ws_title
 
             if doc_number:
                 ws['A1'] = f"Date: {current_time}{' ' * 8}Document Number: {doc_number}"
@@ -838,7 +894,9 @@ class StockOut(tk.Frame):
             ws['A1'].font = Font(name="Calibri", size=11)
             ws['A1'].alignment = Alignment(horizontal="left")
 
-            ws['A2'] = "Stock Out – Movement: Stock Out"
+            project_name, project_code = fetch_project_details()
+
+            ws['A2'] = f"{ws_title_base} – Movement: {movement_type_raw}"
             ws['A2'].font = Font(name="Tahoma", size=14, bold=True)
             ws['A2'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A2:I2')
@@ -848,17 +906,18 @@ class StockOut(tk.Frame):
             ws['A3'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A3:I3')
 
-            ws['A4'] = f"{lang.t('stock_out.out_type','OUT Type')}: {out_type_raw}"
+            ws['A4'] = f"{lang.t('stock_out.out_type', 'OUT Type')}: {out_type_display}"
             ws['A4'].font = Font(name="Tahoma", size=12, bold=True)
             ws['A4'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A4:I4')
 
-            ws['A5'] = f"Scenario: {scenario_name}"
+            ws['A5'] = f"{lang.t('stock_out.scenario', 'Scenario')}: {scenario_name}"
             ws['A5'].font = Font(name="Tahoma", size=12, bold=True)
             ws['A5'].alignment = Alignment(horizontal="right")
             ws.merge_cells('A5:I5')
 
             ws.append([])
+            ws['A6'].font = Font(name="Tahoma", size=11, bold=True)
 
             headers = [
                 lang.t("stock_out.code", "Code"),
@@ -869,89 +928,73 @@ class StockOut(tk.Frame):
                 lang.t("stock_out.current_stock", "Current Stock"),
                 lang.t("stock_out.expiry_date", "Expiry Date"),
                 lang.t("stock_out.batch_number", "Batch Number"),
-                lang.t("stock_out.qty_out", "Qty Issued")
+                lang.t("stock_out.qty_out", "Qty Out")
             ]
             ws.append(headers)
-            header_row = ws.max_row
-            for c in range(1, len(headers) + 1):
-                cell = ws.cell(row=header_row, column=c)
+
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(row=7, column=col)
                 cell.font = Font(name="Tahoma", size=11, bold=True)
 
-            for r in rows:
-                r_type = (r.get("type") or "").lower()
+            for row_idx, row in enumerate(rows_to_issue, start=8):
                 ws.append([
-                    r.get("code",""),
-                    r.get("description",""),
-                    r.get("type",""),
-                    r.get("kit_number",""),
-                    r.get("module_number",""),
-                    r.get("current_stock",0),
-                    r.get("expiry_date",""),
-                    r.get("batch_number",""),
-                    r.get("qty_issued",0)
+                    row["code"],
+                    row["description"],
+                    row["type"],
+                    row["kit_number"],
+                    row["module_number"],
+                    row["current_stock"],
+                    row["expiry_date"],
+                    row["batch_number"],
+                    row["qty_issued"]
                 ])
-                data_idx = ws.max_row
-                fill = None
-                bold_flag = r_type in ("kit", "module")
-                if r_type == "kit":
-                    fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-                elif r_type == "module":
-                    fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+                row_type = (row["type"] or "").lower()
                 for col in range(1, len(headers) + 1):
-                    cell = ws.cell(row=data_idx, column=col)
-                    cell.font = Font(name="Calibri", size=11, bold=bold_flag)
-                    if fill:
-                        cell.fill = fill
+                    cell = ws.cell(row=row_idx, column=col)
+                    cell.font = Font(name="Calibri", size=11, bold=(row_type in ("kit", "module")))
+                    if row_type == "kit":
+                        cell.fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+                    elif row_type == "module":
+                        cell.fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
             for col in ws.columns:
-                letter = get_column_letter(col[0].column)
-                max_len = 0
+                max_length = 0
+                col_letter = get_column_letter(col[0].column)
                 for cell in col:
-                    val = cell.value
-                    l = len(str(val)) if val is not None else 0
-                    if l > max_len:
-                        max_len = l
-                ws.column_dimensions[letter].width = min(max_len + 2, 50)
+                    try:
+                        l = len(str(cell.value)) if cell.value is not None else 0
+                        if l > max_length:
+                            max_length = l
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
 
             ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
             ws.page_setup.fitToPage = True
-            ws.page_setup.fitToWidth = 1
             ws.page_setup.fitToHeight = 0
+            ws.page_setup.fitToWidth = 1
             ws.print_title_rows = '1:7'
             ws.oddFooter.center.text = "&P of &N"
             ws.evenFooter.center.text = "&P of &N"
 
             wb.save(path)
-            custom_popup(self.parent, lang.t("dialog_titles.success", "Success"),
-                         lang.t("stock_out.export_success", f"Exported to {path}"), "info")
-            self.status_var.set(lang.t("stock_out.export_success", f"Export successful: {path}"))
+            custom_popup(self,
+                         lang.t("dialog_titles.success", "Success"),
+                         lang.t("stock_out.export_success", "Export successful: {path}").format(path=path),
+                         "info")
+            self.status_var.set(lang.t("stock_out.export_success", "Export successful: {path}").format(path=path))
+            logging.info(f"[STOCK_OUT] Exported file: {path}")
         except Exception as e:
             logging.error(f"[STOCK_OUT] Export failed: {e}")
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("stock_out.export_failed", f"Export failed: {str(e)}"), "error")
-
-    # ---- Party enabling ----
-    def _update_party_enable(self, event=None):
-        t = self.trans_type_var.get()
-        self.end_user_cb.config(state="disabled")
-        self.third_party_cb.config(state="disabled")
-        if t == lang.t("stock_out.issue_to_end_user", "Issue to End User"):
-            self.end_user_cb.config(state="readonly")
-        elif t in [
-            lang.t("stock_out.out_donation", "Out Donation"),
-            lang.t("stock_out.loan", "Loan"),
-            lang.t("stock_out.return_of_borrowing", "Return of Borrowing")
-        ]:
-            self.third_party_cb.config(state="readonly")
+            custom_popup(self,
+                         lang.t("dialog_titles.error", "Error"),
+                         lang.t("stock_out.export_failed", f"Export failed: {str(e)}"),
+                         "error")
+            self.status_var.set(lang.t("stock_out.export_failed", f"Export failed: {str(e)}"))
 
 
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Stock Out")
-    shell = tk.Tk()
-    shell.role = "admin"
-    try:
-        StockOut(root, shell, role="admin")
-    except Exception as e:
-        logging.error(f"Error launching StockOut: {e}")
+    StockOut(root, root, role="admin")
     root.mainloop()

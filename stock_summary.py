@@ -332,16 +332,37 @@ class StockSummaryWindow(tk.Toplevel):
         self.scenario_cb.bind("<<ComboboxSelected>>", lambda e: self.populate_kit_module_lists())
 
         tk.Label(f, text=lang.t("stock_summary.management_mode","Management Mode:"), bg="#F0F4F8").grid(row=0, column=2, sticky="w", padx=4, pady=2)
-        self.management_var = tk.StringVar(value="All")
-        self.management_cb = ttk.Combobox(f, textvariable=self.management_var,
-                                          values=["All","On-Shelf","In-Box"], width=14, state="readonly")
+        self.management_var = tk.StringVar(value=lang.t("stock_summary.management_all","All"))
+        self.management_cb = ttk.Combobox(
+            f,
+            textvariable=self.management_var,
+            values=[
+                lang.t("stock_summary.management_all","All"),
+                lang.t("stock_summary.management_on_shelf","On-Shelf"),
+                lang.t("stock_summary.management_in_box","In-Box")
+            ],
+            width=14,
+            state="readonly"
+        )
         self.management_cb.grid(row=0, column=3, padx=4, pady=2, sticky="w")
+        self.management_cb.current(0)
 
         tk.Label(f, text=lang.t("reports.type","Type:"), bg="#F0F4F8").grid(row=0, column=4, sticky="w", padx=4, pady=2)
-        self.type_var = tk.StringVar(value="All")
-        self.type_cb = ttk.Combobox(f, textvariable=self.type_var,
-                                    values=["All","KIT","MODULE","ITEM"], width=10, state="readonly")
+        self.type_var = tk.StringVar(value=lang.t("reports.type_all","All"))
+        self.type_cb = ttk.Combobox(
+            f,
+            textvariable=self.type_var,
+            values=[
+                lang.t("reports.type_all","All"),
+                "KIT",
+                "MODULE",
+                "ITEM"
+            ],
+            width=10,
+            state="readonly"
+        )
         self.type_cb.grid(row=0, column=5, padx=4, pady=2, sticky="w")
+        self.type_cb.current(0)
 
         tk.Label(f, text=lang.t("reports.expiry_period","Expiry Period (months):"), bg="#F0F4F8").grid(row=0, column=6, sticky="w", padx=4, pady=2)
         self.period_override_var = tk.StringVar()
@@ -467,13 +488,31 @@ class StockSummaryWindow(tk.Toplevel):
 
     # ---------------- Filters / Helpers ----------------
     def gather_filters(self):
+        # Normalize management mode
+        msel = self.management_var.get()
+        if msel in ("", lang.t("stock_summary.management_all","All")):
+            management_mode = "All"
+        elif msel == lang.t("stock_summary.management_on_shelf","On-Shelf"):
+            management_mode = "On-Shelf"
+        elif msel == lang.t("stock_summary.management_in_box","In-Box"):
+            management_mode = "In-Box"
+        else:
+            management_mode = msel
+
+        # Normalize type filter
+        tsel = self.type_var.get()
+        if tsel in ("", lang.t("reports.type_all","All")):
+            type_filter = "All"
+        else:
+            type_filter = tsel
+
         return {
             "scenario": self.scenario_var.get() or None,
-            "management_mode": self.management_var.get() or "All",
+            "management_mode": management_mode,
             "kit_number": self.kit_number_var.get() or None,
             "module_number": self.module_number_var.get() or None,
             "item_code": self.item_var.get().strip() or None,
-            "type_filter": self.type_var.get() or "All"
+            "type_filter": type_filter
         }
 
     def clear_filters(self):

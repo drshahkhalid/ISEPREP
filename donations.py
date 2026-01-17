@@ -3,6 +3,8 @@ donations.py  v1.0
 
 Donations Monitor
 
+
+
 Purpose:
   Track all IN and OUT donation movements per Date, Code and Third Party.
   Aggregates In-Donations (IN_Type='In Donation') and Out-Donations (Out_Type='Out Donation')
@@ -295,7 +297,6 @@ def aggregate_donations(filters):
 
     rows = []
     for key, rec in groups.items():
-        dt_str, code, tp = key
         rec["scenarios"] = ", ".join(sorted(scen_map[key])) if scen_map[key] else ""
         rec["kits"] = ", ".join(sorted(kit_map[key])) if kit_map[key] else ""
         rec["modules"] = ", ".join(sorted(mod_map[key])) if mod_map[key] else ""
@@ -324,12 +325,13 @@ class Donations(tk.Frame):
         self.rows = []
         self.simple_mode = False
 
-        # Filters
-        self.scenario_var = tk.StringVar(value="All")
-        self.kit_var = tk.StringVar(value="All")
-        self.module_var = tk.StringVar(value="All")
-        self.third_party_var = tk.StringVar(value="All")
-        self.type_var = tk.StringVar(value="All")
+        # Filters with translated "All"; normalize later
+        all_lbl = self._all_label()
+        self.scenario_var = tk.StringVar(value=all_lbl)
+        self.kit_var = tk.StringVar(value=all_lbl)
+        self.module_var = tk.StringVar(value=all_lbl)
+        self.third_party_var = tk.StringVar(value=all_lbl)
+        self.type_var = tk.StringVar(value=all_lbl)
         self.item_search_var = tk.StringVar()
         self.doc_var = tk.StringVar()
         self.from_var = tk.StringVar()
@@ -342,6 +344,25 @@ class Donations(tk.Frame):
         self.populate_filters()
         self._set_default_dates()
         self.refresh()
+
+    # ---------- Helpers for "All" + type normalization ----------
+    def _all_label(self):
+        return lang.t("donations.all", "All")
+
+    def _norm(self, val):
+        all_lbl = self._all_label()
+        return "All" if (val is None or val == "" or val == all_lbl) else val
+
+    def _norm_type(self, val):
+        if val in (None, "", lang.t("donations.all", "All")):
+            return "All"
+        if val == lang.t("donations.type_kit", "Kit"):
+            return "Kit"
+        if val == lang.t("donations.type_module", "Module"):
+            return "Module"
+        if val == lang.t("donations.type_item", "Item"):
+            return "Item"
+        return val
 
     # ---------- UI BUILD ----------
     def _build_ui(self):
@@ -403,9 +424,13 @@ class Donations(tk.Frame):
 
         tk.Label(r1, text=lang.t("generic.type","Type"), bg=BG_MAIN)\
             .grid(row=0, column=6, sticky="w", padx=(0,4))
+        type_all_lbl  = lang.t("donations.all","All")
+        type_kit_lbl  = lang.t("donations.type_kit","Kit")
+        type_mod_lbl  = lang.t("donations.type_module","Module")
+        type_item_lbl = lang.t("donations.type_item","Item")
         self.type_cb = ttk.Combobox(r1, textvariable=self.type_var,
                                     state="readonly", width=12,
-                                    values=["All","Kit","Module","Item"])
+                                    values=[type_all_lbl, type_kit_lbl, type_mod_lbl, type_item_lbl])
         self.type_cb.grid(row=0, column=7, padx=(0,12))
 
         tk.Label(r1, text=lang.t("donations.third_party","Third Party"), bg=BG_MAIN)\
@@ -516,11 +541,12 @@ class Donations(tk.Frame):
         kits = fetch_kit_numbers()
         modules = fetch_module_numbers()
         tps = fetch_third_parties()
+        all_lbl = self._all_label()
 
-        self.scenario_cb['values'] = ["All"] + scenarios
-        self.kit_cb['values'] = ["All"] + kits
-        self.module_cb['values'] = ["All"] + modules
-        self.third_party_cb['values'] = ["All"] + tps
+        self.scenario_cb['values'] = [all_lbl] + scenarios
+        self.kit_cb['values'] = [all_lbl] + kits
+        self.module_cb['values'] = [all_lbl] + modules
+        self.third_party_cb['values'] = [all_lbl] + tps
 
         for var, cb in [
             (self.scenario_var, self.scenario_cb),
@@ -529,7 +555,10 @@ class Donations(tk.Frame):
             (self.third_party_var, self.third_party_cb)
         ]:
             if var.get() not in cb['values']:
-                var.set("All")
+                var.set(all_lbl)
+
+        if self.type_var.get() not in self.type_cb['values']:
+            self.type_var.set(all_lbl)
 
     # ---------- Mode ----------
     def toggle_mode(self):
@@ -541,11 +570,11 @@ class Donations(tk.Frame):
     # ---------- Refresh ----------
     def refresh(self):
         filters = {
-            "scenario": self.scenario_var.get(),
-            "kit": self.kit_var.get(),
-            "module": self.module_var.get(),
-            "third_party": self.third_party_var.get(),
-            "type": self.type_var.get(),
+            "scenario": self._norm(self.scenario_var.get()),
+            "kit": self._norm(self.kit_var.get()),
+            "module": self._norm(self.module_var.get()),
+            "third_party": self._norm(self.third_party_var.get()),
+            "type": self._norm_type(self.type_var.get()),
             "item_search": self.item_search_var.get().strip(),
             "doc_number": self.doc_var.get().strip(),
             "date_from": parse_user_date(self.from_var.get().strip(), "from") if self.from_var.get().strip() else None,
@@ -558,11 +587,12 @@ class Donations(tk.Frame):
         self.status_var.set(lang.t("donations.loaded","Loaded {n} rows").format(n=len(self.rows)))
 
     def clear_filters(self):
-        self.scenario_var.set("All")
-        self.kit_var.set("All")
-        self.module_var.set("All")
-        self.third_party_var.set("All")
-        self.type_var.set("All")
+        all_lbl = self._all_label()
+        self.scenario_var.set(all_lbl)
+        self.kit_var.set(all_lbl)
+        self.module_var.set(all_lbl)
+        self.third_party_var.set(all_lbl)
+        self.type_var.set(all_lbl)
         self.item_search_var.set("")
         self.doc_var.set("")
         self._set_default_dates()
@@ -633,7 +663,6 @@ class Donations(tk.Frame):
         if not self.rows:
             custom_popup(self, lang.t("generic.info","Info"),
                          lang.t("donations.no_data_export","Nothing to export."), "warning")
-            return
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel Files","*.xlsx")],

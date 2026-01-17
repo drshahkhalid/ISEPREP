@@ -6,7 +6,7 @@ from db import connect_db
 from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging. INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ============================================================
 # THEME
@@ -23,22 +23,22 @@ BTN_EDIT       = "#2980B9"
 BTN_DELETE     = "#C0392B"
 BTN_DISABLED   = "#94A3B8"
 
-# Canonical roles allowed to modify. Supervisor must NOT be able to edit.
-# We also block the supervisor symbol "$".
+# Canonical roles allowed to modify.  Supervisor must NOT be able to edit.
 ALLOWED_CANONICAL_ROLES = {"admin", "manager"}
 BLOCKED_ROLES_OR_SYMBOLS = {"supervisor", "$"}
 
-USER_TYPE_OPTIONS = [
-    "E-Coordination",
+# Canonical English user types (stored in database)
+USER_TYPE_OPTIONS_CANONICAL = [
+    "Emergency Coordination",
     "Regular Coordination",
-    "E-Project",
+    "Emergency Project",
     "Regular Project",
-    "Prepositioned stock",
+    "Prepositioned Stock",
     "Staff Health"
 ]
 
 
-def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
+def _center_toplevel(win:  tk.Toplevel, parent: tk.Widget = None):
     win.update_idletasks()
     if parent and parent.winfo_exists():
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
@@ -58,15 +58,14 @@ def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
 
 class ManageEndUsers(tk.Frame):
     """
-    End Users management with role-symbol restriction:
-      - admin / manager can add/edit/delete
-      - supervisor (canonical) or symbol "$" are read-only
-      - Others (hq, coordinator, etc.) are currently treated as read-only (adjust logic if needed)
+    End Users management with: 
+      - Role-symbol restriction (admin/manager can edit, supervisor/$ cannot)
+      - Translatable user type dropdown (English in DB, translated in UI)
     """
     def __init__(self, parent, app):
         super().__init__(parent, bg=BG_MAIN)
         self.app = app
-        self.role = getattr(app, "role", "supervisor")  # may be canonical or symbol
+        self.role = getattr(app, "role", "supervisor")
         self.tree = None
         self.status_var = tk.StringVar(value=self.t("ready", fallback="Ready"))
         self.id_column_available = False
@@ -80,30 +79,62 @@ class ManageEndUsers(tk.Frame):
         raw = (self.role or "").strip().lower()
         if raw in BLOCKED_ROLES_OR_SYMBOLS:
             return False
-        # If symbols used for admin/manager in future you can map here; for now we just match canonical names.
         return raw in ALLOWED_CANONICAL_ROLES
 
     def _show_restricted(self):
         custom_popup(
             self,
-            lang.t("dialog_titles.restricted", "Restricted"),
+            lang.t("dialog_titles. restricted", "Restricted"),
             self.t("access_denied", fallback="You don't have permission to manage end users."),
             "warning"
         )
 
-    # ---------------- Translation shortcut ----------------
+    # ---------------- Translation helpers ----------------
     def t(self, key, **kwargs):
         return lang.t(f"end_users.{key}", **kwargs)
+
+    def _get_user_type_map(self):
+        """Return canonical_english -> translated_display mapping."""
+        section = lang.get_section("end_users.user_types")
+        if not section or not isinstance(section, dict):
+            # Fallback:  return identity mapping
+            return {utype: utype for utype in USER_TYPE_OPTIONS_CANONICAL}
+        mapping = {}
+        for canonical in USER_TYPE_OPTIONS_CANONICAL:
+            mapping[canonical] = section.get(canonical, canonical)
+        return mapping
+
+    def _get_user_type_reverse_map(self):
+        """Return translated_display -> canonical_english mapping."""
+        forward = self._get_user_type_map()
+        reverse = {}
+        for canonical, display in forward.items():
+            # Normalize for case-insensitive matching
+            reverse[display.strip().lower()] = canonical
+        return reverse
+
+    def _user_type_to_display(self, canonical:  str) -> str:
+        """Convert canonical English user type to translated display."""
+        return self._get_user_type_map().get(canonical, canonical)
+
+    def _user_type_to_canonical(self, display: str) -> str:
+        """Convert translated display back to canonical English."""
+        rev = self._get_user_type_reverse_map()
+        return rev.get(display.strip().lower(), display)
+
+    def _get_translated_user_types(self):
+        """Return list of translated user type options for dropdown."""
+        return [self._user_type_to_display(ut) for ut in USER_TYPE_OPTIONS_CANONICAL]
 
     # ---------------- Styles ----------------
     def _configure_styles(self):
         style = ttk.Style()
         try:
             style.theme_use("clam")
-        except Exception:
+        except Exception: 
             pass
         style.configure(
-            "EndUsers.Treeview",
+            "EndUsers. Treeview",
             background=BG_PANEL,
             fieldbackground=BG_PANEL,
             foreground=COLOR_PRIMARY,
@@ -141,7 +172,7 @@ class ManageEndUsers(tk.Frame):
         outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         display_columns = ["Name", "User Type"]
-        self.tree = ttk.Treeview(
+        self.tree = ttk. Treeview(
             outer,
             columns=display_columns,
             show="headings",
@@ -149,7 +180,7 @@ class ManageEndUsers(tk.Frame):
             style="EndUsers.Treeview"
         )
         self.tree.heading("Name", text=self.t("column.name", fallback="Name"))
-        self.tree.heading("User Type", text=self.t("column.user_type", fallback="User Type"))
+        self.tree.heading("User Type", text=self.t("column. user_type", fallback="User Type"))
         self.tree.column("Name", width=260, anchor="w")
         self.tree.column("User Type", width=200, anchor="w")
         self.tree.pack(side="left", fill="both", expand=True)
@@ -177,7 +208,7 @@ class ManageEndUsers(tk.Frame):
                 state="normal"
             )
 
-        self.btn_add = mk_btn("add_button", "Add End User", self.add_end_user, BTN_ADD)
+        self.btn_add = mk_btn("add_button", "Add End User", self. add_end_user, BTN_ADD)
         self.btn_add.pack(side="left", padx=4)
 
         self.btn_edit = mk_btn("edit_button", "Edit End User", self.edit_end_user, BTN_EDIT)
@@ -197,7 +228,7 @@ class ManageEndUsers(tk.Frame):
         # Status bar
         tk.Label(
             self,
-            textvariable=self.status_var,
+            textvariable=self. status_var,
             anchor="w",
             bg=BG_MAIN,
             fg=COLOR_PRIMARY,
@@ -212,10 +243,10 @@ class ManageEndUsers(tk.Frame):
         cur = conn.cursor()
         try:
             cur.execute("PRAGMA table_info(end_users)")
-            cols = [r[1].lower() for r in cur.fetchall()]
+            cols = [r[1]. lower() for r in cur.fetchall()]
             self.id_column_available = "end_user_id" in cols
         except sqlite3.Error:
-            self.id_column_available = False
+            self. id_column_available = False
         finally:
             cur.close()
             conn.close()
@@ -240,21 +271,24 @@ class ManageEndUsers(tk.Frame):
                 cur.execute('SELECT name, user_type FROM "end_users" ORDER BY name')
             rows = cur.fetchall()
             for idx, row in enumerate(rows):
+                name = row["name"] or ""
+                utype_canonical = row["user_type"] or ""
+                # Translate for display
+                utype_display = self._user_type_to_display(utype_canonical)
+                
                 if self.id_column_available:
-                    name = row["name"] or ""
-                    utype = row["user_type"] or ""
                     self.tree.insert(
                         "",
                         "end",
-                        values=(name, utype),
+                        values=(name, utype_display),
                         tags=("alt" if idx % 2 else "norm",),
                         iid=f"end_{row['end_user_id']}"
                     )
-                else:
+                else: 
                     self.tree.insert(
                         "",
                         "end",
-                        values=(row["name"] or "", row["user_type"] or ""),
+                        values=(name, utype_display),
                         tags=("alt" if idx % 2 else "norm",)
                     )
             self._tag_rows()
@@ -295,18 +329,24 @@ class ManageEndUsers(tk.Frame):
         name_entry.pack(fill="x", padx=18, pady=(0, 8))
 
         lbl(self.t("user_type", fallback="User Type") + " *").pack(fill="x", padx=18, pady=(0, 2))
+        
+        # Get translated options for dropdown
+        translated_options = self._get_translated_user_types()
         ut_var = tk.StringVar()
-        ut_cb = ttk.Combobox(form, textvariable=ut_var, values=USER_TYPE_OPTIONS, state="readonly")
-        ut_cb.set(USER_TYPE_OPTIONS[0])
+        ut_cb = ttk.Combobox(form, textvariable=ut_var, values=translated_options, state="readonly")
+        ut_cb.set(translated_options[0])  # Default to first option
         ut_cb.pack(fill="x", padx=18, pady=(0, 12))
 
         def save():
             name = name_entry.get().strip()
-            utype = ut_var.get().strip()
-            if not name or not utype:
+            utype_display = ut_var.get().strip()
+            # Convert display back to canonical English for storage
+            utype_canonical = self._user_type_to_canonical(utype_display)
+            
+            if not name or not utype_canonical:
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("required_fields", fallback="Name and User Type are required."),
+                             self.t("required_fields", fallback="Name and User Type are required. "),
                              "error")
                 return
             conn = connect_db()
@@ -318,11 +358,13 @@ class ManageEndUsers(tk.Frame):
                 return
             cur = conn.cursor()
             try:
-                cur.execute('INSERT INTO "end_users" (name, user_type) VALUES (?, ?)', (name, utype))
+                # Store canonical English in database
+                cur.execute('INSERT INTO "end_users" (name, user_type) VALUES (?, ?)', 
+                           (name, utype_canonical))
                 conn.commit()
                 custom_popup(self,
                              lang.t("dialog_titles.success", "Success"),
-                             self.t("add_success", fallback="End user added successfully."),
+                             self.t("add_success", fallback="End user added successfully. "),
                              "info")
                 form.destroy()
                 self.load_end_users()
@@ -332,7 +374,7 @@ class ManageEndUsers(tk.Frame):
                              lang.t("dialog_titles.error", "Error"),
                              self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
                              "error")
-            finally:
+            finally: 
                 cur.close()
                 conn.close()
 
@@ -357,7 +399,7 @@ class ManageEndUsers(tk.Frame):
         sel = self.tree.selection()
         if not sel:
             custom_popup(self,
-                         lang.t("dialog_titles.error", "Error"),
+                         lang.t("dialog_titles. error", "Error"),
                          self.t("select_record", fallback="Select an end user to edit"),
                          "error")
             return
@@ -365,10 +407,10 @@ class ManageEndUsers(tk.Frame):
         iid = sel[0]
         values = self.tree.item(iid)["values"]
         old_name = values[0]
-        old_type = values[1]
+        old_type_display = values[1]  # This is translated display text
 
         end_user_id = None
-        if self.id_column_available and iid.startswith("end_"):
+        if self.id_column_available and iid. startswith("end_"):
             try:
                 end_user_id = int(iid.split("_", 1)[1])
             except Exception:
@@ -391,18 +433,25 @@ class ManageEndUsers(tk.Frame):
         name_entry.pack(fill="x", padx=18, pady=(0, 8))
 
         lbl(self.t("user_type", fallback="User Type") + " *").pack(fill="x", padx=18, pady=(0, 2))
+        
+        translated_options = self._get_translated_user_types()
         ut_var = tk.StringVar()
-        ut_cb = ttk.Combobox(form, textvariable=ut_var, values=USER_TYPE_OPTIONS, state="readonly")
-        if old_type in USER_TYPE_OPTIONS:
-            ut_cb.set(old_type)
+        ut_cb = ttk.Combobox(form, textvariable=ut_var, values=translated_options, state="readonly")
+        
+        # Set the current value (already translated)
+        if old_type_display in translated_options:
+            ut_cb. set(old_type_display)
         else:
-            ut_cb.set(USER_TYPE_OPTIONS[0])
+            ut_cb.set(translated_options[0])
         ut_cb.pack(fill="x", padx=18, pady=(0, 12))
 
         def save():
             new_name = name_entry.get().strip()
-            new_type = ut_var.get().strip()
-            if not new_name or not new_type:
+            utype_display = ut_var. get().strip()
+            # Convert back to canonical English
+            utype_canonical = self._user_type_to_canonical(utype_display)
+            
+            if not new_name or not utype_canonical:
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
                              self.t("required_fields", fallback="Name and User Type are required."),
@@ -417,12 +466,13 @@ class ManageEndUsers(tk.Frame):
                 return
             cur = conn.cursor()
             try:
-                if self.id_column_available and end_user_id is not None:
+                # Store canonical English in database
+                if self.id_column_available and end_user_id is not None: 
                     cur.execute('UPDATE "end_users" SET name=?, user_type=? WHERE end_user_id=?',
-                                (new_name, new_type, end_user_id))
+                                (new_name, utype_canonical, end_user_id))
                 else:
                     cur.execute('UPDATE "end_users" SET name=?, user_type=? WHERE name=?',
-                                (new_name, new_type, old_name))
+                                (new_name, utype_canonical, old_name))
                 conn.commit()
                 custom_popup(self,
                              lang.t("dialog_titles.success", "Success"),
@@ -458,7 +508,7 @@ class ManageEndUsers(tk.Frame):
         if not self._can_modify():
             self._show_restricted()
             return
-        sel = self.tree.selection()
+        sel = self. tree.selection()
         if not sel:
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
@@ -466,7 +516,7 @@ class ManageEndUsers(tk.Frame):
                          "error")
             return
         iid = sel[0]
-        values = self.tree.item(iid)["values"]
+        values = self.tree. item(iid)["values"]
         name = values[0]
         end_user_id = None
         if self.id_column_available and iid.startswith("end_"):
@@ -486,7 +536,7 @@ class ManageEndUsers(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self,
-                         lang.t("dialog_titles.error", "Error"),
+                         lang.t("dialog_titles. error", "Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
@@ -506,7 +556,7 @@ class ManageEndUsers(tk.Frame):
             conn.rollback()
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
+                         self.t("db_error", fallback="Database error:  {err}").format(err=str(e)),
                          "error")
         finally:
             cur.close()
@@ -521,8 +571,7 @@ class ManageEndUsers(tk.Frame):
 if __name__ == "__main__":
     root = tk.Tk()
     class DummyApp:
-        # Try "admin", "manager", "$", "supervisor"
-        role = "$"   # Should be read-only
+        role = "admin"  # Try:  "admin", "manager", "$", "supervisor"
         project_title = "IsEPREP"
     app = DummyApp()
     root.title("Manage End Users - Test")
