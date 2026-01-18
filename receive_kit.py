@@ -1900,15 +1900,8 @@ class StockReceiveKit(tk.Frame):
                     edited = True
             finally:
                 finish(edited, edited_col)
-                if edited and col_index == 6:
-                    # Preserve comment explicitly (re-apply existing sticky if any) – no recalculation
-                    rd = self.row_data.get(row_id, {})
-                    sticky = rd.get('sticky_comment')
-                    if sticky:
-                        current_vals = list(self.tree.item(row_id, "values"))
-                        if len(current_vals) >= 12 and current_vals[11] != sticky:
-                            current_vals[11] = sticky
-                            self.tree.item(row_id, values=tuple(current_vals))
+                if edited:
+                    self.update_row_comment(row_id, force=True, sticky_mode=False)
                 if event and event.keysym in ("Tab","Return","Up","Down","Left","Right"):
                     self.navigate_tree(event)
         def cancel(_=None):
@@ -2487,54 +2480,129 @@ class StockReceiveKit(tk.Frame):
                         document_number,
                         comments=None):
         """
-        Insert a transaction row. Extended to persist 'comments' (Adopted …) into
-        stock_transactions.Comments (column must exist).
+        Insert a transaction row.
+
+        IMPORTANT:
+        - UI is localized (French/Spanish/etc.)
+        - DB must store canonical English values for:
+            IN_Type, Out_Type, Movement_Type, Comments
         """
         conn = connect_db()
         if conn is None:
             raise ValueError("Database connection failed")
+
         cur = conn.cursor()
         try:
+            # Canonicalize values (store English keys in DB)
+            in_type_canon = self._canon_in_type(in_type)
+            out_type_canon = self._canon_out_type(out_type)
+            movement_type_canon = self._canon_movement_type(movement_type)
+            comments_canon = self._canon_comment(comments)
+
             # Detect if Comments column exists (case-insensitive)
             cur.execute("PRAGMA table_info(stock_transactions)")
             cols = {row[1].lower(): row[1] for row in cur.fetchall()}
             has_comments = 'comments' in cols
 
             if has_comments:
-                cur.execute(f"""
+                cur.execute("""
                     INSERT INTO stock_transactions
-                    (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-                     Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-                     Third_Party, End_User, Remarks, Movement_Type, document_number, Comments)
+                    (Date,
+                     Time,
+                     unique_id,
+                     code,
+                     Description,
+                     Expiry_date,
+                     Batch_Number,
+                     Scenario,
+                     Kit,
+                     Module,
+                     Qty_IN,
+                     IN_Type,
+                     Qty_Out,
+                     Out_Type,
+                     Third_Party,
+                     End_User,
+                     Remarks,
+                     Movement_Type,
+                     document_number,
+                     Comments)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     _dt.today().strftime('%Y-%m-%d'),
                     _dt.now().time().strftime('%H:%M:%S'),
-                    unique_id, code, description, expiry_date, batch_number,
-                    scenario, kit, module, qty_in, in_type, qty_out, out_type,
-                    third_party, end_user, remarks, movement_type, document_number, comments
+                    unique_id,
+                    code,
+                    description,
+                    expiry_date,
+                    batch_number,
+                    scenario,
+                    kit,
+                    module,
+                    qty_in,
+                    in_type_canon,
+                    qty_out,
+                    out_type_canon,
+                    third_party,
+                    end_user,
+                    remarks,
+                    movement_type_canon,
+                    document_number,
+                    comments_canon
                 ))
             else:
                 # Backward compatibility if Comments column missing
-                cur.execute(f"""
+                cur.execute("""
                     INSERT INTO stock_transactions
-                    (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-                     Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-                     Third_Party, End_User, Remarks, Movement_Type, document_number)
+                    (Date,
+                     Time,
+                     unique_id,
+                     code,
+                     Description,
+                     Expiry_date,
+                     Batch_Number,
+                     Scenario,
+                     Kit,
+                     Module,
+                     Qty_IN,
+                     IN_Type,
+                     Qty_Out,
+                     Out_Type,
+                     Third_Party,
+                     End_User,
+                     Remarks,
+                     Movement_Type,
+                     document_number)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     _dt.today().strftime('%Y-%m-%d'),
                     _dt.now().time().strftime('%H:%M:%S'),
-                    unique_id, code, description, expiry_date, batch_number,
-                    scenario, kit, module, qty_in, in_type, qty_out, out_type,
-                    third_party, end_user, remarks, movement_type, document_number
+                    unique_id,
+                    code,
+                    description,
+                    expiry_date,
+                    batch_number,
+                    scenario,
+                    kit,
+                    module,
+                    qty_in,
+                    in_type_canon,
+                    qty_out,
+                    out_type_canon,
+                    third_party,
+                    end_user,
+                    remarks,
+                    movement_type_canon,
+                    document_number
                 ))
 
             conn.commit()
+
         except sqlite3.Error as e:
             conn.rollback()
             logging.error(f"Error logging transaction: {e}")
             raise
+
         finally:
             cur.close()
             conn.close()
@@ -2557,36 +2625,29 @@ class StockReceiveKit(tk.Frame):
             out.append(nid)
             stack.extend(self.tree.get_children(nid))
         return out
-    def _collect_structural_nodes(self):
-        structural = []
-        def walk(iid):
-            if not self.tree.exists(iid): return
-            vals = self.tree.item(iid, "values")
-            if vals:
-                rt = (vals[2] or "").strip().upper()
-                if rt in ("KIT","MODULE","PRIMARY","SECONDARY"):
-                    structural.append(iid)
-            for ch in self.tree.get_children(iid):
-                walk(ch)
-        for top in self.tree.get_children(""):
-            walk(top)
-        return structural
+
 
 
 
 
     def update_row_comment(self, iid, force=False, sticky_mode=True):
         """
-        Localized comment updater.
+        Comment updater.
 
-        Structural rows (KIT / MODULE / PRIMARY / SECONDARY): always blank.
-        Non structural (ITEM) rows:
-        - Blank if no expiry or manual expiry.
-        - Else localized adopted message based on matching module or kit earliest.
+        Rule:
+        - Structural rows (KIT / MODULE / PRIMARY / SECONDARY): comment always blank.
+        - ITEM rows:
+            * Blank if missing expiry OR user_manual_expiry True.
+            * If expiry_iso matches exp_module_iso -> adopted_module
+            * Else if matches exp_kit_iso -> adopted_kit
+            * Else blank
 
-        Translation keys used:
-        receive_kit.comment.adopted_module
-        receive_kit.comment.adopted_kit
+        Storage rule (important):
+        - We keep canonical keys in memory (rd["comment_key"]): "adopted_module" or "adopted_kit" or ""
+        - The UI shows localized display text via translation JSON:
+            - Primary: "receive_kit.comments_map" enum section
+            - Fallback: "enum.comments_map"
+            - Last-resort: receive_kit.comment.* keys
         """
         if not self.tree or not self.tree.exists(iid):
             return
@@ -2598,11 +2659,11 @@ class StockReceiveKit(tk.Frame):
         row_type = (vals[2] or "").strip().upper()
         rd = self.row_data.setdefault(iid, {})
 
-    # Structural rows: ensure comment cleared
+        # Structural rows: comment always blank
         if row_type in ("KIT", "PRIMARY", "MODULE", "SECONDARY"):
+            rd["comment_key"] = ""
             if vals[11] != "":
                 vals[11] = ""
-                rd['sticky_comment'] = ""
                 self.tree.item(iid, values=tuple(vals))
             return
 
@@ -2611,20 +2672,77 @@ class StockReceiveKit(tk.Frame):
         exp_kit_iso = rd.get("exp_kit_iso")
         manual = rd.get("user_manual_expiry")
 
+        # 1) Determine canonical key (what should be stored in DB later)
         if not expiry_iso or manual:
-            new_comment = ""
+            comment_key = ""
         else:
             if exp_mod_iso and expiry_iso == exp_mod_iso:
-                new_comment = lang.t("receive_kit.comment.adopted_module", fallback="Adopted Module expiry")
+                comment_key = "adopted_module"
             elif exp_kit_iso and expiry_iso == exp_kit_iso:
-                new_comment = lang.t("receive_kit.comment.adopted_kit", fallback="Adopted Kit expiry")
+                comment_key = "adopted_kit"
             else:
-                new_comment = ""
+                comment_key = ""
 
+        rd["comment_key"] = comment_key  # canonical
+
+        # 2) Build localized UI string from canonical key
+        if not comment_key:
+            new_comment = ""
+        else:
+            # Preferred enum section (localized display)
+            # Ensure you have (in en/fr/es):
+            # "receive_kit": { "comments_map": { "adopted_module": "...", "adopted_kit": "..." } }
+            new_comment = lang.enum_to_display(
+                "receive_kit.comments_map",
+                comment_key,
+                fallback=comment_key
+            )
+
+            # Optional fallback: global enum section
+            if new_comment == comment_key:
+                new_comment = lang.enum_to_display(
+                    "enum.comments_map",
+                    comment_key,
+                    fallback=comment_key
+                )
+
+            # Last-resort fallback to text keys
+            if new_comment == comment_key:
+                if comment_key == "adopted_module":
+                    new_comment = lang.t("receive_kit.comment.adopted_module", fallback="Adopted Module expiry")
+                elif comment_key == "adopted_kit":
+                    new_comment = lang.t("receive_kit.comment.adopted_kit", fallback="Adopted Kit expiry")
+
+        # 3) Write to UI (localized display)
         if vals[11] != new_comment:
             vals[11] = new_comment
-            rd['sticky_comment'] = new_comment
             self.tree.item(iid, values=tuple(vals))
+
+
+    _IN_TYPE_CANON_MAP = {
+        # French -> English canonical
+        "Depuis la quarantaine": "In from Quarantine",
+        "Retour utilisateur final": "Return from End User",
+        "Achat local": "In Local Purchase",
+        "Donation": "In Donation",
+        "Entrée MSF": "In MSF",
+        "Approvisionnement non-MSF": "In Supply Non-MSF",
+        "Emprunt": "In Borrowing",
+        "Retour de prêt": "In Return of Loan",
+        "Correction transaction précédente": "In Correction of Previous Transaction",
+
+        # English -> English canonical (safe)
+        "In MSF": "In MSF",
+        "In Local Purchase": "In Local Purchase",
+        "In from Quarantine": "In from Quarantine",
+        "In Donation": "In Donation",
+        "Return from End User": "Return from End User",
+        "In Supply Non-MSF": "In Supply Non-MSF",
+        "In Borrowing": "In Borrowing",
+        "In Return of Loan": "In Return of Loan",
+        "In Correction of Previous Transaction": "In Correction of Previous Transaction",
+    }
+
 
     def _structural_iids(self):
         out = []
@@ -2641,51 +2759,114 @@ class StockReceiveKit(tk.Frame):
         vals = self.tree.item(iid, "values")
         if not vals: return ""
         return (vals[2] or "").strip().upper()
+    
+    def _canon_in_type(self, display_value: str) -> str:
+        """
+        Convert localized IN Type (UI) to canonical English for DB storage.
+        Priority:
+        1) receive_kit.in_types_map
+        2) enum.in_types_map
+        3) stock_in.in_types_map (legacy)
+        4) Hard fallback mapping
+        5) Original value
+        """
+        v = (display_value or "").strip()
+        if not v:
+            return v
+
+        for map_key in ("receive_kit.in_types_map", "enum.in_types_map", "stock_in.in_types_map"):
+            try:
+                canon = lang.enum_to_canonical(map_key, v, fallback=None)
+            except Exception:
+                canon = None
+            if canon and canon.strip():
+                return canon.strip()
+
+        # Hard fallback mapping (guaranteed)
+        if v in self._IN_TYPE_CANON_MAP:
+            return self._IN_TYPE_CANON_MAP[v]
+
+        return v
+
+
+    def _canon_out_type(self, display_value: str) -> str:
+        """
+        Convert localized OUT Type (UI) to canonical English for DB storage.
+        """
+        v = (display_value or "").strip()
+        if not v:
+            return v
+
+        for map_key in ("receive_kit.out_types_map", "enum.out_types_map", "stock_out.out_types_map", "dispatch_kit.out_types_map"):
+            try:
+                canon = lang.enum_to_canonical(map_key, v, fallback=None)
+            except Exception:
+                canon = None
+            if canon and canon.strip():
+                return canon.strip()
+
+        return v
+
+
+    def _canon_movement_type(self, display_value: str) -> str:
+        """
+        Store movement type in DB as English readable canonical (not translated).
+        Prefer internal mode key; fallback to readable mapping; last resort the raw value.
+        """
+        v = (display_value or "").strip()
+
+        # Prefer internal key for stability
+        try:
+            key = self.current_mode_key()
+        except Exception:
+            key = None
+
+        if not key:
+            if hasattr(self, "mode_label_to_key") and v in self.mode_label_to_key:
+                key = self.mode_label_to_key[v]
+            else:
+                key = v
+
+        movement_map = {
+            "receive_kit": "Receive Kit",
+            "add_standalone": "Add standalone item(s) to scenario",
+            "add_module_scenario": "Add module to scenario",
+            "add_module_kit": "Add module to a kit",
+            "add_items_kit": "Add items to a kit",
+            "add_items_module": "Add items to a module",
+        }
+
+        return movement_map.get(key, str(key))
+
+
+    def _canon_comment(self, display_value: str) -> str:
+        """
+        Convert localized comment (UI) to canonical key for DB storage.
+        Canonical keys:
+        - adopted_module
+        - adopted_kit
+        """
+        v = (display_value or "").strip()
+        if not v:
+            return ""
+        # Prefer receive_kit.comments_map; fallback to enum.comments_map; last fallback: raw v
+        canon = lang.enum_to_canonical("receive_kit.comments_map", v, fallback=None)
+        if canon and canon.strip():
+            return canon.strip()
+        canon = lang.enum_to_canonical("enum.comments_map", v, fallback=None)
+        if canon and canon.strip():
+            return canon.strip()
+        return v
+
+
+
+    
     def _split_treecode(self, tc: str | None):
         if not tc:
             return []
         # 3-char chunks
         return [tc[i:i+3] for i in range(0, len(tc), 3)]
-    def _auto_fill_expiry_with_precedence(self):
-        """
-        Improved precedence logic:
-        - If user has NOT manually entered an expiry:
-            * Prefer module earliest (exp_module_iso):
-                - If no current expiry -> adopt module earliest.
-                - If current expiry == kit earliest but differs from module earliest -> upgrade to module earliest.
-            * If no module earliest -> adopt kit earliest only if there is no current expiry.
-        - Never override a manual expiry.
-        """
-        for iid in self._gather_full_tree_nodes():
-            if not self.tree.exists(iid):
-                continue
-            vals = list(self.tree.item(iid, "values"))
-            if len(vals) < 13:
-                continue
-            rd = self.row_data.setdefault(iid, {})
-            # Skip if user entered manually
-            if rd.get("user_manual_expiry"):
-                continue
-            exp_mod = rd.get("exp_module_iso")
-            exp_kit = rd.get("exp_kit_iso")
-            current = rd.get("expiry_iso")
-            changed = False
-            if exp_mod:
-                # Adopt or upgrade to module earliest
-                if current is None:
-                    rd["expiry_iso"] = exp_mod
-                    changed = True
-                elif current == exp_kit and exp_mod != exp_kit:
-                    rd["expiry_iso"] = exp_mod
-                    changed = True
-            else:
-                # No module earliest: adopt kit earliest if empty
-                if current is None and exp_kit:
-                    rd["expiry_iso"] = exp_kit
-                    changed = True
-            if changed:
-                vals[7] = format_expiry_display(rd["expiry_iso"])
-                self.tree.item(iid, values=tuple(vals))
+
     def _recalc_after_quantity_edit(self, edited_iid, was_structural):
         """
         Recalculate quantities after a user edits one row's quantity.
@@ -2884,7 +3065,7 @@ class StockReceiveKit(tk.Frame):
         self._rederive_comments()
         return adopted
     def _prompt_for_structural_expiries(self):
-        structural = self._collect_structural_nodes()
+        structural = self._structural_iids()
         if not structural:
             return True
         title = lang.t("receive_kit.expiry_prompt_title","Expiry Required")
@@ -2948,7 +3129,7 @@ class StockReceiveKit(tk.Frame):
         can replace a previously propagated kit expiry).
         """
         structural = []
-        for iid in self._collect_structural_nodes():
+        for iid in self._structural_iids():
             rd = self.row_data.get(iid, {})
             tc = rd.get('treecode') or ""
             depth = len(tc) // 3 if tc else 0
@@ -3218,12 +3399,12 @@ class StockReceiveKit(tk.Frame):
     # Recursive save subtree
     # -----------------------------------------------------------------
     def save_subtree(self, iid, invalid_items, exported_rows,
-                     kit_number=None, module_number=None,
-                     document_number=None, effective_expiry=None):
+                 kit_number=None, module_number=None,
+                 document_number=None, effective_expiry=None):
         """
-        Modified to:
-          - Capture the 'Comments' column text and persist it to stock_data (comments)
-            and stock_transactions (Comments).
+        Persist subtree rows.
+        - UI shows localized text (in selected language).
+        - stock_transactions persists canonical English for IN_Type, Movement_Type, and Comments via log_transaction().
         """
         try:
             if not self.tree.exists(iid):
@@ -3234,8 +3415,8 @@ class StockReceiveKit(tk.Frame):
                 return True
 
             (code, desc, type_field, kit_val, mod_val, std_qty, qty_str,
-             display_expiry, batch_no, exp_module_col, exp_kit_col,
-             comments_col, _unique_visible) = vals
+            display_expiry, batch_no, exp_module_col, exp_kit_col,
+            comments_col, _unique_visible) = vals
 
             rd_local = self.row_data.get(iid, {})
 
@@ -3267,8 +3448,8 @@ class StockReceiveKit(tk.Frame):
             if type_field.upper() == "KIT":
                 while not kit_number:
                     entered = simpledialog.askstring("Kit Number",
-                                                     f"Enter Kit Number for {code}",
-                                                     parent=self.parent)
+                                                    f"Enter Kit Number for {code}",
+                                                    parent=self.parent)
                     if entered is None:
                         return False
                     if entered.strip() and self.is_kit_number_unique(entered.strip()):
@@ -3279,8 +3460,8 @@ class StockReceiveKit(tk.Frame):
             if type_field.upper() == "MODULE":
                 while not module_number:
                     entered = simpledialog.askstring("Module Number",
-                                                     f"Enter Module Number for {code}",
-                                                     parent=self.parent)
+                                                 f"Enter Module Number for {code}",
+                                                 parent=self.parent)
                     if entered is None:
                         return False
                     if entered.strip() and self.is_module_number_unique(kit_number, entered.strip()):
@@ -3325,10 +3506,11 @@ class StockReceiveKit(tk.Frame):
             cur_vals[12] = unique_id
             self.tree.item(iid, values=tuple(cur_vals))
 
-            # Persist only if quantity > 0 (movement)
+            # Persist movement only when quantity > 0
             if qty_to_receive > 0:
                 scenario_name = self.scenario_map.get(self.selected_scenario_id, "Unknown")
-                # Save to stock_data (comments)
+
+                # Save to stock_data (comments localized OK; stock_transactions will store canonical via log_transaction)
                 StockData.add_or_update(
                     unique_id=unique_id,
                     scenario=scenario_name,
@@ -3336,9 +3518,10 @@ class StockReceiveKit(tk.Frame):
                     exp_date=final_expiry,
                     kit_number=kit_number,
                     module_number=module_number,
-                    comments=comments_col or None
+                    comments=comments_col or None  # localized for stock_data
                 )
-                # Transaction log
+
+                # Transaction log: converts IN_Type, Movement_Type, Comments to canonical English internally
                 self.log_transaction(
                     unique_id=unique_id,
                     code=code,
@@ -3349,15 +3532,15 @@ class StockReceiveKit(tk.Frame):
                     kit=kit_number,
                     module=module_number,
                     qty_in=qty_to_receive,
-                    in_type=self.trans_type_var.get() or "stock_in",
+                    in_type=self.trans_type_var.get() or "stock_in",  # localized display; canonicalized in log_transaction
                     qty_out=None,
                     out_type=None,
                     third_party=self.third_party_var.get() or None,
                     end_user=self.end_user_var.get() or None,
                     remarks=self.remarks_entry.get().strip() or None,
-                    movement_type=self.mode_var.get() or "stock_in",
+                    movement_type=self.mode_var.get() or "stock_in",  # localized display; canonicalized in log_transaction
                     document_number=document_number,
-                    comments=comments_col or None
+                    comments=comments_col or None  # localized display; canonicalized in log_transaction
                 )
 
                 exported_rows.append({
@@ -3372,9 +3555,9 @@ class StockReceiveKit(tk.Frame):
                     'batch_no': batch_no,
                     'exp_module': exp_module_col,
                     'exp_kit': exp_kit_col,
-                    'comments': comments_col,
+                    'comments': comments_col,  # localized for export
                     'unique_id': unique_id
-                })
+            })
 
             # Recurse
             for child in self.tree.get_children(iid):
@@ -3509,22 +3692,22 @@ class StockReceiveKit(tk.Frame):
                 self.search_var.set("")
                 self.search_listbox.delete(0, tk.END)
                 self.tree.delete(*self.tree.get_children())
-                for rd in self.row_data.values():
-                        rd.pop('sticky_comment', None)
+
                 self.row_data.clear()
                 self.code_to_iid.clear()
                 self.parent_expiry_map.clear()
-                self.status_var.set(lang.t("receive_kit.ready","Ready"))
+
+                self.status_var.set(lang.t("receive_kit.ready", "Ready"))
                 self.expiry_validation_active = False
     def clear_form(self):
                 self.search_var.set("")
                 self.search_listbox.delete(0, tk.END)
                 self.tree.delete(*self.tree.get_children())
-                for rd in self.row_data.values():
-                        rd.pop('sticky_comment', None)
+
                 self.row_data.clear()
                 self.code_to_iid.clear()
                 self.parent_expiry_map.clear()
+
                 self.scenario_var.set("")
                 self.mode_var.set("")
                 self.kit_var.set("")
@@ -3534,11 +3717,17 @@ class StockReceiveKit(tk.Frame):
                 self.trans_type_var.set("")
                 self.end_user_var.set("")
                 self.third_party_var.set("")
-                self.remarks_entry.delete(0, tk.END)
+
+                try:
+                    self.remarks_entry.delete(0, tk.END)
+                except Exception:
+                    pass
+
                 self.end_user_cb.config(state="disabled")
                 self.third_party_cb.config(state="disabled")
                 self.remarks_entry.config(state="disabled")
-                self.status_var.set(lang.t("receive_kit.ready","Ready"))
+
+                self.status_var.set(lang.t("receive_kit.ready", "Ready"))
                 self.expiry_validation_active = False
                 self.load_scenarios()
     def show_context_menu(self, event):
@@ -3553,43 +3742,49 @@ class StockReceiveKit(tk.Frame):
     # Legacy alias
     def save(self, *args, **kwargs):
         self.save_all()
+
+
+
+
+
+
     # -----------------------------------------------------------------
     # Save Workflow
     # -----------------------------------------------------------------
     def save_all(self):
         if self.role.lower() not in ("admin","manager"):
             custom_popup(self.parent,
-                         lang.t("receive_kit.perm_error_title","Permission Denied"),
-                         lang.t("receive_kit.perm_error_msg","Only admin or manager can save."),
-                         "error")
+                        lang.t("receive_kit.perm_error_title","Permission Denied"),
+                        lang.t("receive_kit.perm_error_msg","Only admin or manager can save."),
+                        "error")
             return
         if not self.tree.get_children():
             custom_popup(self.parent,
-                         lang.t("receive_kit.no_rows_title","Nothing to Save"),
-                         lang.t("receive_kit.no_rows_msg","No rows present."),
-                         "error")
+                        lang.t("receive_kit.no_rows_title","Nothing to Save"),
+                        lang.t("receive_kit.no_rows_msg","No rows present."),
+                        "error")
             return
         if not self.trans_type_var.get():
             custom_popup(self.parent,
-                         lang.t("receive_kit.in_type_missing_title","IN Type Missing"),
-                         lang.t("receive_kit.in_type_missing_msg","Please select an IN Type."),
-                         "error")
+                        lang.t("receive_kit.in_type_missing_title","IN Type Missing"),
+                        lang.t("receive_kit.in_type_missing_msg","Please select an IN Type."),
+                        "error")
             return
         if not self.ensure_unique_numbers_interactively():
             return
         self.activate_global_expiry_validation()
-        structural_nodes = self._collect_structural_nodes()
+        structural_nodes = self._structural_iids()
         if structural_nodes:
             if not self._prompt_for_structural_expiries():
                 return
             still_missing = [self.tree.item(iid,"values")[0]
-                             for iid in structural_nodes
-                             if not self.row_data.get(iid,{}).get("expiry_iso")]
+                            for iid in structural_nodes
+                            if not self.row_data.get(iid,{}).get("expiry_iso")]
             if still_missing:
                 custom_popup(self.parent,
-                             lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
-                             "Still missing expiry for:\n" + "\n".join(still_missing),
-                             "error")
+                            lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
+                            "Still missing expiry for:\n" + "\n".join(still_missing),
+                            "error")
                 return
             self._propagate_structural_expiries_top_down()
         else:
@@ -3608,18 +3803,22 @@ class StockReceiveKit(tk.Frame):
         ]
         if missing_struct_final:
             custom_popup(self.parent,
-                         lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
-                         "Structural rows still missing expiry:\n" + "\n".join(missing_struct_final),
-                         "error")
+                        lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
+                        "Structural rows still missing expiry:\n" + "\n".join(missing_struct_final),
+                        "error")
             return
         for iid in self._gather_full_tree_nodes():
             self._validate_and_tag_row(iid, force=True)
         self.update_unique_ids_and_column()
+
         review_title = lang.t("receive_kit.review_title","Review Before Saving")
-        base_msg = "Structural expiries captured. Mandatory item expiries auto-adopted where possible."
+        base_msg = lang.t("receive_kit.review_base_msg",
+                        "Structural expiries captured. Mandatory item expiries auto-adopted where possible.")
         if adopted_items:
-            base_msg += f"\n{adopted_items} mandatory item(s) received an adopted expiry."
-        review_message = base_msg + "\nProceed with save?"
+            base_msg += "\n" + lang.t("receive_kit.review_adopted_count",
+                                    "{count} mandatory item(s) received an adopted expiry.",
+                                    count=adopted_items)
+        review_message = base_msg + "\n" + lang.t("receive_kit.review_proceed","Proceed with save?")
         try:
             choice = custom_dialog(
                 self.parent,
@@ -3629,7 +3828,7 @@ class StockReceiveKit(tk.Frame):
                     {"key":"save","text":lang.t("receive_kit.button_save","Save"),
                      "style":"Primary.Popup.TButton"},
                     {"key":"review","text":lang.t("receive_kit.button_review","Review"),
-                     "style":"Secondary.Popup.TButton"}
+                    "style":"Secondary.Popup.TButton"}
                 ]
             )
         except Exception:
@@ -3637,21 +3836,24 @@ class StockReceiveKit(tk.Frame):
         if choice != "save":
             self.status_var.set(lang.t("receive_kit.review_mode_status","Review mode - not saved yet."))
             return
+
+        # Document number still derived from UI selection text; canonicalization happens when logging transaction.
         document_number = self.generate_document_number(self.trans_type_var.get())
         self.ensure_module_number_consistency()
+
         exported_rows = []
         for root in self.tree.get_children(""):
             if not self.save_subtree(root, [], exported_rows, document_number=document_number):
                 custom_popup(self.parent,
-                             lang.t("receive_kit.save_error_title","Save Error"),
-                             lang.t("receive_kit.save_error_msg","An error occurred during save."),
-                             "error")
+                            lang.t("receive_kit.save_error_title","Save Error"),
+                            lang.t("receive_kit.save_error_msg","An error occurred during save."),
+                            "error")
                 return
         self.rewrite_module_number_rows()
         custom_popup(self.parent,
-                     lang.t("receive_kit.save_success_title","Success"),
-                     lang.t("receive_kit.save_success_msg","Data saved successfully."),
-                     "success")
+                    lang.t("receive_kit.save_success_title","Success"),
+                    lang.t("receive_kit.save_success_msg","Data saved successfully."),
+                    "success")
         self.status_var.set(
             lang.t("receive_kit.saved_doc_status","Saved. Document Number: {doc}", doc=document_number)
         )
@@ -3662,6 +3864,7 @@ class StockReceiveKit(tk.Frame):
         ) == "yes":
             self.export_data(exported_rows)
         self.clear_form()
+
 # ---------------------------------------------------------------------
 # VERSION
 # ---------------------------------------------------------------------
