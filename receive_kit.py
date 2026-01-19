@@ -1604,18 +1604,20 @@ class StockReceiveKit(tk.Frame):
         def validate_kit_number():
             kn = kit_number_var.get().strip()
             if not kn:
-                error_label.config(text="Kit Number is required")
+                error_label.config(text=lang.t("receive_kit.kit_number_required", "Kit Number is required"))
                 return False
             conn = connect_db()
             if conn is None:
-                error_label.config(text="DB connection failed")
+                error_label.config(text=lang.t("receive_kit.db_connection_failed", "DB connection failed"))
                 return False
             cur = conn.cursor()
             try:
                 cur.execute("SELECT COUNT(*) FROM stock_data WHERE kit_number=? AND unique_id LIKE ?",
                             (kn, f"{self.selected_scenario_id}/%"))
                 if cur.fetchone()[0] > 0:
-                    error_label.config(text="Kit Number already exists")
+                    # Use lang.t for error message
+                    error_msg = lang.t("receive_kit.kit_number_exists", "Kit Number already exists")
+                    error_label.config(text=error_msg)
                     return False
                 error_label.config(text=""); return True
             finally:
@@ -1627,7 +1629,7 @@ class StockReceiveKit(tk.Frame):
         def on_confirm(_=None):
             idx = listbox.curselection()
             if not idx:
-                error_label.config(text="Please select a kit")
+                error_label.config(text=lang.t("receive_kit.select_kit_error", "Please select a kit"))
                 return
             if not validate_kit_number():
                 return
@@ -1688,10 +1690,10 @@ class StockReceiveKit(tk.Frame):
         def validate():
             val = module_number_var.get().strip()
             if not val:
-                error_label.config(text="Module Number is required"); return False
+                error_label.config(text=lang.t("receive_kit.module_number_required", "Module Number is required")); return False
             conn = connect_db()
             if conn is None:
-                error_label.config(text="DB error"); return False
+                error_label.config(text=lang.t("receive_kit.db_error", "DB error")); return False
             cur = conn.cursor()
             try:
                 cur.execute("""
@@ -1699,7 +1701,7 @@ class StockReceiveKit(tk.Frame):
                     WHERE module_number=? AND module_number!='None'
                 """, (val,))
                 if cur.fetchone()[0] > 0:
-                    error_label.config(text="Module Number already exists")
+                    error_label.config(text=lang.t("receive_kit.module_number_exists", "Module Number already exists"))
                     return False
                 error_label.config(text=""); return True
             finally:
@@ -2366,14 +2368,13 @@ class StockReceiveKit(tk.Frame):
                 code = vals[0] if vals else "UNKNOWN"
                 while True:
                     new_val = simpledialog.askstring(
-                        f"Rename {kind_label} Number",
-                        f"{kind_label} '{code}' uses duplicate {kind_label} Number '{current_number}'.\n"
-                        f"Enter NEW {kind_label} Number (Cancel aborts SAVE):",
+                        lang.t("receive_kit.rename_title", "Rename {kind_label} Number").format(kind_label=kind_label),
+                        lang.t("receive_kit.duplicate_prompt_msg", "{kind_label} '{code}' uses duplicate {kind_label} Number '{current_number}'.\nEnter NEW {kind_label} Number (Cancel aborts SAVE):").format(kind_label=kind_label, code=code, current_number=current_number),
                         parent=self.parent
                     )
                     if new_val is None:
-                        custom_popup(self.parent, "Cancelled",
-                                     f"{kind_label} number resolution cancelled. Save aborted.",
+                        custom_popup(self.parent, lang.t("receive_kit.cancelled_popup_title", "Cancelled"),
+                                     lang.t("receive_kit.cancelled_popup_msg", "{kind_label} number resolution cancelled. Save aborted.").format(kind_label=kind_label),
                                      "warning")
                         return False
                     new_val = new_val.strip()
@@ -2382,8 +2383,8 @@ class StockReceiveKit(tk.Frame):
                     kit_map_now, mod_map_now = collect_maps()
                     present_map = kit_map_now if kind_label == "Kit" else mod_map_now
                     if new_val in present_map and iid not in present_map[new_val]:
-                        custom_popup(self.parent, "Duplicate",
-                                     f"{kind_label} Number '{new_val}' already used. Try another.",
+                        custom_popup(self.parent, lang.t("receive_kit.duplicate_popup_title", "Duplicate"),
+                                     lang.t("receive_kit.duplicate_popup_msg", "{kind_label} Number '{new_val}' already used. Try another.").format(kind_label=kind_label, new_val=new_val),
                                      "error")
                         continue
                     rd = self.row_data.setdefault(iid, {})
@@ -3658,11 +3659,22 @@ class StockReceiveKit(tk.Frame):
             ws.page_setup.fitToHeight = 0
             ws.page_setup.fitToWidth = 1
             wb.save(file_path)
-            custom_popup(self.parent, "Success", f"Export successful: {file_path}", "info")
-            self.status_var.set(f"Export successful: {file_path}")
+            custom_popup(
+            self.parent, 
+            lang.t("receive_kit.success", "Success"), 
+            lang.t("receive_kit.export_success_with_path", "Export successful: {path}", path=file_path), 
+            "info"
+            )
+            self.status_var.set(lang.t("receive_kit. export_success_with_path", "Export successful: {path}", path=file_path))
         except Exception as e:
             logging.error(f"Export failed: {e}")
-            custom_popup(self.parent, "Error", f"Export failed: {e}", "error")
+            custom_popup(
+            self.parent, 
+            lang.t("receive_kit.error", "Error"), 
+            lang.t("receive_kit.export_failed_with_error", "Export failed: {error}", error=str(e)), 
+            "error"
+            )
+
     # -----------------------------------------------------------------
     # Clear / Context Menu
     # -----------------------------------------------------------------
@@ -3789,10 +3801,10 @@ class StockReceiveKit(tk.Frame):
             self._validate_and_tag_row(iid, force=True)
         self.update_unique_ids_and_column()
         review_title = lang.t("receive_kit.review_title","Review Before Saving")
-        base_msg = "Structural expiries captured. Mandatory item expiries auto-adopted where possible."
+        base_msg = lang.t("receive_kit.base_msg", "Structural expiries captured. Mandatory item expiries auto-adopted where possible.")
         if adopted_items:
-            base_msg += f"\n{adopted_items} mandatory item(s) received an adopted expiry."
-        review_message = base_msg + "\nProceed with save?"
+            base_msg += lang.t("receive_kit.adopted_items_msg", "\n{adopted_items} mandatory item(s) received an adopted expiry.").format(adopted_items=adopted_items)
+        review_message = base_msg + lang.t("receive_kit.proceed_with_save", "\nProceed with save?")
         try:
             choice = custom_dialog(
                 self.parent,
