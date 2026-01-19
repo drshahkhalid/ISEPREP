@@ -1897,7 +1897,12 @@ class StockReceiveKit(tk.Frame):
                     # Quantity (base user quantity)
                     rtype = self._get_row_type(row_id)
                     if rtype.upper() in ("KIT", "MODULE"):
-                        mb.showinfo("Info", "Quantity for Kit or Module must always remain 1.")
+                        custom_popup(
+                            self.parent,
+                            lang.t("receive_kit.info", "Info"),
+                            lang.t("receive_kit.qty_kit_module_fixed", "Quantity for Kit or Module must always remain 1."),
+                            "info"
+                        )
                         return  # Prevent change
                     if new == "":
                         # Allow blank -> treat as 1
