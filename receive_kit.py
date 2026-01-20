@@ -234,6 +234,37 @@ def fetch_end_users():
         return []
     finally:
         cur.close(); conn.close()
+
+def validate_expiry_not_past(iso_date: str) -> tuple[bool, str]:
+    """
+    Check if expiry date is not in the past.
+    
+    Args:
+        iso_date:  Date string in ISO format (YYYY-MM-DD)
+    
+    Returns:
+        tuple: (is_valid, error_message)
+            - is_valid: True if date is today or future, False if past
+            - error_message:  Empty string if valid, error message if invalid
+    """
+    if not iso_date:
+        return True, ""  # Empty date handled elsewhere
+    
+    try:
+        expiry_date = _dt.strptime(iso_date, "%Y-%m-%d").date()
+        today = _dt.today().date()
+        
+        if expiry_date < today:
+            formatted_date = format_expiry_display(iso_date)
+            return False, f"Expiry date {formatted_date} is in the past.  Please enter a current or future date."
+        
+        return True, ""
+    
+    except Exception as e:
+        logging.error(f"Date validation error: {e}")
+        return False, "Invalid date format"
+
+
 class StockData:
     @staticmethod
     def add_or_update(unique_id,
@@ -825,6 +856,7 @@ class StockReceiveKit(tk.Frame):
                     module_number=module_number
                 )
             )
+
 
    
     def update_mode(self, event=None):
@@ -2017,6 +2049,22 @@ class StockReceiveKit(tk.Frame):
                                 "error"
                             )
                             return
+                        # Validate expiry is not in the past
+                        is_valid, error_msg = validate_expiry_not_past(iso)
+                        if not is_valid: 
+                            custom_popup(
+                                self.parent,
+                                lang. t("receive_kit.invalid_expiry", "Invalid Expiry"),
+                                lang.t(
+                                    "receive_kit.expiry_past_date",
+                                    "Expiry date {date} is in the past. Please enter a current or future date.",
+                                    date=format_expiry_display(iso)
+                                ),
+                                "error"
+                            )
+                            return
+
+
                         rd["expiry_iso"] = iso
                         rd["user_manual_expiry"] = True
                         rd["auto_expiry"] = False
@@ -3323,6 +3371,23 @@ class StockReceiveKit(tk.Frame):
                         "error"
                     )
                     continue
+                
+                # Validate expiry is not in the past
+                is_valid, error_msg = validate_expiry_not_past(parsed)
+                if not is_valid:
+                    custom_popup(
+                        self.parent,
+                        lang.t("receive_kit.invalid_expiry_title", "Invalid Expiry"),
+                        lang.t(
+                            "receive_kit. expiry_past_date",
+                            "Expiry date {date} is in the past. Please enter a current or future date.",
+                            date=format_expiry_display(parsed)
+                        ),
+                        "error"
+                    )
+                    continue  # Loop back to prompt again
+                
+                # Only set if validation passed
                 rd["expiry_iso"] = parsed
                 self.tree.set(iid, "expiry_date", format_expiry_display(parsed))
         return True
@@ -3394,7 +3459,7 @@ class StockReceiveKit(tk.Frame):
             return True
         title = lang.t("receive_kit.expiry_prompt_title","Expiry Required")
         prompt_msg = lang.t(
-            "receive_kit.expiry_prompt_message",
+            "receive_kit. expiry_prompt_message",
             "Enter expiry (YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, etc.) for ALL items:"
         )
         while True:
@@ -3403,7 +3468,7 @@ class StockReceiveKit(tk.Frame):
                 custom_popup(
                     self.parent,
                     lang.t("receive_kit.cancelled_title","Cancelled"),
-                    lang.t("receive_kit.expiry_cancelled","Save cancelled: missing expiry."),
+                    lang.t("receive_kit. expiry_cancelled","Save cancelled:  missing expiry."),
                     "warning"
                 )
                 return False
@@ -3412,25 +3477,42 @@ class StockReceiveKit(tk.Frame):
                 continue
             parsed = parse_expiry(user_input)
             if not parsed:
-                try:
+                try: 
                     parsed = strict_parse_expiry(user_input)
                 except Exception:
                     parsed = None
             if not parsed:
                 custom_popup(
-                    self.parent,
+                    self. parent,
                     lang.t("receive_kit.invalid_expiry_title","Invalid Expiry"),
                     lang.t("receive_kit.invalid_expiry_msg",
-                           "Format not recognized. Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10"),
+                       "Format not recognized. Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10"),
                     "error"
                 )
                 continue
-            for iid in all_iids:
+        
+            # Validate expiry is not in the past
+            is_valid, error_msg = validate_expiry_not_past(parsed)
+            if not is_valid:
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.invalid_expiry_title", "Invalid Expiry"),
+                    lang.t(
+                        "receive_kit.expiry_past_date",
+                        "Expiry date {date} is in the past. Please enter a current or future date.",
+                        date=format_expiry_display(parsed)
+                    ),
+                    "error"
+                )
+                continue  # Loop back to prompt user again
+        
+            # Only apply to all items if validation passed
+            for iid in all_iids: 
                 rd = self.row_data.setdefault(iid, {})
-                if not rd.get("expiry_iso"):
+                if not rd. get("expiry_iso"):
                     rd["expiry_iso"] = parsed
-                    vals = self.tree.item(iid, "values")
-                    if vals:
+                    vals = self. tree.item(iid, "values")
+                    if vals: 
                         new_vals = list(vals)
                         new_vals[7] = format_expiry_display(parsed)
                         self.tree.item(iid, values=tuple(new_vals))
