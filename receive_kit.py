@@ -3591,7 +3591,7 @@ class StockReceiveKit(tk.Frame):
         ttype = self.trans_type_var.get()
         self.end_user_cb.config(state="disabled")
         self.third_party_cb.config(state="disabled")
-        self.remarks_entry.config(state="disabled")
+        self.remarks_entry.config(state="normal")
         self.end_user_var.set(""); self.third_party_var.set("")
         self.remarks_entry.delete(0, tk.END)
         if ttype in [
@@ -4139,13 +4139,13 @@ class StockReceiveKit(tk.Frame):
         
             # Count words (split by whitespace)
             word_count = len(remarks.split())
-            if word_count < 10:
+            if word_count < 0:
                 custom_popup(
                     self.parent,
                     lang.t("receive_kit.error", "Error"),
                     lang.t(
                         "receive_kit.remarks_min_words",
-                        "Remarks must contain at least 10 words (currently: {count} words).",
+                        "Remarks must contain at least 1 words (currently: {count} words).",
                         count=word_count
                     ),
                     "error"
