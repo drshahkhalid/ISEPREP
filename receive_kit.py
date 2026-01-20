@@ -429,7 +429,12 @@ class StockReceiveKit(tk.Frame):
             self.render_ui()
         except tk.TclError as e:
             logging.error(f"UI render error: {e}")
-            custom_popup(self.parent, "Error", f"Failed to render UI: {e}", "error")
+            custom_popup(
+                self.parent, 
+                lang.t("receive_kit.error", "Error"), 
+                lang.t("receive_kit.ui_render_failed", "Failed to render UI:  {error}", error=str(e)), 
+                "error"
+            )
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
@@ -649,7 +654,7 @@ class StockReceiveKit(tk.Frame):
             self.tree.delete(*self.tree.get_children())
             self.row_data.clear()
             self.code_to_iid.clear()
-            self.status_var.set("")
+            self.status_var.set(lang.t("receive_kit.ready", "Ready"))
             return
         parts = scen_string.split(" - ")
         self.selected_scenario_id = parts[0]
@@ -691,8 +696,10 @@ class StockReceiveKit(tk.Frame):
         self.search_listbox.delete(0, tk.END)
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
-            self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(f"Found {self.search_listbox.size()} items")
+            self.search_listbox.insert(tk. END, f"{r['code']} - {r['description']}")
+        self.status_var. set(
+            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+        )
     def on_kit_number_selected(self, event=None):
         kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else ""
         kit_code = self.kit_var.get()
@@ -739,7 +746,14 @@ class StockReceiveKit(tk.Frame):
                 'treecode': item['treecode']
             }
         self.recompute_exp_groups()
-        self.status_var.set(f"Loaded {len(self.tree.get_children())} records for kit number {kit_number}")
+        self.status_var.set(
+            lang. t(
+                "receive_kit.loaded_kit_records", 
+                "Loaded {count} records for kit number {kit_number}", 
+                count=len(self.tree.get_children()), 
+                kit_number=kit_number
+            )
+    )
     def on_module_selected(self, event=None):
         module_code = self.module_var.get()
         mode_key = self.current_mode_key()
@@ -758,8 +772,11 @@ class StockReceiveKit(tk.Frame):
         self.search_listbox.delete(0, tk.END)
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
-            self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(f"Found {self.search_listbox.size()} items")
+            self.search_listbox.insert(tk. END, f"{r['code']} - {r['description']}")
+        self.status_var. set(
+            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox. size())
+        )
+
     def on_module_number_selected(self, event=None):
         module_number = self.module_number_var.get()
         mode_key = self.current_mode_key()
@@ -800,7 +817,15 @@ class StockReceiveKit(tk.Frame):
                 'treecode': item['treecode']
             }
         self.recompute_exp_groups()
-        self.status_var.set(f"Loaded {len(self.tree.get_children())} records for module number {module_number}")
+        self.status_var.set(
+            lang.t(
+                "receive_kit.loaded_module_records", 
+                "Loaded {count} records for module number {module_number}", 
+                    count=len(self.tree.get_children()), 
+                    module_number=module_number
+                )
+            )
+
    
     def update_mode(self, event=None):
         mode_key = self.current_mode_key()
@@ -855,7 +880,11 @@ class StockReceiveKit(tk.Frame):
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
+        self.status_var.set(
+            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+        )
+
+
     def ensure_mode_ready(self):
         if not hasattr(self, "mode_definitions") or not self.mode_definitions:
             self.build_mode_definitions()
@@ -1509,7 +1538,12 @@ class StockReceiveKit(tk.Frame):
     # -----------------------------------------------------------------
     def add_missing_item(self):
         if not self.selected_scenario_id:
-            custom_popup(self.parent, "Error", "Please select a scenario", "error")
+            custom_popup(
+                self. parent, 
+                lang.t("receive_kit.error", "Error"), 
+                lang.t("receive_kit.no_scenario", "Please select a scenario"), 
+                "error"
+            )
             return
         dialog = tk.Toplevel(self.parent)
         dialog.title(lang.t("receive_kit.add_missing","Add Missing Item"))
@@ -1604,11 +1638,15 @@ class StockReceiveKit(tk.Frame):
         def validate_kit_number():
             kn = kit_number_var.get().strip()
             if not kn:
-                error_label.config(text=lang.t("receive_kit.kit_number_required", "Kit Number is required"))
+                error_label. config(
+                    text=lang.t("receive_kit. kit_number_required", "Kit Number is required")
+                )
                 return False
             conn = connect_db()
             if conn is None:
-                error_label.config(text=lang.t("receive_kit.db_connection_failed", "DB connection failed"))
+                error_label. config(
+                    text=lang. t("receive_kit.db_connection_failed", "DB connection failed")
+                )
                 return False
             cur = conn.cursor()
             try:
@@ -1616,10 +1654,12 @@ class StockReceiveKit(tk.Frame):
                             (kn, f"{self.selected_scenario_id}/%"))
                 if cur.fetchone()[0] > 0:
                     # Use lang.t for error message
-                    error_msg = lang.t("receive_kit.kit_number_exists", "Kit Number already exists")
-                    error_label.config(text=error_msg)
+                    error_label.config(
+                text=lang.t("receive_kit.kit_number_exists", "Kit Number already exists")
+            )
                     return False
-                error_label.config(text=""); return True
+                error_label.config(text=""); 
+                return True
             finally:
                 cur.close(); conn.close()
         def close_dialog():
@@ -1689,11 +1729,17 @@ class StockReceiveKit(tk.Frame):
         selected_module_number = [None]
         def validate():
             val = module_number_var.get().strip()
-            if not val:
-                error_label.config(text=lang.t("receive_kit.module_number_required", "Module Number is required")); return False
+            if not val: 
+                error_label.config(
+                    text=lang.t("receive_kit.module_number_required", "Module Number is required")
+                )
+                return False
             conn = connect_db()
             if conn is None:
-                error_label.config(text=lang.t("receive_kit.db_error", "DB error")); return False
+                error_label.config(
+                    text=lang.t("receive_kit.db_connection_failed", "DB connection failed")
+                )
+                return False
             cur = conn.cursor()
             try:
                 cur.execute("""
@@ -1740,12 +1786,13 @@ class StockReceiveKit(tk.Frame):
         self.code_to_iid.clear()
         comps = self.fetch_kit_items(self.selected_scenario_id, code)
         if not comps:
-            self.status_var.set(f"No items found for code {code}")
+            self. status_var.set(
+            lang.t("receive_kit. no_items_for_code", "No items found for code {code}", code=code)
+        )
             return
 
         # DEDUPLICATION: Merge duplicate codes and sum quantities
         comps = self._deduplicate_items_by_code(comps)
-
 
         kit_number_global = self.kit_number_var.get() or None
         treecode_map = {}
@@ -1768,7 +1815,13 @@ class StockReceiveKit(tk.Frame):
             if comp['type'].upper() == "MODULE":
                 module_number = self.select_module_popup(kit_number, comp['code'], comp['description'])
                 if module_number is None:
-                    self.status_var.set(f"Module number selection cancelled for {comp['code']}")
+                    self.status_var.set(
+                        lang.t(
+                            "receive_kit.module_cancelled_for_code", 
+                            "Module number selection cancelled for {code}", 
+                            code=comp['code']
+                        )
+                    )
                     return
                 module_number_map[comp['code']] = module_number
             else:
@@ -1798,7 +1851,14 @@ class StockReceiveKit(tk.Frame):
                 'treecode': comp['treecode']
             }
         self.recompute_exp_groups()
-        self.status_var.set(f"Loaded {len(self.tree.get_children())} top-level children for {code}")
+        self.status_var.set(
+            lang.t(
+                "receive_kit.loaded_items", 
+                "Loaded {count} top-level children for {code}", 
+                count=len(self.tree.get_children()), 
+                code=code
+            )
+    )
     # -----------------------------------------------------------------
     # Expiry validation toggles
     # -----------------------------------------------------------------
@@ -1908,12 +1968,22 @@ class StockReceiveKit(tk.Frame):
                         # Allow blank -> treat as 1
                         new_qty = 1
                     else:
-                        if not new.isdigit():
-                            custom_popup(self.parent, "Invalid", "Quantity must be a whole number", "error")
+                        if not new. isdigit():
+                            custom_popup(
+                                self.parent, 
+                                lang.t("receive_kit.invalid", "Invalid"), 
+                                lang.t("receive_kit.qty_must_be_number", "Quantity must be a whole number"), 
+                                "error"
+                            )
                             return
                         new_qty = int(new)
                         if new_qty < 0:
-                            custom_popup(self.parent, "Invalid", "Quantity cannot be negative", "error")
+                            custom_popup(
+                                self.parent, 
+                                lang.t("receive_kit.invalid", "Invalid"), 
+                                lang.t("receive_kit.qty_cannot_be_negative", "Quantity cannot be negative"), 
+                                "error"
+                            )
                             return
                     self.row_data[row_id]['user_qty'] = new_qty
                     vals = list(self.tree.item(row_id, "values"))
@@ -1937,9 +2007,15 @@ class StockReceiveKit(tk.Frame):
                             except Exception:
                                 iso = None
                         if not iso:
-                            custom_popup(self.parent, "Invalid Expiry",
-                                         "Unrecognized date. Examples:\n2029-10-05\n05/10/2029\n10/2029\n2029-10",
-                                         "error")
+                            custom_popup(
+                                self.parent, 
+                                lang.t("receive_kit.invalid_expiry", "Invalid Expiry"),
+                                lang.t(
+                                    "receive_kit.expiry_format_error", 
+                                    "Unrecognized date. Examples:\n2029-10-05\n05/10/2029\n10/2029\n2029-10"
+                                ),
+                                "error"
+                            )
                             return
                         rd["expiry_iso"] = iso
                         rd["user_manual_expiry"] = True
@@ -2013,16 +2089,22 @@ class StockReceiveKit(tk.Frame):
             self.tree.delete(*self.tree.get_children())
             self.row_data.clear()
             self.code_to_iid.clear()
-            self.status_var.set("")
+            self.status_var.set(lang.t("receive_kit. ready", "Ready"))
             return
         if not self.selected_scenario_id:
-            self.status_var.set("Please select a scenario")
+            self.status_var.set(
+                lang.t("receive_kit.no_scenario", "Please select a scenario")
+            )
             return
         mode_key = self.current_mode_key()
         res = self.fetch_search_results(q, self.selected_scenario_id, mode_key)
         for r in res:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(f"Found {self.search_listbox.size()} items")
+        self.status_var.set(
+            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+        )
+    
+    
     def select_first_result(self, event=None):
         if self.search_listbox.size() > 0:
             self.search_listbox.selection_set(0)
@@ -2059,17 +2141,47 @@ class StockReceiveKit(tk.Frame):
         # Validation per mode
         if mode_key == "add_module_kit":
             if not kit_code:
-                custom_popup(self.parent, "Error", "Select a Kit.", "error"); return
+                custom_popup(
+                    self.parent, 
+                    lang.t("receive_kit.error", "Error"), 
+                    lang.t("receive_kit.select_kit_error", "Select a Kit. "), 
+                    "error"
+                )
+                return
             if not kit_number:
-                custom_popup(self.parent, "Error", "Select a Kit Number.", "error"); return
+                custom_popup(
+                    self.parent, 
+                    lang.t("receive_kit.error", "Error"), 
+                    lang.t("receive_kit.select_kit_number_error", "Select a Kit Number."), 
+                    "error"
+                )
+                return
         elif mode_key == "add_items_kit":
             if not kit_number:
-                custom_popup(self.parent, "Error", "Select a Kit Number.", "error"); return
+                custom_popup(
+                    self.parent, 
+                    lang.t("receive_kit.error", "Error"), 
+                    lang.t("receive_kit.select_kit_number_error", "Select a Kit Number."), 
+                    "error"
+                )
+                return
         elif mode_key == "add_items_module":
             if not module_code_selected:
-                custom_popup(self.parent, "Error", "Select a Module.", "error"); return
+                custom_popup(
+                    self.parent, 
+                    lang.t("receive_kit.error", "Error"), 
+                    lang.t("receive_kit.select_module_error", "Select a Module. "), 
+                    "error"
+                )
+                return
             if not module_number:
-                custom_popup(self.parent, "Error", "Select a Module Number.", "error"); return
+                custom_popup(
+                    self.parent, 
+                    lang.t("receive_kit.error", "Error"), 
+                    lang.t("receive_kit.select_module_error", "Select a Module Number."), 
+                    "error"
+                )
+            return
         desc = get_item_description(code)
         item_type = detect_type(code, desc)
         std_qty = 0
@@ -2091,13 +2203,17 @@ class StockReceiveKit(tk.Frame):
         kit_display = "-----" if scen_module_mode else (kit_code or "-----")
         module_display = module_code_selected or "-----"
         if code in self.code_to_iid:
-            self.status_var.set(f"Item {code} already in tree")
+            self.status_var.set(
+                lang.t("receive_kit.item_already_in_tree", "Item {code} already in tree", code=code)
+            )
             return
         # Adding a MODULE (with subtree strategies) in add_module_kit / add_module_scenario
         if item_type.upper() == "MODULE" and mode_key in ("add_module_kit", "add_module_scenario"):
             module_number_for_id = self.select_module_popup(kit_number, code, desc)
-            if not module_number_for_id:
-                self.status_var.set(f"Cancelled adding module {code}")
+            if not module_number_for_id: 
+                self.status_var.set(
+                    lang.t("receive_kit.cancelled_adding_module", "Cancelled adding module {code}", code=code)
+                )
                 return
             # Try retrieval strategies
             comps1 = self.fetch_full_module_subtree(self.selected_scenario_id, code)
@@ -2148,7 +2264,13 @@ class StockReceiveKit(tk.Frame):
                     'treecode': None
                 }
                 self.recompute_exp_groups()
-                self.status_var.set(f"Added module {code} (no descendants)")
+                self. status_var.set(
+                    lang.t(
+                        "receive_kit.added_module_no_descendants", 
+                        "Added module {code} (no descendants)", 
+                        code=code
+                    )
+                )
                 return
             SEG = 3
             tc_map = {}
@@ -2196,7 +2318,14 @@ class StockReceiveKit(tk.Frame):
                     'treecode': tc
                 }
             self.recompute_exp_groups()
-            self.status_var.set(f"Added module {code} with descendants (strategy {chosen_label})")
+            self.status_var.set(
+                lang. t(
+                    "receive_kit.added_module_with_descendants", 
+                    "Added module {code} with descendants (strategy {strategy})", 
+                    code=code, 
+                    strategy=chosen_label
+                )
+            )
             return
         # Simple single row insertion
         kit_for_id = None if scen_module_mode else (kit_code if item_type.upper() != "KIT" else code)
@@ -2230,7 +2359,9 @@ class StockReceiveKit(tk.Frame):
             'module_number': module_number_for_id
         }
         self.recompute_exp_groups()
-        self.status_var.set(f"Added item {code}")
+        self.status_var.set(
+            lang.t("receive_kit.added_item", "Added item {code}", code=code)
+        )
     # -----------------------------------------------------------------
     # Uniqueness helpers
     # -----------------------------------------------------------------
@@ -2371,16 +2502,39 @@ class StockReceiveKit(tk.Frame):
             def prompt_single_rename(kind_label, iid, current_number):
                 vals = self.tree.item(iid, "values")
                 code = vals[0] if vals else "UNKNOWN"
+                # Translate kind_label for display
+                kind_label_display = lang.t(
+                    f"receive_kit.type_{kind_label. lower()}", 
+                    kind_label
+                )
                 while True:
                     new_val = simpledialog.askstring(
-                        lang.t("receive_kit.rename_title", "Rename {kind_label} Number").format(kind_label=kind_label),
-                        lang.t("receive_kit.duplicate_prompt_msg", "{kind_label} '{code}' uses duplicate {kind_label} Number '{current_number}'.\nEnter NEW {kind_label} Number (Cancel aborts SAVE):").format(kind_label=kind_label, code=code, current_number=current_number),
+                        lang.t(
+                            "receive_kit.rename_number_title", 
+                            "Rename {type} Number", 
+                            type=kind_label_display
+                        ),
+                        lang.t(
+                            "receive_kit.rename_number_message",
+                            "{type} '{code}' uses duplicate {type} Number '{number}'.\n"
+                            "Enter NEW {type} Number (Cancel aborts SAVE):",
+                            type=kind_label_display,
+                            code=code,
+                            number=current_number
+                        ),
                         parent=self.parent
                     )
                     if new_val is None:
-                        custom_popup(self.parent, lang.t("receive_kit.cancelled_popup_title", "Cancelled"),
-                                     lang.t("receive_kit.cancelled_popup_msg", "{kind_label} number resolution cancelled. Save aborted.").format(kind_label=kind_label),
-                                     "warning")
+                        custom_popup(
+                            self.parent, 
+                    lang.t("receive_kit.cancelled_title", "Cancelled"),
+                            lang.t(
+                                "receive_kit.number_resolution_cancelled",
+                                "{type} number resolution cancelled. Save aborted.",
+                                type=kind_label_display
+                            ),
+                            "warning"
+                        )
                         return False
                     new_val = new_val.strip()
                     if not new_val:
@@ -2388,9 +2542,17 @@ class StockReceiveKit(tk.Frame):
                     kit_map_now, mod_map_now = collect_maps()
                     present_map = kit_map_now if kind_label == "Kit" else mod_map_now
                     if new_val in present_map and iid not in present_map[new_val]:
-                        custom_popup(self.parent, lang.t("receive_kit.duplicate_popup_title", "Duplicate"),
-                                     lang.t("receive_kit.duplicate_popup_msg", "{kind_label} Number '{new_val}' already used. Try another.").format(kind_label=kind_label, new_val=new_val),
-                                     "error")
+                        custom_popup(
+                            self.parent, 
+                            lang.t("receive_kit.duplicate", "Duplicate"),
+                            lang.t(
+                                "receive_kit.number_already_used",
+                                "{type} Number '{number}' already used. Try another.",
+                                type=kind_label_display,
+                                number=new_val
+                            ),
+                            "error"
+                        )
                         continue
                     rd = self.row_data.setdefault(iid, {})
                     if kind_label == "Kit":
@@ -2719,6 +2881,18 @@ class StockReceiveKit(tk.Frame):
         "In Borrowing": "In Borrowing",
         "In Return of Loan": "In Return of Loan",
         "In Correction of Previous Transaction": "In Correction of Previous Transaction",
+
+
+        # SPANISH -> Spanish Conical
+        "Desde cuarentena": "In from Quarantine",
+        "Retorno de usuario final": "Return from End User",
+        "Compra local": "In Local Purchase",
+        "Donación":  "In Donation",
+        "Entrada MSF": "In MSF",
+        "Suministro no-MSF": "In Supply Non-MSF",
+        "Préstamo":  "In Borrowing",
+        "Devolución de préstamo": "In Return of Loan",
+        "Corrección de transacción previa": "In Correction of Previous Transaction"
     }
 
 
