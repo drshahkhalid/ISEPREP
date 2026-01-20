@@ -73,16 +73,42 @@ def ensure_table():
 # TYPE / DESCRIPTION HELPERS
 # ============================================================
 def detect_type(code, designation):
+    """
+    Detect item type based on code pattern first, then designation.
+    Returns canonical English type: "Kit", "Module", or "Item"
+    """
     if not code: 
         return "Item"
-    code = str(code).strip()
-    designation = str(designation or "").lower()
-    if code. upper().startswith("K"):
-        if designation.startswith("kit") or "modules" in designation:
+    
+    code = str(code).strip().upper()
+    
+    
+    
+    # Priority 1: Check designation (all language variants)
+    if designation: 
+        designation_lower = str(designation).lower()
+        
+        # Kit check
+        if "kit" in designation_lower or "modules" in designation_lower:
             return "Kit"
-        if "module" in designation and not designation.startswith("kit"):
-            return "Module"
+        
+        # Module check (EN/FR/ES variants)
+        if any(word in designation_lower for word in ["module", "módulo", "modulo"]):
+            if not designation_lower.startswith("kit"):
+    
+                return "Module"
+            
+    # Priority 3: Code pattern detection (most reliable)
+    
+    
+    if code.startswith("K"):
+        return "Kit"        
+    
+    # Default
     return "Item"
+
+
+
 
 def generate_unique_id(code):
     return code
