@@ -3965,24 +3965,111 @@ class StockReceiveKit(tk.Frame):
     # Save Workflow
     # -----------------------------------------------------------------
     def save_all(self):
-        if self.role.lower() not in ("admin","manager"):
-            custom_popup(self.parent,
-                         lang.t("receive_kit.perm_error_title","Permission Denied"),
-                         lang.t("receive_kit.perm_error_msg","Only admin or manager can save."),
-                         "error")
+        # Permission check
+        if self.role not in ("admin", "manager"):
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.permission_denied_title", "Permission Denied"),
+                lang.t("receive_kit.permission_denied_msg", "Only admin or manager can save. "),
+                "error"
+            )
             return
+    
+        # Check if there are rows
         if not self.tree.get_children():
-            custom_popup(self.parent,
-                         lang.t("receive_kit.no_rows_title","Nothing to Save"),
-                         lang.t("receive_kit.no_rows_msg","No rows present."),
-                         "error")
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.no_rows_title", "Nothing to Save"),
+                lang.t("receive_kit.no_rows_msg", "No rows present. "),
+                "info"
+            )
             return
-        if not self.trans_type_var.get():
-            custom_popup(self.parent,
-                         lang.t("receive_kit.in_type_missing_title","IN Type Missing"),
-                         lang.t("receive_kit.in_type_missing_msg","Please select an IN Type."),
-                         "error")
+    
+        # Get IN Type and canonicalize it
+        in_type_display = self.trans_type_var.get().strip()
+        if not in_type_display: 
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.in_type_missing_title", "IN Type Missing"),
+                lang.t("receive_kit.in_type_missing_msg", "Please select an IN Type."),
+                "warning"
+            )
             return
+    
+        # Convert to canonical English for validation
+        in_type_canonical = self._canon_in_type(in_type_display)
+    
+        # Get other fields
+        third_party = self. third_party_var.get().strip()
+        end_user = self.end_user_var. get().strip()
+        remarks = self.remarks_entry.get().strip() if self.remarks_entry else ""
+    
+        # Validation Rule 1: Third Party required for specific IN Types
+        if in_type_canonical in ["In Donation", "In Borrowing", "In Return of Loan"]:
+            if not third_party:
+                # Use the original display value from the combobox
+                display_value = self.trans_type_var.get().strip()
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.third_party_required",
+                        "A valid Third Party must be selected for {in_type}.",
+                        in_type=display_value
+                    ),
+                    "error"
+                )
+                return
+    
+        # Validation Rule 2: End User required for "Return from End User"
+        if in_type_canonical == "Return from End User":
+            if not end_user:
+                # Use the original display value from the combobox
+                display_value = self.trans_type_var.get().strip()
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.end_user_required",
+                        "A valid End User must be selected for {in_type}.",
+                        in_type=display_value
+                    ),
+                    "error"
+                )
+                return
+    
+        # Validation Rule 3: Remarks (min 10 words) for all other IN Types
+        if in_type_canonical not in ["In Donation", "In Borrowing", "In Return of Loan", "Return from End User"]: 
+            if not remarks:
+                # Use the original display value from the combobox
+                display_value = self.trans_type_var.get().strip()
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.remarks_required",
+                        "Remarks are required for {in_type}.",
+                        in_type=display_value
+                    ),
+                    "error"
+                )
+                return
+        
+            # Count words (split by whitespace)
+            word_count = len(remarks.split())
+            if word_count < 10:
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.remarks_min_words",
+                        "Remarks must contain at least 10 words (currently: {count} words).",
+                        count=word_count
+                    ),
+                    "error"
+                )
+                return
+        
         if not self.ensure_unique_numbers_interactively():
             return
         self.activate_global_expiry_validation()
