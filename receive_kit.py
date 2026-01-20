@@ -2914,7 +2914,7 @@ class StockReceiveKit(tk.Frame):
     
     def _canon_in_type(self, display_value: str) -> str:
         """
-        Convert UI IN Type (translated) -> canonical English for DB. 
+        Convert UI IN Type (translated) -> canonical English for DB.  
         """
         v = (display_value or "").strip()
         if not v:
@@ -2927,27 +2927,39 @@ class StockReceiveKit(tk.Frame):
             except Exception:
                 canon = None
 
-            if canon and canon. strip():
-                return canon. strip()
+            if canon and canon.strip():
+                return canon.strip()
 
         # Hard fallback mapping for common cases
         hard_map = {
+            # French mappings
             "Entrée MSF": "In MSF",
             "Achat local": "In Local Purchase",
-            "Depuis la quarantaine": "In from Quarantine",
+            "Depuis la quarantaine":  "In from Quarantine",
             "Donation": "In Donation",
             "Retour utilisateur final": "Return from End User",
             "Approvisionnement non-MSF": "In Supply Non-MSF",
-            "Emprunt":  "In Borrowing",
-            "Retour de prêt": "In Return of Loan",
+            "Emprunt": "In Borrowing",
+            "Retour de prêt":  "In Return of Loan",
             "Correction transaction précédente": "In Correction of Previous Transaction",
+        
+            # Spanish mappings
+            "Entrada MSF": "In MSF",
+            "Compra local":  "In Local Purchase",
+            "Desde cuarentena": "In from Quarantine",
+            "Donación": "In Donation",
+            "Retorno de usuario final": "Return from End User",
+            "Suministro no-MSF": "In Supply Non-MSF",
+            "Préstamo": "In Borrowing",
+            "Devolución de préstamo": "In Return of Loan",
+            "Corrección de transacción previa": "In Correction of Previous Transaction",
         }
-    
+
         # Try hard map (case-insensitive)
         for k, english in hard_map.items():
             if v.lower() == k.lower():
                 return english
-    
+
         # If already in English, return as-is
         return v
 
@@ -2963,11 +2975,44 @@ class StockReceiveKit(tk.Frame):
         for map_key in ("enum.out_types_map", "stock_out.out_types_map", "dispatch_kit.out_types_map"):
             try:
                 canon = lang.enum_to_canonical(map_key, v, fallback=None)
-            except Exception: 
+            except Exception:  
                 canon = None
 
-            if canon and canon.strip():
-                return canon.strip()
+                if canon and canon.strip():
+                    return canon.strip()
+        # Hard fallback mapping for common cases
+        hard_map = {
+            # French mappings
+            "Sortie vers utilisateur final": "Issue to End User",
+            "Articles expirés": "Expired Items",
+            "Articles endommagés": "Damaged Items",
+            "Rupture chaîne du froid": "Cold Chain Break",
+            "Rappel de lot": "Batch Recall",
+            "Vol": "Theft",
+            "Autres pertes": "Other Losses",
+            "Sortie donation": "Out Donation",
+            "Prêt": "Loan",
+            "Retour d'emprunt": "Return of Borrowing",
+            "Quarantaine": "Quarantine",
+        
+            # Spanish mappings
+            "Salida a usuario final": "Issue to End User",
+            "Artículos expirados": "Expired Items",
+            "Artículos dañados": "Damaged Items",
+            "Ruptura cadena de frío": "Cold Chain Break",
+            "Retiro de lote": "Batch Recall",
+            "Robo": "Theft",
+            "Otras pérdidas": "Other Losses",
+            "Salida donación": "Out Donation",
+            "Préstamo": "Loan",
+            "Devolución de préstamo": "Return of Borrowing",
+            "Cuarentena": "Quarantine",
+        }
+
+        # Try hard map (case-insensitive)
+        for k, english in hard_map.items():
+            if v.lower() == k.lower():
+                return english
 
         return v
 
@@ -2997,7 +3042,7 @@ class StockReceiveKit(tk.Frame):
             "add_module_scenario": "Add module to scenario",
             "add_module_kit": "Add module to a kit",
             "add_items_kit": "Add items to a kit",
-         "add_items_module": "Add items to a module",
+            "add_items_module": "Add items to a module",
         }
 
         return movement_map.get(key, str(key))
@@ -3039,17 +3084,16 @@ class StockReceiveKit(tk.Frame):
         if was_structural:
             changed = self._compute_multiplicative_quantities()
             if changed > 1:
-                self.status_var.set(f"Qty recalculated for {changed - 1} descendant row(s) due to structural change.")
+                self.status_var.set(lang.t("receive_kit.qty_recalculated_descendants", "Qty recalculated for {descendants} descendant row(s) due to structural change.").format(descendants=changed - 1))
             else:
-                self.status_var.set("Qty updated.")
+                self.status_var.set(lang.t("receive_kit.qty_updated", "Qty updated."))
         else:
             # Non-structural (ITEM) edit: only reapply formula to that row
             # Re-run compute but capture its path multipliers quickly.
             # Simpler approach: temporarily compute all (small overhead) for consistency.
             changed = self._compute_multiplicative_quantities()
             if changed > 0:
-                self.status_var.set("Qty updated.")
-
+                self.status_var.set(lang.t("receive_kit.qty_updated", "Qty updated."))
     # -----------------------------------------------------------------
     # Group expiry computation + auto-fill + comments
     # -----------------------------------------------------------------
@@ -3457,7 +3501,7 @@ class StockReceiveKit(tk.Frame):
         self.update_unique_ids_and_column()
         self.tree.selection_set(new_iid)
         self.tree.focus(new_iid)
-        self.status_var.set(f"Duplicated {code} below selected row")
+        self.status_var.set(lang.t("receive_kit.duplicated_code_status", "Duplicated {code} below selected row").format(code=code))
     # -----------------------------------------------------------------
     # Dropdown visibility
     # -----------------------------------------------------------------
@@ -3761,7 +3805,7 @@ class StockReceiveKit(tk.Frame):
                 initialdir=default_dir
             )
             if not file_path:
-                self.status_var.set("Export cancelled")
+                self.status_var.set(lang.t("receive_kit.export_cancelled", "Export cancelled"))
                 return
             wb = openpyxl.Workbook()
             ws = wb.active
