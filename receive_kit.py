@@ -1523,46 +1523,7 @@ class StockReceiveKit(tk.Frame):
             cur.close(); conn.close()
 
 
-    #---DeDuplication Fix----------------
-    def _deduplicate_items_by_code(self, items_list):
-        """
-        Deduplicate items by code within the same hierarchy level.
-        Sum std_qty and qty_to_receive for duplicates.
-    
-        Args:
-            items_list: List of item dicts with keys: code, std_qty, qty_to_receive, etc.
-    
-        Returns:
-            Deduplicated list of items
-        """
-        if not items_list:
-            return []
-    
-        dedupe_map = {}
-    
-        for item in items_list:
-            code = item.get('code')
-            if not code:
-                continue
-        
-            if code in dedupe_map: 
-                # Item already exists - sum quantities
-                existing = dedupe_map[code]
-                try:
-                    existing['std_qty'] = int(existing. get('std_qty', 0)) + int(item.get('std_qty', 0))
-                    existing['qty_to_receive'] = int(existing.get('qty_to_receive', 0)) + int(item.get('qty_to_receive', 0))
-                except (ValueError, TypeError):
-                    # Keep existing if conversion fails
-                    pass
-            else:
-                # New item - add to map
-                dedupe_map[code] = item. copy()
-    
-        # Return deduplicated list, sorted by treecode if available
-        result = list(dedupe_map.values())
-        result.sort(key=lambda x: x.get('treecode', ''))
-    
-        return result
+
     
                 
     # -----------------------------------------------------------------
@@ -1823,9 +1784,7 @@ class StockReceiveKit(tk.Frame):
         )
             return
 
-        # DEDUPLICATION: Merge duplicate codes and sum quantities
-        comps = self._deduplicate_items_by_code(comps)
-
+        
         kit_number_global = self.kit_number_var.get() or None
         treecode_map = {}
         module_number_map = {}
