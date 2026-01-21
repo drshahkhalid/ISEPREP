@@ -622,14 +622,23 @@ class KitsComposition(tk.Frame):
             return
 
         parent_type = parent_tags[0].upper() if parent_tags else None
-        if parent_type == "SCENARIO":
+
+        if parent_type == "SCENARIO":  
             db_level = "primary"
         elif parent_type == "KIT":
             db_level = "secondary"
         elif parent_type == "MODULE":
-            db_level = "tertiary"
+            # ✅ FIX: Check if parent module is at primary level
+            parent_level = self.tree.item(parent, "values")[1] if self.tree.item(parent, "values") else None
+    
+            if parent_level == "primary":
+                # Primary-level module → children are secondary
+                db_level = "secondary"
+            else:
+                # Secondary-level module → children are tertiary
+                db_level = "tertiary"
         else:
-            custom_popup(self, lang.t("kits.error","Error"), lang.t("kits.invalid_parent","Invalid parent"), "error")
+            custom_popup(self, lang. t("kits.error","Error"), lang.t("kits.invalid_parent","Invalid parent"), "error")
             return
 
         if item_type in ("KIT", "MODULE"):
@@ -739,29 +748,54 @@ class KitsComposition(tk.Frame):
             return f"{ss}{ppp}{mmm}000"
 
         if level_db == "tertiary":
-            if ppp_override and mmm_override:
-                self.cursor.execute("""
+            # ✅ FIX:   Check BOTH primary and secondary levels for the parent module
+            if ppp_override and mmm_override: 
+                # Try secondary first (module under kit)
+                self.cursor. execute("""
                     SELECT treecode FROM kit_items
-                     WHERE scenario_id=? AND module=? AND level='secondary'
-                       AND substr(treecode,3,3)=? AND substr(treecode,6,3)=?
-                       AND (? IS NULL OR kit=?)
-                     ORDER BY treecode LIMIT 1
+                    WHERE scenario_id=? AND module=?  AND level='secondary'
+                    AND substr(treecode,3,3)=? AND substr(treecode,6,3)=?
+                    AND (? IS NULL OR kit=?)
+                    ORDER BY treecode LIMIT 1
                 """, (self.selected_scenario_id, module, ppp_override, mmm_override, kit, kit))
                 sec_row = self.cursor.fetchone()
-                if not sec_row:
+        
+                if not sec_row: 
+                    # ✅ Try primary level (standalone module in scenario)
+                    self.cursor. execute("""
+                        SELECT treecode FROM kit_items
+                        WHERE scenario_id=? AND code=? AND level='primary'
+                        AND substr(treecode,3,3)=?
+                        ORDER BY treecode LIMIT 1
+                    """, (self.selected_scenario_id, module, ppp_override))
+                    sec_row = self. cursor.fetchone()
+        
+                if not sec_row: 
                     return None
                 ppp = ppp_override
                 mmm = mmm_override
-            else:
+            else: 
+                # Try secondary first (module under kit)
                 self.cursor.execute("""
                     SELECT treecode FROM kit_items
-                     WHERE scenario_id=? AND module=? AND level='secondary'
-                       AND (? IS NULL OR kit=?)
-                     ORDER BY treecode LIMIT 1
-                """, (self.selected_scenario_id, module, kit, kit))
+                    WHERE scenario_id=? AND module=? AND level='secondary'
+                    AND (? IS NULL OR kit=?)
+                    ORDER BY treecode LIMIT 1
+                """, (self. selected_scenario_id, module, kit, kit))
                 sec_row = self.cursor.fetchone()
+        
                 if not sec_row:
+                    # ✅ Try primary level (standalone module in scenario)
+                    self.cursor.execute("""
+                        SELECT treecode FROM kit_items
+                        WHERE scenario_id=?  AND code=? AND level='primary'
+                        ORDER BY treecode LIMIT 1
+                    """, (self.selected_scenario_id, module))
+                    sec_row = self. cursor.fetchone()
+        
+                if not sec_row: 
                     return None
+        
                 segs = self._parse_treecode(sec_row["treecode"])
                 if not segs:
                     return None
@@ -771,17 +805,15 @@ class KitsComposition(tk.Frame):
             prefix = f"{ss}{ppp}{mmm}"
             self.cursor.execute("""
                 SELECT COUNT(*) AS cnt FROM kit_items
-                 WHERE scenario_id=? AND module=? AND level='tertiary'
-                   AND substr(treecode,3,3)=? AND substr(treecode,6,3)=?
-                   AND (? IS NULL OR kit=?)
+                WHERE scenario_id=? AND module=? AND level='tertiary'
+                AND substr(treecode,3,3)=? AND substr(treecode,6,3)=?
+                AND (? IS NULL OR kit=?)
             """, (self.selected_scenario_id, module, ppp, mmm, kit, kit))
             c = self.cursor.fetchone()["cnt"]
             if c >= 999:
                 return None
             iii = f"{c+1:03d}"
             return f"{prefix}{iii}"
-
-        return None
 
     # ---------------- Edit Quantity ----------------
     def edit_quantity(self):
