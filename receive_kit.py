@@ -3663,71 +3663,110 @@ class StockReceiveKit(tk.Frame):
             self._rederive_comments()
             return True
     # -----------------------------------------------------------------
-    # Duplicate Row (Add New Row)
+    # Duplicate Row (Add New Row), only for items and not for Module and Kits.
     # -----------------------------------------------------------------
     def add_new_row(self):
-        selected = self.tree.selection()
-        if not selected:
-            custom_popup(self.parent, "Error", "Please select a row to duplicate", "error")
+        """
+        Duplicate the selected row to add a new expiry variant.
+        ONLY works for items (not kits or modules).
+        """
+        sel = self.tree.selection()
+        if not sel:
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t("receive_kit.no_row_selected", "No row selected"),
+                "error"
+            )
             return
-        if not self.selected_scenario_id:
-            custom_popup(self.parent, "Error", "Please select a scenario", "error")
+    
+        iid = sel[0]
+        vals = self.tree.item(iid, "values")
+    
+        if not vals or len(vals) < 3:
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t("receive_kit.invalid_row", "Invalid row data"),
+                "error"
+            )
             return
-        source_iid = selected[0]
-        vals = self.tree.item(source_iid, "values")
-        if not vals or len(vals) < 13:
-            custom_popup(self.parent, "Error", "Selected row invalid", "error")
+    
+        # ✅ FIX:  Check if row is Kit or Module
+        row_type = (vals[2] or "").strip().upper()
+    
+        # Check for Kit/Module in English and other language variants
+        if row_type in ("KIT", "MODULE"):
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t(
+                    "receive_kit.cannot_duplicate_structural", 
+                    "Cannot duplicate Kits or Modules.\n\n"
+                    "The 'Add new row' feature is only for Items with different expiry dates."
+                ),
+                "warning"
+            )
             return
-        code, description, item_type, kit_val, module_val, std_qty = (
-            vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]
-        )
-        parent_iid = self.tree.parent(source_iid)
-        siblings = list(self.tree.get_children(parent_iid))
-        try:
-            src_index = siblings.index(source_iid)
-            insert_index = src_index + 1
-        except ValueError:
-            insert_index = "end"
-        rd_src = self.row_data.get(source_iid, {})
-        kit_number = rd_src.get("kit_number") or "None"
-        module_number = rd_src.get("module_number") or "None"
-        kit_for_id = None if kit_val == "-----" else (kit_val if item_type.upper() != "KIT" else code)
-        module_for_id = None if module_val == "-----" else (module_val if item_type.upper() != "MODULE" else code)
-        item_for_id = code if item_type.upper() == "ITEM" else None
-        try:
-            std_qty_int = int(std_qty) if str(std_qty).isdigit() else 0
-        except Exception:
-            std_qty_int = 0
-        new_unique_id = self.generate_unique_id(
-            self.selected_scenario_id,
-            kit_for_id,
-            module_for_id,
-            item_for_id,
-            std_qty_int,
-            None,
-            kit_number,
-            module_number
-        )
-        new_iid = self.tree.insert(parent_iid, insert_index, values=(
-            code, description, item_type,
-            kit_val, module_val,
-            std_qty, 1, "", "",
-            "", "", "", new_unique_id
-        ))
-        if item_type.upper() == "KIT":
-            self.tree.item(new_iid, tags=("kit",))
-        elif item_type.upper() == "MODULE":
-            self.tree.item(new_iid, tags=("module",))
-        self.row_data[new_iid] = {
-            "unique_id": new_unique_id,
-            "kit_number": None if kit_number == "None" else kit_number,
-            "module_number": None if module_number == "None" else module_number,
-            "treecode": self.row_data.get(source_iid, {}).get("treecode")
-        }
-        self.update_unique_ids_and_column()
-        self.tree.selection_set(new_iid)
+    
+        # Also check the actual type from detect_type (in case display differs)
+        code = vals[0]
+        desc = vals[1] if len(vals) > 1 else ""
+        detected_type = detect_type(code, desc).upper()
+    
+        if detected_type in ("KIT", "MODULE"):
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t(
+                    "receive_kit.cannot_duplicate_structural", 
+                    "Cannot duplicate Kits or Modules.\n\n"
+                    "The 'Add new row' feature is only for Items with different expiry dates."
+                ),
+                "warning"
+            )
+            return
+    
+        # ✅ Proceed with duplication for Items only
+        parent = self.tree.parent(iid)
+        idx = self.tree.index(iid)
+    
+        # Create new row with same values but blank expiry
+        new_vals = list(vals)
+        new_vals[7] = ""  # Clear expiry_date
+        new_vals[8] = ""  # Clear batch_no
+    
+        # Insert after current row
+        new_iid = self.tree. insert(parent, idx + 1, values=tuple(new_vals))
+    
+        # Copy row_data but generate new unique_id
+        if iid in self.row_data:
+            rd = self.row_data[iid]. copy()
+            rd.pop("expiry_iso", None)  # Remove old expiry
+            rd.pop("unique_id", None)   # Will regenerate
+            self.row_data[new_iid] = rd
+        else:
+            self.row_data[new_iid] = {}
+    
+        # Update code_to_iid mapping (don't overwrite, multiple rows can have same code)
+        # Don't update self.code_to_iid since multiple items can have same code
+    
+        # Select and focus the new row
+        self.tree. selection_set(new_iid)
         self.tree.focus(new_iid)
-        self.status_var.set(lang.t("receive_kit.duplicated_code_status", "Duplicated {code} below selected row").format(code=code))
+        self.tree.see(new_iid)
+    
+        self.status_var.set(
+            lang.t(
+                "receive_kit.row_duplicated", 
+                "Row duplicated. Please enter a different expiry date."
+            )
+        )
+    
+        # Auto-open edit for expiry column
+        self.after(100, lambda: self.start_edit_cell(new_iid, 7))
+
+        
     # -----------------------------------------------------------------
     # Dropdown visibility
     # -----------------------------------------------------------------
