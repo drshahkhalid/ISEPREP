@@ -1092,31 +1092,45 @@ class StockReceiveKit(tk.Frame):
         finally:
             cur.close(); conn.close()
     def fetch_search_results(self, query, scenario_id, mode_key):
-        if not mode_key:
+        """
+        Fetch search results based on mode with strict type filtering: 
+        - receive_kit:  Only Kit type (primary level)
+        - add_standalone: Only Item type (PRIMARY level)
+        - add_module_scenario: Only Module type (PRIMARY level ONLY)
+     - add_module_kit: Only Module type (secondary level)
+     """
+        # Robust mode key handling
+        if not mode_key: 
+            logging.warning("fetch_search_results called with empty mode_key")
             return []
+    
+        # If mode_key is still a display label (not internal key), convert it
         if hasattr(self, "mode_label_to_key") and mode_key in self.mode_label_to_key:
             mode_key = self.mode_label_to_key[mode_key]
-        mode_key = mode_key.lower().replace(" ", "_")
+            logging.debug(f"Converted display label to internal key: {mode_key}")
+    
+        # Ensure mode_key is a string
+        if not isinstance(mode_key, str):
+            logging.error(f"Invalid mode_key type: {type(mode_key)}")
+            return []
+    
+        # Normalize mode_key
+        mode_key = mode_key.strip().lower().replace(" ", "_")
+        logging.debug(f"Final mode_key for search: {mode_key}, scenario:  {scenario_id}")
+    
         conn = connect_db()
-        if conn is None: return []
+        if conn is None: 
+            return []
+    
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+    
         try:
             q = (query or "").lower()
-            if mode_key == "add_standalone":
-                sql = """
-                    SELECT DISTINCT ki.code, ki.level
-                    FROM kit_items ki
-                    LEFT JOIN items_list il ON ki.code=il.code
-                    WHERE ki.scenario_id=? AND LOWER(ki.level)='tertiary' AND (
-                        UPPER(ki.code) LIKE UPPER(?) OR
-                        UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
-                        UPPER(COALESCE(il.designation_fr,'')) LIKE UPPER(?) OR
-                        UPPER(COALESCE(il.designation_sp,'')) LIKE UPPER(?)
-                    ) ORDER BY ki.code
-                """
-                params = (scenario_id, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-            elif mode_key == "receive_kit":
+        
+            # Build query based on mode
+            if mode_key == "add_standalone": 
+                # Standalone items - PRIMARY level with type=Item
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
                     FROM kit_items ki
@@ -1129,11 +1143,29 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+
+            elif mode_key == "receive_kit":
+                # Kits - primary level only
+                sql = """
+                    SELECT DISTINCT ki.code, ki.level
+                    FROM kit_items ki
+                    LEFT JOIN items_list il ON ki.code=il.code
+                    WHERE ki.scenario_id=? AND LOWER(ki.level)='primary' AND (
+                        UPPER(ki.code) LIKE UPPER(?) OR
+                        UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
+                        UPPER(COALESCE(il.designation_fr,'')) LIKE UPPER(?) OR
+                        UPPER(COALESCE(il.designation_sp,'')) LIKE UPPER(?)
+                    ) ORDER BY ki.code
+                """
+                params = (scenario_id, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+
             elif mode_key == "add_module_kit":
+                # Modules within a kit - secondary level
                 kit_code = self.kit_var.get()
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
-                    FROM kit_items ki LEFT JOIN items_list il ON ki.code=il.code
+                    FROM kit_items ki
+                    LEFT JOIN items_list il ON ki.code=il.code
                     WHERE ki.scenario_id=? AND ki.kit=? AND LOWER(ki.level)='secondary' AND (
                         UPPER(ki.code) LIKE UPPER(?) OR
                         UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
@@ -1142,11 +1174,16 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-            elif mode_key == "add_module_scenario":
+
+            elif mode_key == "add_module_scenario": 
+                # ✅ FIX: Modules at scenario level - PRIMARY level ONLY
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
-                    FROM kit_items ki LEFT JOIN items_list il ON ki.code=il.code
-                    WHERE ki.scenario_id=? AND LOWER(ki.level)='secondary' AND (
+                    FROM kit_items ki
+                    LEFT JOIN items_list il ON ki.code=il.code
+                    WHERE ki.scenario_id=? 
+                      AND LOWER(ki.level)='primary'
+                      AND (
                         UPPER(ki.code) LIKE UPPER(?) OR
                         UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
                         UPPER(COALESCE(il.designation_fr,'')) LIKE UPPER(?) OR
@@ -1154,11 +1191,14 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-            elif mode_key == "add_items_kit":
+        
+            elif mode_key == "add_items_kit":  
+                # Items within a kit - tertiary level
                 kit_code = self.kit_var.get()
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
-                    FROM kit_items ki LEFT JOIN items_list il ON ki.code=il.code
+                    FROM kit_items ki
+                    LEFT JOIN items_list il ON ki.code=il.code
                     WHERE ki.scenario_id=? AND ki.kit=? AND LOWER(ki.level)='tertiary' AND (
                         UPPER(ki.code) LIKE UPPER(?) OR
                         UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
@@ -1167,13 +1207,16 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-            elif mode_key == "add_items_module":
+        
+            elif mode_key == "add_items_module": 
+                # Items within a module - tertiary level
                 kit_code = self.kit_var.get()
                 module_code = self.module_var.get()
-                if kit_code and module_code:
+                if kit_code and module_code:  
                     sql = """
                         SELECT DISTINCT ki.code, ki.level
-                        FROM kit_items ki LEFT JOIN items_list il ON ki.code=il.code
+                        FROM kit_items ki
+                        LEFT JOIN items_list il ON ki.code=il.code
                         WHERE ki.scenario_id=? AND ki.kit=? AND ki.module=? AND LOWER(ki.level)='tertiary' AND (
                             UPPER(ki.code) LIKE UPPER(?) OR
                             UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
@@ -1182,10 +1225,11 @@ class StockReceiveKit(tk.Frame):
                         ) ORDER BY ki.code
                     """
                     params = (scenario_id, kit_code, module_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-                elif module_code:
+                elif module_code: 
                     sql = """
                         SELECT DISTINCT ki.code, ki.level
-                        FROM kit_items ki LEFT JOIN items_list il ON ki.code=il.code
+                        FROM kit_items ki
+                        LEFT JOIN items_list il ON ki.code=il.code
                         WHERE ki.scenario_id=? AND ki.module=? AND LOWER(ki.level)='tertiary' AND (
                             UPPER(ki.code) LIKE UPPER(?) OR
                             UPPER(COALESCE(il.designation_en,'')) LIKE UPPER(?) OR
@@ -1195,28 +1239,64 @@ class StockReceiveKit(tk.Frame):
                     """
                     params = (scenario_id, module_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
                 else:
-                    sql = "SELECT code, level FROM kit_items WHERE 1=0"
-                    params = ()
+                    return []
             else:
-                sql = "SELECT code, level FROM kit_items WHERE 1=0"
-                params = ()
+                return []
+        
+            # Execute query
             cur.execute(sql, params)
+
+            # Process results with type filtering
             rtn = []
             for row in cur.fetchall():
                 code = row['code']
                 desc = get_item_description(code)
+                item_type = detect_type(code, desc)
+                item_type_upper = item_type.upper()
+
+                # Apply type filtering based on mode
+                if mode_key == "receive_kit": 
+                    # Only actual kits (not items at primary level)
+                    if item_type_upper != "KIT": 
+                        logging.debug(f"Skipping non-kit in receive_kit mode:  {code} (type={item_type})")
+                        continue
+            
+                elif mode_key == "add_standalone":
+                    # Only actual standalone items (not modules/kits at primary level)
+                    if item_type_upper != "ITEM": 
+                        logging.debug(f"Skipping non-item in add_standalone mode:  {code} (type={item_type})")
+                        continue
+            
+                elif mode_key == "add_module_scenario": 
+                    # Only actual modules at primary level
+                    if item_type_upper != "MODULE": 
+                        logging.debug(f"Skipping non-module in add_module_scenario mode: {code} (type={item_type})")
+                        continue
+            
+                elif mode_key == "add_module_kit":
+                    # Only actual modules at secondary level
+                    if item_type_upper != "MODULE":
+                        logging.debug(f"Skipping non-module in add_module_kit mode:  {code} (type={item_type})")
+                        continue
+            
+                # If we reach here, item passes all filters
                 rtn.append({
                     "code": code,
                     "description": desc,
                     "level": row['level'],
-                    "type": detect_type(code, desc)
+                    "type": item_type
                 })
+        
+            logging.debug(f"fetch_search_results returning {len(rtn)} results for mode={mode_key}")
             return rtn
+    
         except sqlite3.Error as e:
-            logging.error(f"fetch_search_results error: {e}")
+            logging.error(f"fetch_search_results error:  {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def fetch_kit_items(self, scenario_id, code):
         conn = connect_db()
         if conn is None: return []
@@ -1408,36 +1488,71 @@ class StockReceiveKit(tk.Frame):
     # Module descendant retrieval strategies
     # -----------------------------------------------------------------
     def fetch_full_module_subtree(self, scenario_id: str, module_code: str):
+        """
+        Fetch a module and all its descendants using treecode hierarchy.  
+        Works for modules at both primary and secondary levels.  
+        """
         conn = connect_db()
-        if conn is None: return []
-        conn.row_factory=sqlite3.Row
-        cur=conn.cursor()
+        if conn is None: 
+            return []
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
         try:
-            cur.execute("""
-                SELECT code, level, kit, module, item, COALESCE(std_qty,0) AS std_qty, treecode
+            # ✅ Check BOTH primary and secondary levels
+            cur. execute("""
+                SELECT code, level, kit, module, item, COALESCE(std_qty, 0) AS std_qty, treecode
                 FROM kit_items
-                WHERE scenario_id=? AND code=? AND level='secondary'
+                WHERE scenario_id=?   
+                AND code=?  
+                AND (LOWER(level)='primary' OR LOWER(level)='secondary')
                 LIMIT 1
             """, (scenario_id, module_code))
+        
             base = cur.fetchone()
-            if not base:
+        
+            if not base:  
+                logging.debug(f"fetch_full_module_subtree:   Module {module_code} not found")
                 return []
-            prefix = base['treecode']
-            if not prefix: return []
+        
+            tc = base['treecode']
+            level = (base['level'] or '').lower()
+        
+            if not tc:
+                logging.debug(f"fetch_full_module_subtree:  Module {module_code} has no treecode")
+                return []
+        
+            # ✅ FIX:   Match on relevant digits based on level
+            if level == 'primary':
+                # Primary module (SS PPP 000 000) → children are secondary (SS PPP MMM 000)
+                # Match first 5 digits: SS + PPP
+                prefix = tc[:5]  # '01004'
+                pattern = f"{prefix}%"
+            else:
+                # Secondary module (SS PPP MMM 000) → children are tertiary (SS PPP MMM III)
+                # Match first 8 digits: SS + PPP + MMM
+                prefix = tc[:8]  # '01004001'
+                pattern = f"{prefix}%"
+        
+            logging.debug(f"fetch_full_module_subtree: Module {module_code} (level={level}, tc={tc}) → pattern={pattern}")
+        
+            # Fetch all items matching the pattern
             cur.execute("""
-                SELECT code, level, kit, module, item, COALESCE(std_qty,0) AS std_qty, treecode
+                SELECT code, level, kit, module, item, COALESCE(std_qty, 0) AS std_qty, treecode
                 FROM kit_items
-                WHERE scenario_id=? AND treecode LIKE ?
+                WHERE scenario_id=?  AND treecode LIKE ?
                 ORDER BY treecode
-            """, (scenario_id, f"{prefix}%"))
-            lst=[]
+            """, (scenario_id, pattern))
+        
+            lst = []
             for r in cur.fetchall():
                 desc = get_item_description(r['code'])
                 lst.append({
-                    'code': r['code'],
+                    'code':  r['code'],
                     'description': desc,
                     'type': detect_type(r['code'], desc),
-                    'kit': r['kit'] or "-----",
+                    'kit':   r['kit'] or "-----",
                     'module': r['module'] or "-----",
                     'item': r['item'] or "-----",
                     'std_qty': r['std_qty'],
@@ -1446,12 +1561,18 @@ class StockReceiveKit(tk.Frame):
                     'batch_no': "",
                     'treecode': r['treecode']
                 })
+        
+            logging.debug(f"fetch_full_module_subtree:   Returned {len(lst)} items for module {module_code}")
             return lst
+    
         except sqlite3.Error as e:
             logging.error(f"fetch_full_module_subtree error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur. close()
+            conn.close()
+
+
     def fetch_items_by_module_column(self, scenario_id: str, module_code: str):
         conn = connect_db()
         if conn is None: return []
@@ -1632,7 +1753,7 @@ class StockReceiveKit(tk.Frame):
             kn = kit_number_var.get().strip()
             if not kn:
                 error_label. config(
-                    text=lang.t("receive_kit. kit_number_required", "Kit Number is required")
+                    text=lang.t("receive_kit.kit_number_required", "Kit Number is required")
                 )
                 return False
             conn = connect_db()
@@ -2135,23 +2256,30 @@ class StockReceiveKit(tk.Frame):
     # Add single code (mode-dependent)
     # -----------------------------------------------------------------
     def add_to_tree(self, code):
-        mode_key = self.current_mode_key()
+        """
+        Add an item/module/kit to the tree based on current mode. 
+        For modules:  prompts for module number and loads all descendants (deduplicated).
+        """
+        mode_key = self. current_mode_key()
         scen_module_mode = (mode_key == "add_module_scenario")
+    
         kit_code = self.kit_var.get() if mode_key in [
             "add_module_kit", "add_items_kit", "add_items_module"
         ] else None
+    
         module_code_selected = self.module_var.get() if mode_key == "add_items_module" else None
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        kit_number = self.kit_number_var.get().strip() if self.kit_number_var. get() else None
         module_number = (self.module_number_var.get().strip()
-                         if (mode_key == "add_items_module" and self.module_number_var.get())
-                         else None)
+                        if (mode_key == "add_items_module" and self.module_number_var. get())
+                        else None)
+    
         # Validation per mode
-        if mode_key == "add_module_kit":
-            if not kit_code:
+        if mode_key == "add_module_kit": 
+            if not kit_code: 
                 custom_popup(
                     self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_kit_error", "Select a Kit. "), 
+                    lang. t("receive_kit.error", "Error"), 
+                    lang. t("receive_kit.select_kit_error", "Select a Kit. "), 
                     "error"
                 )
                 return
@@ -2163,6 +2291,7 @@ class StockReceiveKit(tk.Frame):
                     "error"
                 )
                 return
+    
         elif mode_key == "add_items_kit":
             if not kit_number:
                 custom_popup(
@@ -2172,32 +2301,36 @@ class StockReceiveKit(tk.Frame):
                     "error"
                 )
                 return
-        elif mode_key == "add_items_module":
+    
+        elif mode_key == "add_items_module": 
             if not module_code_selected:
                 custom_popup(
                     self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_module_error", "Select a Module. "), 
+                    lang.t("receive_kit. error", "Error"), 
+                    lang.t("receive_kit. select_module_error", "Select a Module."), 
                     "error"
                 )
                 return
-            if not module_number:
+            if not module_number: 
                 custom_popup(
                     self.parent, 
                     lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_module_error", "Select a Module Number."), 
+                    lang.t("receive_kit.select_module_number_error", "Select a Module Number."), 
                     "error"
                 )
-            return
+                return
+    
+        # Get item details
         desc = get_item_description(code)
         item_type = detect_type(code, desc)
         std_qty = 0
-        qty_to_receive = 1 if item_type.upper() in ('KIT', 'MODULE') else 1  # Set to 1 for Kit/Module
+        qty_to_receive = 1 if item_type.upper() in ('KIT', 'MODULE') else 1
         exp_date = ""
-        # Determine parent iid depending on mode
+    
+        # Determine parent iid
         if mode_key == "add_module_kit":
             parent_iid = ''
-        elif scen_module_mode:
+        elif scen_module_mode: 
             parent_iid = ''
         elif mode_key == "add_items_module":
             parent_iid = self.code_to_iid.get(module_code_selected, '')
@@ -2205,64 +2338,67 @@ class StockReceiveKit(tk.Frame):
             parent_iid = self.code_to_iid.get(kit_code, '')
         else:
             parent_iid = ''
+    
         kit_number_for_id = kit_number or "None"
         module_number_for_id = module_number or "None"
         kit_display = "-----" if scen_module_mode else (kit_code or "-----")
         module_display = module_code_selected or "-----"
+    
+        # Check if already in tree
         if code in self.code_to_iid:
-            self.status_var.set(
+            self.status_var. set(
                 lang.t("receive_kit.item_already_in_tree", "Item {code} already in tree", code=code)
             )
             return
-        # Adding a MODULE (with subtree strategies) in add_module_kit / add_module_scenario
+    
+        # ✅ SPECIAL HANDLING:  MODULE with descendants
         if item_type.upper() == "MODULE" and mode_key in ("add_module_kit", "add_module_scenario"):
-            module_number_for_id = self.select_module_popup(kit_number, code, desc)
+            # Prompt for module number
+            module_number_for_id = self.select_module_popup(
+                kit_number if not scen_module_mode else None, 
+                code, 
+                desc
+            )
+        
             if not module_number_for_id: 
-                self.status_var.set(
-                    lang.t("receive_kit.cancelled_adding_module", "Cancelled adding module {code}", code=code)
+                self. status_var.set(
+                    lang.t("receive_kit. cancelled_adding_module", "Cancelled adding module {code}", code=code)
                 )
                 return
-            # Try retrieval strategies
+        
+            # ✅ Try multiple retrieval strategies
             comps1 = self.fetch_full_module_subtree(self.selected_scenario_id, code)
             comps2 = self.fetch_items_by_module_column(self.selected_scenario_id, code)
-            comps3 = self.fetch_items_by_code_prefix(self.selected_scenario_id, code)
-
-
-            candidates = [("treecode", comps1), ("module_col", comps2), ("code_prefix", comps3)]
+            comps3 = self.fetch_items_by_code_prefix(self. selected_scenario_id, code)
+        
+            # Choose strategy with most results
+            candidates = [
+                ("treecode_subtree", comps1), 
+                ("module_column", comps2), 
+                ("code_prefix", comps3)
+            ]
+        
             chosen_label, components = None, []
             for lbl, lst in sorted(candidates, key=lambda x: len(x[1]), reverse=True):
                 if lst:
                     chosen_label, components = lbl, lst
                     break
-
-            # DEDUPLICATION: Merge duplicate codes and sum quantities
-            components = self._deduplicate_items_by_code(components)
-
+        
             if not components:
-                # Insert only the module row
-                ... 
-
-
-            candidates = [("treecode", comps1), ("module_col", comps2), ("code_prefix", comps3)]
-            chosen_label, components = None, []
-            for lbl, lst in sorted(candidates, key=lambda x: len(x[1]), reverse=True):
-                if lst:
-                    chosen_label, components = lbl, lst
-                    break
-            if not components:
-                # Insert only the module row
-                iid_only = self.tree.insert(parent_iid, "end", values=(
-                    code, desc, "MODULE", kit_display, code,
-                    std_qty, 1, "", "",
+                # No descendants found - insert only the module row
+                iid_only = self.tree. insert(parent_iid, "end", values=(
+                    code, desc, "Module", kit_display, code,
+                    1, 1, "", "",  # std_qty=1, qty_to_receive=1 for module
                     "", "", "", ""
                 ))
                 self.tree.item(iid_only, tags=("module",))
                 self.code_to_iid[code] = iid_only
+            
                 self.row_data[iid_only] = {
                     'unique_id': self.generate_unique_id(
-                        self.selected_scenario_id,
+                        self. selected_scenario_id,
                         None if scen_module_mode else (kit_code or code),
-                        code, None, std_qty, "",
+                        code, None, 1, "",
                         kit_number_for_id if not scen_module_mode else "None",
                         module_number_for_id
                     ),
@@ -2270,44 +2406,82 @@ class StockReceiveKit(tk.Frame):
                     'module_number': module_number_for_id,
                     'treecode': None
                 }
+            
                 self.recompute_exp_groups()
-                self. status_var.set(
+                self.status_var.set(
                     lang.t(
                         "receive_kit.added_module_no_descendants", 
-                        "Added module {code} (no descendants)", 
+                        "Added module {code} (no descendants found)", 
                         code=code
                     )
                 )
                 return
+        
+            # ✅ DEDUPLICATION: Keep only first occurrence of each code
+            seen_codes = {}
+            deduplicated = []
+        
+            for comp in components:
+                comp_code = comp['code']
+                if comp_code not in seen_codes:
+                    seen_codes[comp_code] = comp
+                    deduplicated.append(comp)
+        
+            components = deduplicated
+        
+            # ✅ Build tree hierarchy with deduplicated components
             SEG = 3
             tc_map = {}
-            for comp in sorted(components, key=lambda x: x['treecode'] or ""):
-                tc = comp['treecode']
+        
+            for comp in sorted(components, key=lambda x: x. get('treecode', '') or ''):
+                tc = comp. get('treecode')
                 parent_tc = tc[:-SEG] if tc and len(tc) > SEG else None
                 parent_ref = tc_map.get(parent_tc, parent_iid)
+            
                 comp_type = comp['type'].upper()
-                iid = self.tree.insert(parent_ref, "end", values=(
-                    comp['code'], comp['description'], comp['type'],
-                    kit_display,
-                    comp['module'] if comp['module'] != "-----"
-                    else (comp['code'] if comp_type == "MODULE" else comp['module']),
-                    comp['std_qty'], comp['std_qty'], "", "",
-                    "", "", "", ""
-                ))
+                comp_code = comp['code']
+            
+                # Determine display values
                 if comp_type == "MODULE":
+                    module_disp = comp_code
+                else:
+                    module_disp = comp. get('module', '-----')
+                    if module_disp == "-----" or not module_disp:
+                        module_disp = code  # Use parent module code
+            
+                # Insert into tree
+                iid = self.tree.insert(parent_ref, "end", values=(
+                    comp_code, 
+                    comp['description'], 
+                    comp['type'],
+                    kit_display,
+                    module_disp,
+                    comp['std_qty'], 
+                    comp['std_qty'],  # qty_to_receive = std_qty
+                    "", "",  # expiry, batch
+                    "", "", "", ""  # hidden columns
+                ))
+            
+                # Apply tags
+                if comp_type == "MODULE": 
                     self.tree.item(iid, tags=("module",))
                 elif comp_type == "KIT":
                     self.tree.item(iid, tags=("kit",))
+            
                 tc_map[tc] = iid
-                self.code_to_iid[comp['code']] = iid
-                if scen_module_mode:
+                self.code_to_iid[comp_code] = iid
+            
+                # Generate unique_id
+                if scen_module_mode: 
                     kit_part_for_id = None
                     kit_number_part = "None"
                 else:
-                    kit_part_for_id = kit_code if comp_type != 'KIT' else comp['code']
+                    kit_part_for_id = kit_code if comp_type != 'KIT' else comp_code
                     kit_number_part = kit_number_for_id
-                module_part_for_id = comp['module'] if comp_type != 'MODULE' else comp['code']
-                item_part_for_id = comp['item'] if comp_type == 'ITEM' else None
+            
+                module_part_for_id = comp. get('module') if comp_type != 'MODULE' else comp_code
+                item_part_for_id = comp.get('item') if comp_type == 'ITEM' else None
+            
                 unique_id = self.generate_unique_id(
                     self.selected_scenario_id,
                     kit_part_for_id,
@@ -2318,26 +2492,31 @@ class StockReceiveKit(tk.Frame):
                     kit_number_part,
                     module_number_for_id
                 )
-                self.row_data[iid] = {
-                    'unique_id': unique_id,
+            
+                self. row_data[iid] = {
+                    'unique_id':  unique_id,
                     'kit_number': None if scen_module_mode else kit_number_for_id,
                     'module_number': module_number_for_id,
                     'treecode': tc
                 }
-            self.recompute_exp_groups()
-            self.status_var.set(
-                lang. t(
+        
+            self. recompute_exp_groups()
+            self.status_var. set(
+                lang.t(
                     "receive_kit.added_module_with_descendants", 
-                    "Added module {code} with descendants (strategy {strategy})", 
-                    code=code, 
+                    "Added module {code} with {count} items (strategy:  {strategy})", 
+                    code=code,
+                    count=len(components),
                     strategy=chosen_label
                 )
             )
             return
-        # Simple single row insertion
+    
+        # ✅ Simple single row insertion (for non-module items)
         kit_for_id = None if scen_module_mode else (kit_code if item_type.upper() != "KIT" else code)
-        module_for_id = module_code_selected if item_type.upper() != "MODULE" else code
+        module_for_id = module_code_selected if item_type. upper() != "MODULE" else code
         item_for_id = code if item_type.upper() == "ITEM" else None
+
         unique_id = self.generate_unique_id(
             self.selected_scenario_id,
             kit_for_id,
@@ -2348,6 +2527,7 @@ class StockReceiveKit(tk.Frame):
             kit_number_for_id,
             module_number_for_id
         )
+    
         iid = self.tree.insert(parent_iid, "end", values=(
             code, desc, item_type,
             kit_display if not scen_module_mode else "-----",
@@ -2355,18 +2535,23 @@ class StockReceiveKit(tk.Frame):
             std_qty, qty_to_receive, "", "",
             "", "", "", ""
         ))
+    
         self.code_to_iid[code] = iid
+    
+        # Apply tags
         if item_type.upper() == "KIT":
             self.tree.item(iid, tags=("kit",))
-        elif item_type.upper() == "MODULE":
+        elif item_type. upper() == "MODULE":
             self.tree.item(iid, tags=("module",))
+    
         self.row_data[iid] = {
             'unique_id': unique_id,
-            'kit_number': None if scen_module_mode else kit_number_for_id,
-            'module_number': module_number_for_id
+            'kit_number':  None if scen_module_mode else kit_number_for_id,
+            'module_number':  module_number_for_id
         }
-        self.recompute_exp_groups()
-        self.status_var.set(
+    
+        self. recompute_exp_groups()
+        self.status_var. set(
             lang.t("receive_kit.added_item", "Added item {code}", code=code)
         )
     # -----------------------------------------------------------------
