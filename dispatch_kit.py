@@ -127,11 +127,11 @@ class StockDispatchKit(tk.Frame):
     """
     Dispatch (Issue Out) Module
     Modes:
-      - dispatch_Kit
+      - dispatch_kit
       - issue_standalone
       - issue_module_scenario
-      - issue_module_Kit
-      - issue_items_Kit
+      - issue_module_kit
+      - issue_items_kit
       - issue_items_module
     """
 
@@ -231,36 +231,36 @@ class StockDispatchKit(tk.Frame):
     def _canon_movement_type(self, display_label:  str) -> str:
         """
         Convert any localized movement type display label to canonical English. 
-    
+        
         Args:
             display_label:  The label shown in the dropdown (could be FR/ES/EN)
-    
+        
         Returns:
             Canonical English movement type name for database storage
         """
         # Get the internal key from the display label
-        internal_key = self. mode_label_to_key. get(display_label)
-    
+        internal_key = self.mode_label_to_key.get(display_label)
+        
         if not internal_key:
             # Fallback:  if not found, return as-is (shouldn't happen)
             logging.warning(f"[DISPATCH] Unknown movement type label:   {display_label}")
             return display_label
-    
+        
         # Map internal keys to canonical English display names
         canon_map = {
             "dispatch_kit": "Dispatch Kit",
             "issue_standalone": "Issue standalone items",
             "issue_module_scenario": "Issue module from scenario",
-            "issue_module_Kit": "Issue module from Kit",
-            "issue_items_Kit": "Issue items from Kit",
+            "issue_module_kit": "Issue module from Kit",
+            "issue_items_kit": "Issue items from Kit",
             "issue_items_module":  "Issue items from module"
         }
-    
+        
         canonical = canon_map.get(internal_key, internal_key)
-    
+        
         logging.debug(f"[DISPATCH] Movement type:  '{display_label}' → internal:  '{internal_key}' → canonical: '{canonical}'")
     
-        return canonical
+        return canonical    
 
 
     def _display_for_movement_type(self, canonical_value: str) -> str:
@@ -279,8 +279,8 @@ class StockDispatchKit(tk.Frame):
             "Dispatch Kit": "dispatch_kit",
             "Issue standalone items": "issue_standalone",
             "Issue module from scenario": "issue_module_scenario",
-            "Issue module from Kit":  "issue_module_Kit",
-            "Issue items from Kit": "issue_items_Kit",
+            "Issue module from Kit":  "issue_module_kit",
+            "Issue items from Kit": "issue_items_kit",
             "Issue items from module": "issue_items_module"
         }
     
@@ -468,11 +468,11 @@ class StockDispatchKit(tk.Frame):
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
-            ("dispatch_Kit", lang.t("dispatch_kit.mode_dispatch_kit", "Dispatch Kit")),
+            ("dispatch_kit", lang.t("dispatch_kit.mode_dispatch_kit", "Dispatch Kit")),
             ("issue_standalone", lang.t("dispatch_kit.mode_issue_standalone", "Issue standalone item/s from {scenario}", scenario=scenario)),
             ("issue_module_scenario", lang.t("dispatch_kit.mode_issue_module_scenario", "Issue module from {scenario}", scenario=scenario)),
-            ("issue_module_Kit", lang.t("dispatch_kit.mode_issue_module_Kit", "Issue module from a Kit")),
-            ("issue_items_Kit", lang.t("dispatch_kit.mode_issue_items_Kit", "Issue items from a Kit")),
+            ("issue_module_kit", lang.t("dispatch_kit.mode_issue_module_kit", "Issue module from a Kit")),
+            ("issue_items_kit", lang.t("dispatch_kit.mode_issue_items_kit", "Issue items from a Kit")),
             ("issue_items_module", lang.t("dispatch_kit.mode_issue_items_module", "Issue items from a module")),
         ]
         self.mode_label_to_key = {label: key for key, label in self.mode_definitions}
@@ -527,21 +527,21 @@ class StockDispatchKit(tk.Frame):
             self.populate_standalone_items()
             return
 
-        if mode_key in ("dispatch_Kit", "issue_items_Kit", "issue_module_Kit"):
+        if mode_key in ("dispatch_kit", "issue_items_kit", "issue_module_kit"):
             self.Kit_cb.config(state="readonly")
-            self.Kit_cb['values'] = self.fetch_Kits(self.selected_scenario_id)
+            self.Kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
 
-        if mode_key in ("issue_items_module", "issue_module_Kit", "issue_module_scenario"):
+        if mode_key in ("issue_items_module", "issue_module_kit", "issue_module_scenario"):
             self.module_cb.config(state="readonly")
             self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
 
     # ---------------------------------------------------------
     # Structural Helpers
     # ---------------------------------------------------------
-    def fetch_Kits(self, scenario_id):
+    def fetch_kits(self, scenario_id):
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_Kits")
+            logging.error("[DISPATCH] DB connection failed fetch_kits")
             return []
         cur = conn.cursor()
         try:
@@ -552,7 +552,7 @@ class StockDispatchKit(tk.Frame):
             """, (scenario_id,))
             return [r[0] for r in cur.fetchall()]
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_Kits error: {e}")
+            logging.error(f"[DISPATCH] fetch_kits error: {e}")
             return []
         finally:
             cur.close()
@@ -578,10 +578,10 @@ class StockDispatchKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def fetch_available_Kit_numbers(self, scenario_id, Kit_code=None):
+    def fetch_available_kit_numbers(self, scenario_id, Kit_code=None):
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_available_Kit_numbers")
+            logging.error("[DISPATCH] DB connection failed fetch_available_kit_numbers")
             return []
         cur = conn.cursor()
         try:
@@ -607,7 +607,7 @@ class StockDispatchKit(tk.Frame):
             vals = [r[0] for r in cur.fetchall()]
             return vals
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_available_Kit_numbers error: {e}")
+            logging.error(f"[DISPATCH] fetch_available_kit_numbers error: {e}")
             return []
         finally:
             cur.close()
@@ -647,11 +647,11 @@ class StockDispatchKit(tk.Frame):
     # ---------------------------------------------------------
     # Stock Fetching
     # ---------------------------------------------------------
-    def fetch_stock_data_for_Kit_number(self, scenario_id, Kit_number, Kit_code=None):
+    def fetch_stock_data_for_kit_number(self, scenario_id, Kit_number, Kit_code=None):
         self.ensure_item_index(scenario_id)
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_stock_data_for_Kit_number")
+            logging.error("[DISPATCH] DB connection failed fetch_stock_data_for_kit_number")
             return []
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -677,7 +677,7 @@ class StockDispatchKit(tk.Frame):
             self._debug_log_items(f"Kit_number={Kit_number}", items)
             return items
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_stock_data_for_Kit_number error: {e}")
+            logging.error(f"[DISPATCH] fetch_stock_data_for_kit_number error: {e}")
             return []
         finally:
             cur.close()
@@ -809,14 +809,14 @@ class StockDispatchKit(tk.Frame):
         tk.Label(main, text=lang.t("dispatch_kit.select_kit", "Select Kit:"), bg="#F0F4F8")\
             .grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.Kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        self.Kit_cb.bind("<<ComboboxSelected>>", self.on_Kit_selected)
+        self.Kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
 
         self.Kit_number_var = tk.StringVar()
         self.Kit_number_cb = ttk.Combobox(main, textvariable=self.Kit_number_var, state="disabled", width=20)
         tk.Label(main, text=lang.t("dispatch_kit.select_kit_number", "Select Kit Number:"), bg="#F0F4F8")\
             .grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.Kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        self.Kit_number_cb.bind("<<ComboboxSelected>>", self.on_Kit_number_selected)
+        self.Kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
 
         self.module_var = tk.StringVar()
         self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
@@ -963,7 +963,7 @@ class StockDispatchKit(tk.Frame):
             )
         ordered = sorted(rows, key=sort_key)
         result = []
-        seen_Kit = set()
+        seen_kit = set()
         seen_module = set()
         for it in ordered:
             Kit_code = it.get("Kit") if it.get("Kit") and it.get("Kit") != "-----" else None
@@ -971,7 +971,7 @@ class StockDispatchKit(tk.Frame):
             Kit_number = it.get("Kit_number")
             module_number = it.get("module_number")
 
-            if Kit_code and Kit_number and (Kit_code, Kit_number) not in seen_Kit:
+            if Kit_code and Kit_number and (Kit_code, Kit_number) not in seen_kit:
                 result.append({
                     "is_header": True,
                     "header_level": "Kit",
@@ -989,7 +989,7 @@ class StockDispatchKit(tk.Frame):
                     "treecode": None,
                     "std_qty": None
                 })
-                seen_Kit.add((Kit_code, Kit_number))
+                seen_kit.add((Kit_code, Kit_number))
 
             if module_code and module_number and (Kit_code, module_code, module_number, Kit_number) not in seen_module:
                 result.append({
@@ -1021,21 +1021,21 @@ class StockDispatchKit(tk.Frame):
         mode = self.current_mode_key()
         rules = {
             "editable_types": set(),
-            "derive_modules_from_Kit": False,
+            "derive_modules_from_kit": False,
             "derive_items_from_modules": False
         }
-        if mode == "dispatch_Kit":
+        if mode == "dispatch_kit":
             rules.update({
                 "editable_types": {"Kit"},
-                "derive_modules_from_Kit": True,
+                "derive_modules_from_kit": True,
                 "derive_items_from_modules": True
             })
-        elif mode in ("issue_module_scenario", "issue_module_Kit"):
+        elif mode in ("issue_module_scenario", "issue_module_kit"):
             rules.update({
                 "editable_types": {"Module"},
                 "derive_items_from_modules": True
             })
-        elif mode in ("issue_standalone", "issue_items_module", "issue_items_Kit"):
+        elif mode in ("issue_standalone", "issue_items_module", "issue_items_kit"):
             rules.update({
                 "editable_types": {"Item"}
             })
@@ -1058,7 +1058,7 @@ class StockDispatchKit(tk.Frame):
                 stock = 0
 
             if row_type_lower == "kit":
-                if mode_key == "dispatch_Kit":
+                if mode_key == "dispatch_kit":
                     qty = 1
                 else:
                     qty = 1 if ("kit" in {t.lower() for t in rules["editable_types"]} and stock > 0) else 0
@@ -1072,8 +1072,8 @@ class StockDispatchKit(tk.Frame):
             vals[8] = str(qty)
             self.tree.item(iid, values=vals)
 
-        if rules.get("derive_modules_from_Kit") and hasattr(self, "_derive_modules_from_Kits"):
-            self._derive_modules_from_Kits()
+        if rules.get("derive_modules_from_kit") and hasattr(self, "_derive_modules_from_kits"):
+            self._derive_modules_from_kits()
         if rules.get("derive_items_from_modules"):
             self._derive_items_from_modules()
 
@@ -1108,7 +1108,7 @@ class StockDispatchKit(tk.Frame):
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
 
-    def _derive_modules_from_Kits(self):
+    def _derive_modules_from_kits(self):
         kit_quantities = {}
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
@@ -1240,7 +1240,7 @@ class StockDispatchKit(tk.Frame):
     # ---------------------------------------------------------
     # Event Handlers / Loading
     # ---------------------------------------------------------
-    def on_Kit_selected(self, event=None):
+    def on_kit_selected(self, event=None):
         Kit_code = (self.Kit_var.get() or "").strip()
 
         if not Kit_code:
@@ -1250,20 +1250,20 @@ class StockDispatchKit(tk.Frame):
             return
 
         self.Kit_number_cb.config(state="readonly")
-        self.Kit_number_cb['values'] = self.fetch_available_Kit_numbers(
+        self.Kit_number_cb['values'] = self.fetch_available_kit_numbers(
             self.selected_scenario_id,
             Kit_code
         )
         self.Kit_number_var.set("")
 
-    def on_Kit_number_selected(self, event=None):
+    def on_kit_number_selected(self, event=None):
         Kit_number = (self.Kit_number_var.get() or "").strip()
         if not Kit_number:
             self.clear_table_only()
             self.full_items = []
             return
         Kit_code = self.Kit_var.get() or None
-        items = self.fetch_stock_data_for_Kit_number(self.selected_scenario_id, Kit_number, Kit_code)
+        items = self.fetch_stock_data_for_kit_number(self.selected_scenario_id, Kit_number, Kit_code)
         self.full_items = items[:]
         self.populate_rows(self.full_items,
                            lang.t("dispatch_kit.loaded_rows_kit", "Loaded {n} stock rows for Kit number {k}")
@@ -1290,7 +1290,7 @@ class StockDispatchKit(tk.Frame):
     def on_module_number_selected(self, event=None):
         module_number = (self.module_number_var.get() or "").strip()
         mode_key = self.current_mode_key()
-        if mode_key not in ("issue_items_module", "issue_module_scenario", "issue_module_Kit"):
+        if mode_key not in ("issue_items_module", "issue_module_scenario", "issue_module_kit"):
             return
         if not module_number:
             self.clear_table_only()
@@ -1535,8 +1535,8 @@ class StockDispatchKit(tk.Frame):
             entry.destroy()
             self.editing_cell = None
 
-            if rt_low == "kit" and rules.get("derive_modules_from_Kit") and hasattr(self, "_derive_modules_from_Kits"):
-                self._derive_modules_from_Kits()
+            if rt_low == "kit" and rules.get("derive_modules_from_kit") and hasattr(self, "_derive_modules_from_kits"):
+                self._derive_modules_from_kits()
                 if rules.get("derive_items_from_modules"):
                     self._derive_items_from_modules()
                 self._reapply_editable_icons(rules)
