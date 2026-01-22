@@ -227,6 +227,74 @@ class StockDispatchKit(tk.Frame):
                 return v
         return display
 
+    #--------------Canonical Movement Type Mapping -----------------
+    def _canon_movement_type(self, display_label:  str) -> str:
+        """
+        Convert any localized movement type display label to canonical English. 
+    
+        Args:
+            display_label:  The label shown in the dropdown (could be FR/ES/EN)
+    
+        Returns:
+            Canonical English movement type name for database storage
+        """
+        # Get the internal key from the display label
+        internal_key = self. mode_label_to_key. get(display_label)
+    
+        if not internal_key:
+            # Fallback:  if not found, return as-is (shouldn't happen)
+            logging.warning(f"[DISPATCH] Unknown movement type label:   {display_label}")
+            return display_label
+    
+        # Map internal keys to canonical English display names
+        canon_map = {
+            "dispatch_kit": "Dispatch Kit",
+            "issue_standalone": "Issue standalone items",
+            "issue_module_scenario": "Issue module from scenario",
+            "issue_module_Kit": "Issue module from Kit",
+            "issue_items_Kit": "Issue items from Kit",
+            "issue_items_module":  "Issue items from module"
+        }
+    
+        canonical = canon_map.get(internal_key, internal_key)
+    
+        logging.debug(f"[DISPATCH] Movement type:  '{display_label}' → internal:  '{internal_key}' → canonical: '{canonical}'")
+    
+        return canonical
+
+
+    def _display_for_movement_type(self, canonical_value: str) -> str:
+        """
+        Convert canonical English movement type to current language display label.
+        Used when reading from database for display. 
+    
+        Args:
+            canonical_value: English movement type from database
+    
+        Returns: 
+            Localized display label for current language
+        """
+        # Reverse map:  canonical English → internal key
+        reverse_canon_map = {
+            "Dispatch Kit": "dispatch_kit",
+            "Issue standalone items": "issue_standalone",
+            "Issue module from scenario": "issue_module_scenario",
+            "Issue module from Kit":  "issue_module_Kit",
+            "Issue items from Kit": "issue_items_Kit",
+            "Issue items from module": "issue_items_module"
+        }
+    
+        internal_key = reverse_canon_map.get(canonical_value, "dispatch_kit")
+    
+        # Find the localized label for this key
+        for label, key in self.mode_label_to_key.items():
+            if key == internal_key:
+                return label
+    
+        # Fallback to canonical if not found
+        return canonical_value
+
+
     # ---------------------------------------------------------
     # Index / Parsing / Enrichment
     # ---------------------------------------------------------
@@ -1586,7 +1654,8 @@ class StockDispatchKit(tk.Frame):
             return
 
         scenario_name = self.scenario_map.get(self.selected_scenario_id, "")
-        movement_label = self.mode_var.get()
+        movement_label = self. mode_var.get()  # Get display label from dropdown
+        movement_type_canonical = self._canon_movement_type(movement_label)  # ✅ Convert to English
 
         doc_number = self.generate_document_number(out_type)
         self.status_var.set(lang.t("dispatch_kit.pending_dispatch", "Pending dispatch... Document Number: {doc}")
@@ -1643,7 +1712,7 @@ class StockDispatchKit(tk.Frame):
                         third_party=third_party if third_party else None,
                         end_user=end_user if end_user else None,
                         remarks=remarks if remarks else None,
-                        movement_type=movement_label,
+                        movement_type=movement_type_canonical,
                         ts_date=now_date,
                         ts_time=now_time,
                         document_number=doc_number
