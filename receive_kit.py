@@ -20,6 +20,7 @@ Changes from previous version:
   * Export order updated (Comments last)
 """
 from __future__ import annotations
+import code
 import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog
 from tkinter import messagebox as mb
@@ -980,24 +981,25 @@ class StockReceiveKit(tk.Frame):
         scenario_id = self.selected_scenario_id or "None"
         if not self.tree:
             return
-        
+    
         for iid in self._gather_full_tree_nodes():
             if not self.tree.exists(iid):
                 continue
-            
+        
             vals = list(self.tree.item(iid, "values"))
             if not vals or len(vals) < 13:
                 continue
-            
+        
             code = vals[0]
             type_field = (vals[2] or "").strip().upper()
             kit_col = vals[3] if vals[3] and vals[3] != "-----" else None
             module_col = vals[4] if vals[4] and vals[4] != "-----" else None
-            
-            kit_code = kit_col
-            module_code = module_col
+        
+            # ✅ Extract codes from tree columns (in case they contain "CODE - Description")
+            kit_code = self._extract_code_from_display(kit_col) if kit_col else None
+            module_code = self._extract_code_from_display(module_col) if module_col else None
             item_code = None
-            
+        
             # Determine context
             if type_field == "KIT" and not kit_code:
                 kit_code = code
@@ -1005,9 +1007,9 @@ class StockReceiveKit(tk.Frame):
                 module_code = code
             if type_field == "ITEM":
                 item_code = code
-            
+        
             rd = self.row_data.setdefault(iid, {})
-            
+        
             # Get expiry
             expiry_iso = rd.get("expiry_iso")
             if not expiry_iso:
@@ -1015,10 +1017,10 @@ class StockReceiveKit(tk.Frame):
                 expiry_iso = parse_expiry(raw_exp)
                 if expiry_iso:
                     rd["expiry_iso"] = expiry_iso
-            
+        
             kit_number = rd.get("kit_number") or "None"
             module_number = rd.get("module_number") or "None"
-            
+        
             # ✅ Lookup std_qty from kit_items table with correct context
             std_qty_from_db = self.lookup_std_qty_from_kit_items(
                 scenario_id,
@@ -1026,10 +1028,10 @@ class StockReceiveKit(tk.Frame):
                 module_code,
                 item_code or code
             )
-            
+        
             # ✅ Also update the tree display with correct std_qty
             vals[5] = std_qty_from_db
-            
+        
             # Generate unique_id with correct std_qty
             unique_id = self.generate_unique_id(
                 scenario_id,
@@ -1041,15 +1043,14 @@ class StockReceiveKit(tk.Frame):
                 kit_number,
                 module_number
             )
-            
+        
             # Update row_data
             rd["unique_id"] = unique_id
             rd["std_qty"] = std_qty_from_db  # ✅ Store correct value
-            
+        
             # Update tree
             vals[12] = unique_id
             self.tree.item(iid, values=tuple(vals))
-
 
     # -----------------------------------------------------------------
     # Fetch Helpers
@@ -2090,23 +2091,32 @@ class StockReceiveKit(tk.Frame):
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
+        
         comps = self.fetch_kit_items(self.selected_scenario_id, code)
         if not comps:
             self.status_var.set(
-            lang.t("receive_kit.no_items_for_code", "No items found for code {code}", code=code)
-        )
+                lang.t("receive_kit.no_items_for_code", "No items found for code {code}", code=code)
+            )
             return
 
-        
         kit_number_global = self.kit_number_var.get() or None
         treecode_map = {}
         module_number_map = {}
+        
         for comp in sorted(comps, key=lambda x: x['treecode']):
             parent_tc = comp['treecode'][:-3] if len(comp['treecode']) >= 3 else ''
             parent_iid = treecode_map.get(parent_tc, '')
             qty_to_receive = comp['std_qty']
-            kit_display = comp['kit'] or "-----"
-            module_display = comp['module'] or "-----"
+            
+            # ✅ Extract clean codes from database values (safety measure)
+            kit_raw = comp['kit']
+            kit_code = self._extract_code_from_display(kit_raw) if kit_raw else None
+            kit_display = kit_code or "-----"
+            
+            module_raw = comp['module']
+            module_code = self._extract_code_from_display(module_raw) if module_raw else None
+            module_display = module_code or "-----"
+            
             # Inherit kit number from parent if present
             inherited_kn = kit_number_global
             if parent_iid in self.row_data:
@@ -2114,8 +2124,10 @@ class StockReceiveKit(tk.Frame):
                 if pn and isinstance(pn, str) and pn.lower() == "none":
                     pn = None
                 inherited_kn = pn or inherited_kn
+            
             kit_number = inherited_kn
             module_number = None
+            
             if comp['type'].upper() == "MODULE":
                 module_number = self.select_module_popup(kit_number, comp['code'], comp['description'])
                 if module_number is None:
@@ -2135,25 +2147,37 @@ class StockReceiveKit(tk.Frame):
                     if pm and isinstance(pm, str) and pm.lower() == "none":
                         pm = None
                     module_number = pm
-                if not module_number and comp['module']:
-                    module_number = module_number_map.get(comp['module'])
+                if not module_number and module_code:
+                    module_number = module_number_map.get(module_code)
+            
+            # ✅ Insert with clean codes only
             iid = self.tree.insert(parent_iid, "end", values=(
-                comp['code'], comp['description'], comp['type'], kit_display,
-                module_display, comp['std_qty'], qty_to_receive, "", "",
-                "", "", "", "" # hidden columns remain blank
+                comp['code'], 
+                comp['description'], 
+                comp['type'], 
+                kit_display,      # ✅ Clean code only
+                module_display,   # ✅ Clean code only
+                comp['std_qty'], 
+                qty_to_receive, 
+                "", "",
+                "", "", "", ""  # hidden columns remain blank
             ))
+            
             treecode_map[comp['treecode']] = iid
             self.code_to_iid[comp['code']] = iid
+            
             # Tag structural rows
             if comp['type'].upper() == "KIT":
                 self.tree.item(iid, tags=("kit",))
             elif comp['type'].upper() == "MODULE":
                 self.tree.item(iid, tags=("module",))
+            
             self.row_data[iid] = {
                 'kit_number': kit_number,
                 'module_number': module_number,
                 'treecode': comp['treecode']
             }
+        
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t(
@@ -2162,7 +2186,7 @@ class StockReceiveKit(tk.Frame):
                 count=len(self.tree.get_children()), 
                 code=code
             )
-    )
+        )
     # -----------------------------------------------------------------
     # Expiry validation toggles
     # -----------------------------------------------------------------
@@ -2455,17 +2479,21 @@ class StockReceiveKit(tk.Frame):
         """
         mode_key = self.current_mode_key()
         scen_module_mode = (mode_key == "add_module_scenario")
-    
-        kit_code = self.kit_var.get() if mode_key in [
+
+        # ✅ Extract codes from dropdown displays
+        kit_display_raw = self.kit_var.get() if mode_key in [
             "add_module_kit", "add_items_kit", "add_items_module"
         ] else None
+        kit_code = self._extract_code_from_display(kit_display_raw) if kit_display_raw else None
+
+        module_display_raw = self.module_var.get() if mode_key == "add_items_module" else None
+        module_code_selected = self._extract_code_from_display(module_display_raw) if module_display_raw else None
     
-        module_code_selected = self.module_var.get() if mode_key == "add_items_module" else None
         kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
         module_number = (self.module_number_var.get().strip()
                         if (mode_key == "add_items_module" and self.module_number_var.get())
                         else None)
-    
+
         # Validation per mode
         if mode_key == "add_module_kit": 
             if not kit_code: 
@@ -2484,7 +2512,7 @@ class StockReceiveKit(tk.Frame):
                     "error"
                 )
                 return
-    
+
         elif mode_key == "add_items_kit":
             if not kit_number:
                 custom_popup(
@@ -2494,7 +2522,7 @@ class StockReceiveKit(tk.Frame):
                     "error"
                 )
                 return
-    
+
         elif mode_key == "add_items_module": 
             if not module_code_selected:
                 custom_popup(
@@ -2512,13 +2540,13 @@ class StockReceiveKit(tk.Frame):
                     "error"
                 )
                 return
-    
+
         # Get item details
         desc = get_item_description(code)
         item_type = detect_type(code, desc)
         qty_to_receive = 1 if item_type.upper() in ('KIT', 'MODULE') else 1
         exp_date = ""
-    
+
         # Determine parent iid
         if mode_key == "add_module_kit":
             parent_iid = ''
@@ -2530,19 +2558,19 @@ class StockReceiveKit(tk.Frame):
             parent_iid = self.code_to_iid.get(kit_code, '')
         else:
             parent_iid = ''
-    
+
         kit_number_for_id = kit_number or "None"
         module_number_for_id = module_number or "None"
         kit_display = "-----" if scen_module_mode else (kit_code or "-----")
         module_display = module_code_selected or "-----"
-    
+
         # Check if already in tree
         if code in self.code_to_iid:
             self.status_var.set(
                 lang.t("receive_kit.item_already_in_tree", "Item {code} already in tree", code=code)
             )
             return
-    
+
         # ✅ SPECIAL HANDLING: MODULE with descendants
         if item_type.upper() == "MODULE" and mode_key in ("add_module_kit", "add_module_scenario"):
             # Prompt for module number
@@ -2551,31 +2579,31 @@ class StockReceiveKit(tk.Frame):
                 code, 
                 desc
             )
-        
+    
             if not module_number_for_id: 
                 self.status_var.set(
                     lang.t("receive_kit.cancelled_adding_module", "Cancelled adding module {code}", code=code)
                 )
                 return
-        
+    
             # ✅ Try multiple retrieval strategies
             comps1 = self.fetch_full_module_subtree(self.selected_scenario_id, code)
             comps2 = self.fetch_items_by_module_column(self.selected_scenario_id, code)
             comps3 = self.fetch_items_by_code_prefix(self.selected_scenario_id, code)
-        
+    
             # Choose strategy with most results
             candidates = [
                 ("treecode_subtree", comps1), 
                 ("module_column", comps2), 
                 ("code_prefix", comps3)
             ]
-        
+    
             chosen_label, components = None, []
             for lbl, lst in sorted(candidates, key=lambda x: len(x[1]), reverse=True):
                 if lst:
                     chosen_label, components = lbl, lst
                     break
-        
+    
             if not components:
                 # No descendants found - insert only the module row
                 # ✅ Lookup std_qty for module
@@ -2585,7 +2613,7 @@ class StockReceiveKit(tk.Frame):
                     code,
                     code
                 )
-                
+            
                 iid_only = self.tree.insert(parent_iid, "end", values=(
                     code, desc, "Module", kit_display, code,
                     module_std_qty,  # ✅ Use looked-up value
@@ -2595,7 +2623,7 @@ class StockReceiveKit(tk.Frame):
                 ))
                 self.tree.item(iid_only, tags=("module",))
                 self.code_to_iid[code] = iid_only
-            
+
                 self.row_data[iid_only] = {
                     'unique_id': self.generate_unique_id(
                         self.selected_scenario_id,
@@ -2611,7 +2639,7 @@ class StockReceiveKit(tk.Frame):
                     'treecode': None,
                     'std_qty': module_std_qty  # ✅ Store in row_data
                 }
-            
+
                 self.recompute_exp_groups()
                 self.status_var.set(
                     lang.t(
@@ -2621,31 +2649,31 @@ class StockReceiveKit(tk.Frame):
                     )
                 )
                 return
-        
+    
             # ✅ DEDUPLICATION: Keep only first occurrence of each code
             seen_codes = {}
             deduplicated = []
-        
+    
             for comp in components:
                 comp_code = comp['code']
                 if comp_code not in seen_codes:
                     seen_codes[comp_code] = comp
                     deduplicated.append(comp)
-        
+    
             components = deduplicated
-        
+    
             # ✅ Build tree hierarchy with deduplicated components
             SEG = 3
             tc_map = {}
-        
+
             for comp in sorted(components, key=lambda x: x.get('treecode', '') or ''):
                 tc = comp.get('treecode')
                 parent_tc = tc[:-SEG] if tc and len(tc) > SEG else None
                 parent_ref = tc_map.get(parent_tc, parent_iid)
-            
+        
                 comp_type = comp['type'].upper()
                 comp_code = comp['code']
-            
+
                 # Determine display values
                 if comp_type == "MODULE":
                     module_disp = comp_code
@@ -2653,10 +2681,10 @@ class StockReceiveKit(tk.Frame):
                     module_disp = comp.get('module', '-----')
                     if module_disp == "-----" or not module_disp:
                         module_disp = code  # Use parent module code
-            
+        
                 # ✅ std_qty should come from comp (fetched from kit_items)
                 comp_std_qty = comp.get('std_qty', 0)
-                
+
                 # Insert into tree
                 iid = self.tree.insert(parent_ref, "end", values=(
                     comp_code, 
@@ -2669,16 +2697,16 @@ class StockReceiveKit(tk.Frame):
                     "", "",
                     "", "", "", ""
                 ))
-            
+
                 # Apply tags
                 if comp_type == "MODULE": 
                     self.tree.item(iid, tags=("module",))
                 elif comp_type == "KIT":
                     self.tree.item(iid, tags=("kit",))
-            
+        
                 tc_map[tc] = iid
                 self.code_to_iid[comp_code] = iid
-            
+
                 # Generate unique_id
                 if scen_module_mode: 
                     kit_part_for_id = None
@@ -2686,10 +2714,10 @@ class StockReceiveKit(tk.Frame):
                 else:
                     kit_part_for_id = kit_code if comp_type != 'KIT' else comp_code
                     kit_number_part = kit_number_for_id
-            
+        
                 module_part_for_id = comp.get('module') if comp_type != 'MODULE' else comp_code
                 item_part_for_id = comp.get('item') if comp_type == 'ITEM' else None
-            
+
                 unique_id = self.generate_unique_id(
                     self.selected_scenario_id,
                     kit_part_for_id,
@@ -2700,7 +2728,7 @@ class StockReceiveKit(tk.Frame):
                     kit_number_part,
                     module_number_for_id
                 )
-            
+        
                 self.row_data[iid] = {
                     'unique_id': unique_id,
                     'kit_number': None if scen_module_mode else kit_number_for_id,
@@ -2708,7 +2736,7 @@ class StockReceiveKit(tk.Frame):
                     'treecode': tc,
                     'std_qty': comp_std_qty  # ✅ Store in row_data
                 }
-        
+
             self.recompute_exp_groups()
             self.status_var.set(
                 lang.t(
@@ -2720,12 +2748,12 @@ class StockReceiveKit(tk.Frame):
                 )
             )
             return
-    
+
         # ✅ Simple single row insertion (for non-module items)
         kit_for_id = None if scen_module_mode else (kit_code if item_type.upper() != "KIT" else code)
         module_for_id = module_code_selected if item_type.upper() != "MODULE" else code
         item_for_id = code if item_type.upper() == "ITEM" else None
-        
+    
         # ✅ Lookup std_qty from kit_items table
         std_qty = self.lookup_std_qty_from_kit_items(
             self.selected_scenario_id,
@@ -2744,7 +2772,7 @@ class StockReceiveKit(tk.Frame):
             kit_number_for_id,
             module_number_for_id
         )
-    
+
         iid = self.tree.insert(parent_iid, "end", values=(
             code, desc, item_type,
             kit_display if not scen_module_mode else "-----",
@@ -2754,22 +2782,22 @@ class StockReceiveKit(tk.Frame):
             "", "",
             "", "", "", ""
         ))
-    
+
         self.code_to_iid[code] = iid
-    
+
         # Apply tags
         if item_type.upper() == "KIT":
             self.tree.item(iid, tags=("kit",))
         elif item_type.upper() == "MODULE":
             self.tree.item(iid, tags=("module",))
-    
+
         self.row_data[iid] = {
             'unique_id': unique_id,
             'kit_number': None if scen_module_mode else kit_number_for_id,
             'module_number': module_number_for_id,
             'std_qty': std_qty  # ✅ Store in row_data
         }
-    
+
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t("receive_kit.added_item", "Added item {code}", code=code)
@@ -4361,6 +4389,7 @@ class StockReceiveKit(tk.Frame):
           - Capture the 'Comments' column text and persist it to stock_data (comments)
             and stock_transactions (Comments).
           - ✅ Lookup correct std_qty from kit_items table
+          - ✅ Extract clean codes from tree columns to ensure unique_id purity
         """
         try:
             if not self.tree.exists(iid):
@@ -4373,6 +4402,10 @@ class StockReceiveKit(tk.Frame):
             (code, desc, type_field, kit_val, mod_val, std_qty_display, qty_str,
              display_expiry, batch_no, exp_module_col, exp_kit_col,
              comments_col, _unique_visible) = vals
+
+            # ✅ Extract clean codes from tree columns (safety measure)
+            kit_code = self._extract_code_from_display(kit_val) if kit_val and kit_val != "-----" else None
+            module_code = self._extract_code_from_display(mod_val) if mod_val and mod_val != "-----" else None
 
             rd_local = self.row_data.get(iid, {})
 
@@ -4429,7 +4462,7 @@ class StockReceiveKit(tk.Frame):
             original_mod_num = rd_local.get('module_number')
             if type_field.upper() == "MODULE" and original_mod_num and original_mod_num != module_number:
                 self.renamed_modules.append({
-                    'module_code': mod_val if mod_val != "-----" else code,
+                    'module_code': module_code or code,  # ✅ Use clean code
                     'old_module_number': original_mod_num,
                     'new_module_number': module_number,
                     'kit_number': kit_number,
@@ -4442,9 +4475,9 @@ class StockReceiveKit(tk.Frame):
             if final_expiry:
                 rd_local['expiry_iso'] = final_expiry
 
-            # ✅ Determine context for std_qty lookup
-            kit_for_id = None if kit_val == "-----" else kit_val
-            module_for_id = None if mod_val == "-----" else mod_val
+            # ✅ Determine context for std_qty lookup using clean codes
+            kit_for_id = kit_code  # ✅ Already clean
+            module_for_id = module_code  # ✅ Already clean
             item_part = code if type_field.upper() == "ITEM" else None
             
             # Determine which code to use for lookup
@@ -4466,13 +4499,13 @@ class StockReceiveKit(tk.Frame):
             # ✅ Update tree display with correct std_qty
             vals[5] = std_qty_correct
             
-            # Generate unique_id with correct std_qty
+            # ✅ Generate unique_id with clean codes only
             unique_id = self.generate_unique_id(
                 self.selected_scenario_id,
-                kit_for_id,
-                module_for_id,
-                item_part,
-                std_qty_correct,  # ✅ Use looked-up value
+                kit_for_id,      # ✅ Clean code
+                module_for_id,   # ✅ Clean code
+                item_part,       # ✅ Already clean
+                std_qty_correct, # ✅ Correct value
                 final_expiry,
                 kit_number,
                 module_number
@@ -4523,9 +4556,9 @@ class StockReceiveKit(tk.Frame):
                     'code': code,
                     'description': desc,
                     'type': type_field,
-                    'kit': kit_val,
-                    'module': mod_val,
-                    'std_qty': std_qty_correct,  # ✅ Use correct value
+                    'kit': kit_code or "-----",      # ✅ Clean code
+                    'module': module_code or "-----", # ✅ Clean code
+                    'std_qty': std_qty_correct,      # ✅ Correct value
                     'qty_to_receive': qty_to_receive,
                     'expiry_date': final_expiry or '',
                     'batch_no': batch_no,
