@@ -507,8 +507,9 @@ class StockReceiveKit(tk.Frame):
         # Kit selectors
         self.kit_label = tk.Label(main, text=lang.t("receive_kit.select_kit","Select Kit:"), bg="#F0F4F8")
         self.kit_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        # Kit selector
         self.kit_var = tk.StringVar()
-        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=40)
+        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=100)
         self.kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
         self.kit_number_label = tk.Label(main, text=lang.t("receive_kit.select_kit_number","Select Kit Number:"), bg="#F0F4F8")
@@ -521,7 +522,7 @@ class StockReceiveKit(tk.Frame):
         self.module_label = tk.Label(main, text=lang.t("receive_kit.select_module","Select Module:"), bg="#F0F4F8")
         self.module_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_var = tk.StringVar()
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
+        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=100)
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
         self.module_number_label = tk.Label(main, text=lang.t("receive_kit.select_module_number","Select Module Number:"), bg="#F0F4F8")
@@ -700,8 +701,13 @@ class StockReceiveKit(tk.Frame):
         self.row_data.clear(); self.code_to_iid.clear()
         self.search_var.set(""); self.search_listbox.delete(0, tk.END)
         self.update_mode()
+
+
     def on_kit_selected(self, event=None):
-        kit_code = self.kit_var.get()
+        # ✅ Extract code from "CODE - Description" format
+        kit_display = self.kit_var.get()
+        kit_code = self._extract_code_from_display(kit_display) if kit_display else ""
+        
         mode_key = self.current_mode_key()
         self.kit_number_var.set("")
         self.module_var.set("")
@@ -718,9 +724,11 @@ class StockReceiveKit(tk.Frame):
                 self.module_cb['values'] = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
             else:
                 self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
-            self.module_number_cb['values'] = self.fetch_module_numbers(self.selected_scenario_id,
-                                                                        kit_code=kit_code if kit_code else None)
-            self.module_number_cb.config(state="readonly" if self.module_number_cb['values'] else "normal")
+            # ✅ Clear module number dropdown - wait for module selection
+            self.module_number_cb['values'] = []
+            self.module_number_cb.config(state="disabled")  # Disabled until module selected
+
+
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
@@ -733,17 +741,33 @@ class StockReceiveKit(tk.Frame):
         )
     def on_kit_number_selected(self, event=None):
         kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else ""
-        kit_code = self.kit_var.get()
+        # ✅ Extract code from display
+        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
         mode_key = self.current_mode_key()
+        
         if mode_key == "add_items_module":
-            module_code = self.module_var.get()
-            if module_code:
-                nums = self.fetch_module_numbers_for_module_instance(
-                    self.selected_scenario_id, module_code, kit_number or None
+            # ✅ Extract module code from display
+            module_display = self.module_var.get()
+            module_code = self._extract_code_from_display(module_display) if module_display else ""
+            
+            if module_code and kit_number:
+                # ✅ Use updated fetch_module_numbers with kit_number parameter
+                nums = self.fetch_module_numbers(
+                    self.selected_scenario_id,
+                    kit_code=None,  # Not used
+                    module_code=module_code,
+                    kit_number=kit_number  # ✅ Pass actual kit instance number
                 )
                 self.module_number_cb['values'] = nums
                 self.module_number_cb.config(state="readonly" if nums else "disabled")
+                logging.debug(f"[KIT_NUMBER_SELECTED] Updated module numbers for kit_number={kit_number}, module={module_code}: {nums}")
+            else:
+                # No module selected yet, clear module number dropdown
+                self.module_number_cb['values'] = []
+                self.module_number_cb.config(state="disabled")
+                logging.debug(f"[KIT_NUMBER_SELECTED] No module selected, clearing module numbers")
             return
+        
         if not kit_number or mode_key not in ["add_module_kit", "add_items_kit"]:
             # Reset tree if no kit number chosen in these modes
             self.tree.delete(*self.tree.get_children())
@@ -751,11 +775,13 @@ class StockReceiveKit(tk.Frame):
             self.code_to_iid.clear()
             self.recompute_exp_groups()
             return
+        
         items = self.fetch_stock_data_for_kit_number(self.selected_scenario_id, kit_number, kit_code)
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
         treecode_to_iid = {}
+        
         for item in sorted(items, key=lambda x: x['treecode']):
             parent_tc = item['treecode'][:-3] if len(item['treecode']) >= 3 else ''
             parent_iid = treecode_to_iid.get(parent_tc, '')
@@ -776,6 +802,7 @@ class StockReceiveKit(tk.Frame):
                 'module_number': item['module_number'],
                 'treecode': item['treecode']
             }
+        
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t(
@@ -784,26 +811,38 @@ class StockReceiveKit(tk.Frame):
                 count=len(self.tree.get_children()), 
                 kit_number=kit_number
             )
-    )
+        )
     def on_module_selected(self, event=None):
-        module_code = self.module_var.get()
+        # ✅ Extract code from "CODE - Description" format
+        module_display = self.module_var.get()
+        module_code = self._extract_code_from_display(module_display) if module_display else ""
+        
         mode_key = self.current_mode_key()
-        kit_code = self.kit_var.get()
+        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
+        # ✅ Get the actual kit_number from the dropdown
+        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        
         self.module_number_var.set("")
+        
         if mode_key == "add_items_module":
+            # ✅ Pass kit_number instead of kit_code
             self.module_number_cb['values'] = self.fetch_module_numbers(
                 self.selected_scenario_id,
-                kit_code=kit_code if kit_code else None,
-                module_code=module_code if module_code else None
+                kit_code=None,  # Not used
+                module_code=module_code if module_code else None,
+                kit_number=kit_number  # ✅ Pass actual kit instance number
             )
             self.module_number_cb.config(state="readonly" if self.module_number_cb['values'] else "normal")
+        
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
         self.search_listbox.delete(0, tk.END)
+        
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
+        
         self.status_var.set(
             lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
         )
@@ -811,7 +850,11 @@ class StockReceiveKit(tk.Frame):
     def on_module_number_selected(self, event=None):
         module_number = self.module_number_var.get()
         mode_key = self.current_mode_key()
+        
         if mode_key != "add_items_module":
+            # ✅ Clear module dropdown if wrong mode
+            self.module_var.set("")
+            self.module_cb['values'] = []
             return
         if not module_number:
             self.tree.delete(*self.tree.get_children())
@@ -819,8 +862,9 @@ class StockReceiveKit(tk.Frame):
             self.code_to_iid.clear()
             self.recompute_exp_groups()
             return
-        kit_code = self.kit_var.get()
-        module_code = self.module_var.get()
+        # ✅ Extract code from display
+        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
+        module_code = self._extract_code_from_display(self.module_var.get()) if self.module_var.get() else ""
         items = self.fetch_stock_data_for_module_number(self.selected_scenario_id,
                                                         module_number, kit_code, module_code)
         self.tree.delete(*self.tree.get_children())
@@ -905,9 +949,8 @@ class StockReceiveKit(tk.Frame):
             self.module_cb.config(state="readonly")
             self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
             self.module_number_label.config(state="normal")
-            self.module_number_cb.config(state="normal")
-            self.module_number_cb['values'] = self.fetch_module_numbers(self.selected_scenario_id)
-            self.module_number_cb.config(state="readonly" if self.module_number_cb['values'] else "normal")
+            self.module_number_cb['values'] = []
+            self.module_number_cb.config(state="disabled")
         # Populate search results
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
@@ -1012,111 +1055,121 @@ class StockReceiveKit(tk.Frame):
     # Fetch Helpers
     # -----------------------------------------------------------------
     def fetch_available_kit_numbers(self, scenario_id, kit_code=None):
-        conn = connect_db()
-        if conn is None: return []
-        cur = conn.cursor()
-        try:
-            if kit_code:
-                cur.execute("""
-                    SELECT DISTINCT kit_number FROM stock_data
-                    WHERE kit_number IS NOT NULL AND kit_number!='None'
-                      AND unique_id LIKE ?
-                """, (f"{scenario_id}/{kit_code}/%",))
-            else:
-                cur.execute("""
-                    SELECT DISTINCT kit_number FROM stock_data
-                    WHERE kit_number IS NOT NULL AND kit_number!='None'
-                      AND unique_id LIKE ?
-                """, (f"{scenario_id}/%",))
-            return sorted([r[0] for r in cur.fetchall()])
-        except sqlite3.Error:
-            return []
-        finally:
-            cur.close(); conn.close()
-    def fetch_available_module_numbers(self, scenario_id, kit_code=None, module_code=None):
-        conn = connect_db()
-        if conn is None: return []
-        cur = conn.cursor()
-        try:
-            if kit_code and module_code:
-                cur.execute("""
-                    SELECT DISTINCT module_number FROM stock_data
-                    WHERE module_number IS NOT NULL AND module_number!='None'
-                      AND unique_id LIKE ?
-                """, (f"{scenario_id}/{kit_code}/{module_code}/%",))
-            elif kit_code:
-                cur.execute("""
-                    SELECT DISTINCT module_number FROM stock_data
-                    WHERE module_number IS NOT NULL AND module_number!='None'
-                      AND unique_id LIKE ?
-                """, (f"{scenario_id}/{kit_code}/%",))
-            else:
-                cur.execute("""
-                    SELECT DISTINCT module_number FROM stock_data
-                    WHERE module_number IS NOT NULL AND module_number!='None'
-                      AND unique_id LIKE ?
-                """, (f"{scenario_id}/%",))
-            return sorted([r[0] for r in cur.fetchall()])
-        except sqlite3.Error:
-            return []
-        finally:
-            cur.close(); conn.close()
-    def fetch_module_numbers_for_module_instance(self, scenario_id, module_code, kit_number=None):
-        if not module_code:
-            return []
+        """
+        Fetch kit numbers with available stock (final_qty > 0).
+        Handles both scenario_id and scenario name in stock_data.scenario.
+        
+        Args:
+            scenario_id: Scenario ID (can be stored as ID or name in stock_data)
+            kit_code: Optional kit code to filter by (extracted code only, no description)
+        
+        Returns:
+            Sorted list of unique kit_number values with available stock
+        """
         conn = connect_db()
         if conn is None:
             return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            sql = """
-                SELECT DISTINCT module_number
-                FROM stock_data
-                WHERE module_number IS NOT NULL
-                  AND module_number != 'None'
-                  AND unique_id LIKE ?
-                  AND SUBSTR(
-                        unique_id,
-                        INSTR(unique_id,'/',1,2)+1,
-                        INSTR(unique_id,'/',1,3)-INSTR(unique_id,'/',1,2)-1
-                      ) = ?
-            """
-            params = [f"{scenario_id}/%", module_code]
-            if kit_number:
-                sql += " AND kit_number=?"
-                params.append(kit_number)
-            sql += " ORDER BY module_number"
-            cur.execute(sql, params)
-            return [r[0] for r in cur.fetchall()]
-        except sqlite3.Error:
+            # Get scenario name for matching
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            if kit_code:
+                # ✅ Match by scenario_id OR scenario_name
+                cur.execute("""
+                    SELECT DISTINCT kit_number 
+                    FROM stock_data
+                    WHERE (scenario=? OR scenario=?)
+                      AND kit=?
+                      AND kit_number IS NOT NULL 
+                      AND kit_number != 'None'
+                      AND final_qty > 0
+                    ORDER BY kit_number
+                """, (str(scenario_id), scenario_name, kit_code))
+            else:
+                # All kits in scenario with stock
+                cur.execute("""
+                    SELECT DISTINCT kit_number 
+                    FROM stock_data
+                    WHERE (scenario=? OR scenario=?)
+                      AND kit_number IS NOT NULL 
+                      AND kit_number != 'None'
+                      AND final_qty > 0
+                    ORDER BY kit_number
+                """, (str(scenario_id), scenario_name))
+            
+            return [r['kit_number'] for r in cur.fetchall()]
+            
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] fetch_available_kit_numbers error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
-    def fetch_module_numbers(self, scenario_id: str, kit_code: str = None, module_code: str = None):
+            cur.close()
+            conn.close()
+
+    def fetch_available_module_numbers(self, scenario_id, kit_code=None, module_code=None):
+        """
+        Fetch module numbers with available stock (final_qty > 0).
+        Handles both scenario_id and scenario name in stock_data.scenario.
+        
+        Args:
+            scenario_id: Scenario ID (can be stored as ID or name in stock_data)
+            kit_code: Optional kit code to filter by (extracted code only, no description)
+            module_code: Optional module code to filter by (extracted code only, no description)
+        
+        Returns:
+            Sorted list of unique module_number values with available stock
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            where = ["module_number IS NOT NULL", "module_number!='None'", "unique_id LIKE ?"]
-            params = [f"{scenario_id}/%"]
+            # Get scenario name for matching
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            # Build WHERE clause dynamically
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "module_number IS NOT NULL",
+                "module_number != 'None'",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name]
+            
             if kit_code:
-                where.append("unique_id LIKE ?")
-                params.append(f"{scenario_id}/{kit_code}/%")
+                where_clauses.append("kit=?")
+                params.append(kit_code)
+            
             if module_code:
-                where.append("unique_id LIKE ?")
-                params.append(f"{scenario_id}/%/{module_code}/%")
+                where_clauses.append("module=?")
+                params.append(module_code)
+            
             sql = f"""
-                SELECT DISTINCT module_number
+                SELECT DISTINCT module_number 
                 FROM stock_data
-                WHERE {' AND '.join(where)}
+                WHERE {' AND '.join(where_clauses)}
                 ORDER BY module_number
             """
+            
             cur.execute(sql, params)
-            return [r[0] for r in cur.fetchall()]
-        except sqlite3.Error:
+            return [r['module_number'] for r in cur.fetchall()]
+            
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] fetch_available_module_numbers error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
+
+            
     def fetch_search_results(self, query, scenario_id, mode_key):
         """
         Fetch search results based on mode with strict type filtering: 
@@ -1187,7 +1240,7 @@ class StockReceiveKit(tk.Frame):
 
             elif mode_key == "add_module_kit":
                 # Modules within a kit - secondary level
-                kit_code = self.kit_var.get()
+                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
                     FROM kit_items ki
@@ -1220,7 +1273,7 @@ class StockReceiveKit(tk.Frame):
         
             elif mode_key == "add_items_kit":  
                 # Items within a kit - tertiary level
-                kit_code = self.kit_var.get()
+                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
                     FROM kit_items ki
@@ -1236,8 +1289,8 @@ class StockReceiveKit(tk.Frame):
         
             elif mode_key == "add_items_module": 
                 # Items within a module - tertiary level
-                kit_code = self.kit_var.get()
-                module_code = self.module_var.get()
+                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
+                module_code = self._extract_code_from_display(self.module_var.get()) if self.module_var.get() else ""  # ✅ Extract code only
                 if kit_code and module_code:  
                     sql = """
                         SELECT DISTINCT ki.code, ki.level
@@ -1358,51 +1411,164 @@ class StockReceiveKit(tk.Frame):
             return []
         finally:
             cur.close(); conn.close()
+
+
     def fetch_kits(self, scenario_id):
+        """
+        Fetch all kits for a scenario with code and description.
+        Only includes items with level='primary' and type='Kit'.
+        ✅ Returns formatted "CODE - Description" strings.
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get distinct kit codes from kit_items (primary level)
             cur.execute("""
-                SELECT DISTINCT code FROM kit_items
-                WHERE scenario_id=? AND level='primary'
+                SELECT DISTINCT code 
+                FROM kit_items 
+                WHERE scenario_id=? AND LOWER(level)='primary'
                 ORDER BY code
             """, (scenario_id,))
-            return [r[0] for r in cur.fetchall()]
-        except sqlite3.Error:
+            
+            kit_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not kit_codes:
+                return []
+            
+            # ✅ NEW: Get descriptions and filter by type
+            result = []
+            for kit_code in kit_codes:
+                desc = get_item_description(kit_code)
+                item_type = detect_type(kit_code, desc).upper()
+                
+                # Only include if type is KIT
+                if item_type == "KIT":
+                    # Format: "CODE - Description"
+                    display = f"{kit_code} - {desc}" if desc else kit_code
+                    result.append(display)
+            
+            return result
+            
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] fetch_kits error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def fetch_modules_for_kit(self, scenario_id, kit_code):
+        """
+        Fetch modules that belong to a specific kit with code and description.
+        ✅ Returns formatted "CODE - Description" strings.
+        
+        Args:
+            scenario_id: Scenario ID
+            kit_code: Kit code to filter modules
+        
+        Returns:
+            List of formatted strings: "CODE - Description"
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get modules for this kit (secondary level)
             cur.execute("""
-                SELECT DISTINCT code FROM kit_items
-                WHERE scenario_id=? AND kit=? AND level='secondary'
+                SELECT DISTINCT code 
+                FROM kit_items 
+                WHERE scenario_id=? 
+                  AND kit=?
+                  AND LOWER(level)='secondary'
                 ORDER BY code
             """, (scenario_id, kit_code))
-            return [r[0] for r in cur.fetchall()]
-        except sqlite3.Error:
+            
+            module_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not module_codes:
+                return []
+            
+            # ✅ NEW: Get descriptions and filter by type
+            result = []
+            for module_code in module_codes:
+                desc = get_item_description(module_code)
+                item_type = detect_type(module_code, desc).upper()
+                
+                # Only include if type is MODULE
+                if item_type == "MODULE":
+                    # Format: "CODE - Description"
+                    display = f"{module_code} - {desc}" if desc else module_code
+                    result.append(display)
+            
+            return result
+            
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] fetch_modules_for_kit error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
+
+    
+
     def fetch_all_modules(self, scenario_id):
+        """
+        Fetch all modules for a scenario with code and description.
+        Includes both primary-level (scenario modules) and secondary-level (kit modules).
+        ✅ Returns formatted "CODE - Description" strings.
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # ✅ Updated: Get modules from both primary and secondary levels
             cur.execute("""
-                SELECT DISTINCT code FROM kit_items
-                WHERE scenario_id=? AND level='secondary'
+                SELECT DISTINCT code 
+                FROM kit_items 
+                WHERE scenario_id=? 
+                  AND LOWER(level) IN ('primary', 'secondary')
                 ORDER BY code
             """, (scenario_id,))
-            return [r[0] for r in cur.fetchall()]
-        except sqlite3.Error:
+            
+            module_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not module_codes:
+                return []
+            
+            # ✅ NEW: Get descriptions and filter by type
+            result = []
+            for module_code in module_codes:
+                desc = get_item_description(module_code)
+                item_type = detect_type(module_code, desc).upper()
+                
+                # Only include if type is MODULE
+                if item_type == "MODULE":
+                    # Format: "CODE - Description"
+                    display = f"{module_code} - {desc}" if desc else module_code
+                    result.append(display)
+            
+            return result
+            
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] fetch_all_modules error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def fetch_stock_data_for_kit_number(self, scenario_id, kit_number, kit_code=None):
         conn = connect_db()
         if conn is None: return []
@@ -2350,7 +2516,6 @@ class StockReceiveKit(tk.Frame):
         # Get item details
         desc = get_item_description(code)
         item_type = detect_type(code, desc)
-        # ❌ REMOVED: std_qty = 0  (will lookup from kit_items)
         qty_to_receive = 1 if item_type.upper() in ('KIT', 'MODULE') else 1
         exp_date = ""
     
@@ -2663,6 +2828,29 @@ class StockReceiveKit(tk.Frame):
     def generate_unique_id(self, scenario_id, kit, module, item, std_qty, exp_date, kit_number, module_number):
         return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
     
+    def _extract_code_from_display(self, display_string: str) -> str:
+        """
+        Extract code from 'CODE - Description' format.
+        
+        Args:
+            display_string: String in format "CODE - Description"
+        
+        Returns:
+            Just the CODE part
+        """
+        if not display_string:
+            return ""
+        
+        # Split on " - " and take first part
+        if " - " in display_string:
+            code = display_string.split(" - ", 1)[0].strip()
+            logging.debug(f"[EXTRACT] '{display_string}' -> '{code}'")
+            return code
+        
+        # If no separator, return as-is
+        logging.debug(f"[EXTRACT] No separator in '{display_string}', returning as-is")
+        return display_string.strip()
+
     def lookup_std_qty_from_kit_items(self, scenario_id, kit, module, item):
         """
         Lookup std_qty from kit_items table based on exact context.
@@ -2744,6 +2932,165 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
+    def fetch_module_numbers_for_module_instance(self, scenario_id, module_code, kit_number=None):
+        """
+        Fetch module numbers for a specific module instance.
+        Filters by scenario, module code, and optionally kit number.
+        """
+        if not module_code:
+            logging.debug("[FETCH_MODULE_NUMS] No module_code provided")
+            return []
+        
+        # ✅ Extract code if it has description
+        module_code = self._extract_code_from_display(module_code)
+        
+        conn = connect_db()
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        try:
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "module=?",
+                "module_number IS NOT NULL",
+                "module_number != 'None'",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name, module_code]
+            
+            if kit_number:
+                where_clauses.append("kit_number=?")
+                params.append(kit_number)
+            
+            sql = f"""
+                SELECT DISTINCT module_number 
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY module_number
+            """
+            
+            logging.debug(f"[FETCH_MODULE_NUMS] SQL: {sql}")
+            logging.debug(f"[FETCH_MODULE_NUMS] Params: {params}")
+            
+            cur.execute(sql, params)
+            results = [r['module_number'] for r in cur.fetchall()]
+            
+            logging.debug(f"[FETCH_MODULE_NUMS] Found {len(results)} module numbers: {results}")
+            return results
+            
+        except sqlite3.Error as e:
+            logging.error(f"[FETCH_MODULE_NUMS] Error: {e}")
+            return []
+        finally:
+            cur.close()
+            conn.close()
+
+
+
+    def _extract_code_from_display(self, display_string: str) -> str:
+        """
+        Extract code from 'CODE - Description' format.
+        
+        Args:
+            display_string: String in format "CODE - Description"
+        
+        Returns:
+            Just the CODE part
+        
+        Examples:
+            "KMEDKCHO1-- - Cholera Kit" → "KMEDKCHO1--"
+            "KMEDMCHO01- - Cholera Module 01" → "KMEDMCHO01-"
+            "" → ""
+            "CODEWITHOUTDASH" → "CODEWITHOUTDASH"
+        """
+        if not display_string:
+            return ""
+        
+        # Split on " - " and take first part
+        if " - " in display_string:
+            return display_string.split(" - ", 1)[0].strip()
+        
+        # If no separator, return as-is
+        return display_string.strip()
+
+    def fetch_module_numbers(self, scenario_id: str, kit_code: str = None, module_code: str = None, kit_number: str = None):
+        """
+        Fetch module numbers with available stock (final_qty > 0).
+        
+        Args:
+            scenario_id: Scenario ID
+            kit_code: NOT USED (kept for compatibility)
+            module_code: Module code to filter by
+            kit_number: Kit number to filter by (actual kit instance number)
+        
+        Returns:
+            List of unique module_number values with available stock
+        """
+        logging.debug(f"[FETCH_MODULE_NUMBERS] scenario_id={scenario_id}, kit_number={kit_number}, module_code={module_code}")
+        
+        # ✅ Extract module code if it has description
+        if module_code:
+            module_code = self._extract_code_from_display(module_code)
+        
+        logging.debug(f"[FETCH_MODULE_NUMBERS] After extraction: module_code={module_code}")
+        
+        conn = connect_db()
+        if conn is None:
+            return []
+        
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        try:
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "module_number IS NOT NULL",
+                "module_number != 'None'",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name]
+            
+            # ✅ Filter by kit_number (the actual kit instance)
+            if kit_number:
+                where_clauses.append("kit_number=?")
+                params.append(kit_number)
+                logging.debug(f"[FETCH_MODULE_NUMBERS] Added kit_number filter: {kit_number}")
+            
+            # ✅ Filter by module code
+            if module_code:
+                where_clauses.append("module=?")
+                params.append(module_code)
+                logging.debug(f"[FETCH_MODULE_NUMBERS] Added module filter: {module_code}")
+            
+            sql = f"""
+                SELECT DISTINCT module_number 
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY module_number
+            """
+            
+            logging.debug(f"[FETCH_MODULE_NUMBERS] SQL: {sql}")
+            logging.debug(f"[FETCH_MODULE_NUMBERS] Params: {params}")
+            
+            cur.execute(sql, params)
+            results = [r['module_number'] for r in cur.fetchall()]
+            
+            logging.debug(f"[FETCH_MODULE_NUMBERS] Found {len(results)} module numbers: {results}")
+            return results
+            
+        except sqlite3.Error as e:
+            logging.error(f"[FETCH_MODULE_NUMBERS] Error: {e}")
+            return []
+        finally:
+            cur.close()
+            conn.close()
 
     def ensure_module_number_consistency(self):
         for top_iid in self.tree.get_children():
