@@ -227,6 +227,7 @@ class StockDispatchKit(tk.Frame):
                 return v
         return display
 
+
     #--------------Canonical Movement Type Mapping -----------------
     def _canon_movement_type(self, display_label:  str) -> str:
         """
@@ -293,8 +294,94 @@ class StockDispatchKit(tk.Frame):
     
         # Fallback to canonical if not found
         return canonical_value
+    
 
-
+    #------------Helper to display code- discreption-------#
+    def _extract_code_from_display(self, display_string: str) -> str:
+        """
+        Extract code from "CODE - Description" format.
+        
+        Args:
+            display_string: Either "CODE" or "CODE - Description"
+        
+        Returns:
+            Just the code part, or None if empty/invalid
+        """
+        if not display_string:
+            return None
+        
+        # Remove whitespace
+        display_string = display_string.strip()
+        
+        # Handle "-----" placeholder
+        if display_string == "-----":
+            return None
+        
+        # Check if it contains " - " separator
+        if " - " in display_string:
+            code = display_string.split(" - ", 1)[0].strip()
+            return code if code else None
+        
+        # Already just a code
+        return display_string
+    
+    #-----------------FEFO Helper----------------
+    def _distribute_qty_by_fefo(self, item_rows, required_qty):
+        """
+        Distribute required quantity across multiple rows using FEFO (First Expiry First Out).
+        
+        Args:
+            item_rows: List of dicts with keys: iid, expiry_date, current_stock, etc.
+            required_qty: Total quantity needed (typically std_qty)
+        
+        Returns:
+            Dict mapping iid ��� quantity_to_issue
+        """
+        if not item_rows or required_qty <= 0:
+            return {}
+        
+        # Sort by expiry date (earliest first), then by iid for stability
+        def parse_exp_date(exp_str):
+            """Convert expiry date string to comparable format."""
+            if not exp_str or exp_str == "": 
+                return "9999-12-31"  # Put items without expiry at end
+            try:
+                # Try parsing as YYYY-MM-DD
+                if len(exp_str) == 10 and exp_str[4] == '-': 
+                    return exp_str
+                # Try parsing as DD-Mon-YYYY (e.g., "31-Dec-2025")
+                dt = datetime.strptime(exp_str, "%d-%b-%Y")
+                return dt.strftime("%Y-%m-%d")
+            except Exception:
+                return "9999-12-31"
+        
+        sorted_rows = sorted(item_rows, key=lambda r: (parse_exp_date(r. get('expiry_date', '')), r.get('iid', '')))
+        
+        result = {}
+        remaining = required_qty
+        
+        for row in sorted_rows:
+            iid = row.get('iid')
+            try:
+                available = int(row.get('current_stock', 0))
+            except Exception:
+                available = 0
+            
+            if remaining <= 0:
+                # No more quantity needed
+                result[iid] = 0
+            elif available >= remaining:
+                # This row can fulfill remaining requirement
+                result[iid] = remaining
+                remaining = 0
+            else:
+                # Take all from this row and continue
+                result[iid] = available
+                remaining -= available
+        
+        logging.debug(f"[DISPATCH][FEFO] Distributed {required_qty} qty across {len(item_rows)} rows: {result}")
+        return result
+    
     # ---------------------------------------------------------
     # Index / Parsing / Enrichment
     # ---------------------------------------------------------
@@ -505,33 +592,56 @@ class StockDispatchKit(tk.Frame):
         self.on_mode_changed()
 
     def on_mode_changed(self, event=None):
+        """
+        Called when movement type changes.
+        Enables/disables appropriate selectors based on mode.
+        """
         mode_key = self.current_mode_key()
 
+        # Disable all selectors initially
         for cb in [self.Kit_cb, self.Kit_number_cb, self.module_cb, self.module_number_cb]:
             cb.config(state="disabled")
 
+        # Clear selections (but preserve if same mode category)
         self.Kit_var.set("")
         self.Kit_number_var.set("")
         self.module_var.set("")
         self.module_number_var.set("")
-        self.Kit_number_cb['values'] = []
+        
+        # Clear dropdown values
+        self.Kit_cb['values'] = []
+        self. Kit_number_cb['values'] = []
+        self.module_cb['values'] = []
         self.module_number_cb['values'] = []
 
+        # Clear table
         self.full_items = []
         self.clear_table_only()
 
         if not self.selected_scenario_id:
             return
 
+        # Enable appropriate selectors based on mode
         if mode_key == "issue_standalone":
+            # No kit/module selection needed
             self.populate_standalone_items()
             return
 
         if mode_key in ("dispatch_kit", "issue_items_kit", "issue_module_kit"):
-            self.Kit_cb.config(state="readonly")
+            # Enable kit selector
+            self.Kit_cb. config(state="readonly")
             self.Kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
 
-        if mode_key in ("issue_items_module", "issue_module_kit", "issue_module_scenario"):
+        if mode_key == "issue_module_scenario":
+            # Enable module selector only (no kit)
+            self.module_cb. config(state="readonly")
+            self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
+        
+        if mode_key in ("issue_items_module", "issue_module_kit"):
+            # Enable both kit and module selectors
+            self.Kit_cb.config(state="readonly")
+            self.Kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            
             self.module_cb.config(state="readonly")
             self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
 
@@ -539,18 +649,48 @@ class StockDispatchKit(tk.Frame):
     # Structural Helpers
     # ---------------------------------------------------------
     def fetch_kits(self, scenario_id):
+        """
+        Fetch all kits for a scenario with code and description.
+        Only includes items with type='Kit' (language-independent).
+        
+        Returns:
+            List of formatted strings:  "CODE - Description"
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_kits")
             return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            cur.execute("""
-                SELECT DISTINCT code FROM Kit_items
-                WHERE scenario_id = ? AND level='primary'
-                ORDER BY code
+            # Get distinct kit codes from stock_data
+            cur. execute("""
+                SELECT DISTINCT kit 
+                FROM stock_data 
+                WHERE scenario=? AND kit IS NOT NULL AND kit != ''
+                ORDER BY kit
             """, (scenario_id,))
-            return [r[0] for r in cur.fetchall()]
+            
+            kit_codes = [r['kit'] for r in cur. fetchall()]
+            
+            if not kit_codes:
+                return []
+            
+            # Get descriptions and filter by type
+            result = []
+            for kit_code in kit_codes:
+                desc = get_item_description(kit_code)
+                item_type = detect_type(kit_code, desc).upper()
+                
+                # Only include if type is KIT
+                if item_type == "KIT":
+                    # Format: "CODE - Description"
+                    display = f"{kit_code} - {desc}" if desc else kit_code
+                    result.append(display)
+            
+            return result
+            
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_kits error: {e}")
             return []
@@ -559,18 +699,48 @@ class StockDispatchKit(tk.Frame):
             conn.close()
 
     def fetch_all_modules(self, scenario_id):
+        """
+        Fetch all modules for a scenario with code and description.
+        Only includes items with type='Module' (language-independent).
+        
+        Returns:
+            List of formatted strings: "CODE - Description"
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_all_modules")
             return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get distinct module codes from stock_data
             cur.execute("""
-                SELECT DISTINCT code FROM Kit_items
-                WHERE scenario_id=? AND level='secondary'
-                ORDER BY code
+                SELECT DISTINCT module 
+                FROM stock_data 
+                WHERE scenario=? AND module IS NOT NULL AND module != ''
+                ORDER BY module
             """, (scenario_id,))
-            return [r[0] for r in cur.fetchall()]
+            
+            module_codes = [r['module'] for r in cur.fetchall()]
+            
+            if not module_codes:
+                return []
+            
+            # Get descriptions and filter by type
+            result = []
+            for module_code in module_codes: 
+                desc = get_item_description(module_code)
+                item_type = detect_type(module_code, desc).upper()
+                
+                # Only include if type is MODULE
+                if item_type == "MODULE":
+                    # Format: "CODE - Description"
+                    display = f"{module_code} - {desc}" if desc else module_code
+                    result.append(display)
+            
+            return result
+            
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_all_modules error: {e}")
             return []
@@ -578,176 +748,358 @@ class StockDispatchKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def fetch_available_kit_numbers(self, scenario_id, Kit_code=None):
+    def fetch_available_kit_numbers(self, scenario_id, kit_code=None):
+        """
+        Fetch kit numbers with available stock (final_qty > 0).
+        
+        Args:
+            scenario_id: Scenario ID
+            kit_code: Optional kit code to filter by (extracted from dropdown)
+        
+        Returns:
+            List of kit_number strings
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_available_kit_numbers")
             return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            if Kit_code:
-                cur.execute("""
-                    SELECT DISTINCT Kit_number
-                      FROM stock_data
-                     WHERE Kit_number IS NOT NULL
-                       AND Kit_number != 'None'
-                       AND unique_id LIKE ?
-                       AND unique_id LIKE ?
-                     ORDER BY Kit_number
-                """, (f"{scenario_id}/%", f"{scenario_id}/{Kit_code}/%"))
-            else:
-                cur.execute("""
-                    SELECT DISTINCT Kit_number
-                      FROM stock_data
-                     WHERE Kit_number IS NOT NULL
-                       AND Kit_number != 'None'
-                       AND unique_id LIKE ?
-                     ORDER BY Kit_number
-                """, (f"{scenario_id}/%",))
-            vals = [r[0] for r in cur.fetchall()]
-            return vals
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "kit_number IS NOT NULL",
+                "kit_number != 'None'",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name]
+            
+            # ✅ Filter by kit code if provided
+            if kit_code:
+                where_clauses.append("kit=?")
+                params.append(kit_code)
+                logging.debug(f"[FETCH_KIT_NUMBERS] Filtering by kit_code={kit_code}")
+            
+            sql = f"""
+                SELECT DISTINCT kit_number
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY kit_number
+            """
+            
+            logging.debug(f"[FETCH_KIT_NUMBERS] SQL: {sql}")
+            logging.debug(f"[FETCH_KIT_NUMBERS] Params: {params}")
+            
+            cur.execute(sql, params)
+            results = [r['kit_number'] for r in cur.fetchall()]
+            
+            logging.debug(f"[FETCH_KIT_NUMBERS] Found {len(results)} kit numbers: {results}")
+            return results
+            
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_available_kit_numbers error: {e}")
+            logging.error(f"[FETCH_KIT_NUMBERS] Error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
-    def fetch_module_numbers(self, scenario_id, Kit_code=None, module_code=None):
+    def fetch_module_numbers(self, scenario_id, kit_code=None, module_code=None, kit_number=None):
+        """
+        Fetch module numbers with available stock (final_qty > 0).
+        
+        Args:
+            scenario_id: Scenario ID
+            kit_code: NOT USED (kept for compatibility)
+            module_code: Module code to filter by (extracted from dropdown)
+            kit_number: Kit number to filter by (the actual kit instance)
+        
+        Returns:
+            List of module_number strings
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_module_numbers")
             return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            where = ["module_number IS NOT NULL", "module_number != 'None'", "unique_id LIKE ?"]
-            params = [f"{scenario_id}/%"]
-            if Kit_code:
-                where.append("unique_id LIKE ?")
-                params.append(f"{scenario_id}/{Kit_code}/%")
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "module_number IS NOT NULL",
+                "module_number != 'None'",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name]
+            
+            # ✅ Filter by kit_number (the actual kit instance)
+            if kit_number:
+                where_clauses.append("kit_number=?")
+                params.append(kit_number)
+                logging.debug(f"[FETCH_MODULE_NUMBERS] Filtering by kit_number={kit_number}")
+            
+            # ✅ Filter by module code
             if module_code:
-                where.append("unique_id LIKE ?")
-                params.append(f"{scenario_id}/%/{module_code}/%")
+                where_clauses.append("module=?")
+                params.append(module_code)
+                logging.debug(f"[FETCH_MODULE_NUMBERS] Filtering by module_code={module_code}")
+            
             sql = f"""
                 SELECT DISTINCT module_number
-                  FROM stock_data
-                 WHERE {' AND '.join(where)}
-                 ORDER BY module_number
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY module_number
             """
+            
+            logging.debug(f"[FETCH_MODULE_NUMBERS] SQL: {sql}")
+            logging.debug(f"[FETCH_MODULE_NUMBERS] Params: {params}")
+            
             cur.execute(sql, params)
-            vals = [r[0] for r in cur.fetchall()]
-            return vals
+            results = [r['module_number'] for r in cur.fetchall()]
+            
+            logging.debug(f"[FETCH_MODULE_NUMBERS] Found {len(results)} module numbers: {results}")
+            return results
+            
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_module_numbers error: {e}")
+            logging.error(f"[FETCH_MODULE_NUMBERS] Error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
-
     # ---------------------------------------------------------
     # Stock Fetching
     # ---------------------------------------------------------
     def fetch_stock_data_for_kit_number(self, scenario_id, Kit_number, Kit_code=None):
-        self.ensure_item_index(scenario_id)
+        """
+        Fetch stock data for a specific kit number.
+        
+        Args:
+            scenario_id: Scenario ID
+            Kit_number: The kit instance number (e.g., "CHOL-001")
+            Kit_code: Optional kit code for additional filtering (extracted from dropdown)
+        
+        Returns:
+            List of stock items with final_qty > 0
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_stock_data_for_kit_number")
             return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            cur.execute("""
-                SELECT unique_id, final_qty, exp_date, Kit_number, module_number
-                  FROM stock_data
-                 WHERE Kit_number = ?
-                   AND unique_id LIKE ?
-                   AND final_qty > 0
-            """, (Kit_number, f"{scenario_id}/%"))
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "kit_number=?",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name, Kit_number]
+            
+            # ✅ Optional: filter by kit code
+            if Kit_code:
+                where_clauses.append("kit=?")
+                params.append(Kit_code)
+                logging.debug(f"[FETCH_KIT_STOCK] Additional filter by Kit_code={Kit_code}")
+            
+            sql = f"""
+                SELECT *
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY unique_id
+            """
+            
+            logging.debug(f"[FETCH_KIT_STOCK] SQL: {sql}")
+            logging.debug(f"[FETCH_KIT_STOCK] Params: {params}")
+            
+            cur.execute(sql, params)
             rows = cur.fetchall()
+            
             items = []
-            for r in rows:
-                items.append(self.enrich_stock_row(
-                    scenario_id=scenario_id,
-                    unique_id=r["unique_id"],
-                    final_qty=r["final_qty"],
-                    exp_date=r["exp_date"],
-                    Kit_number=r["Kit_number"],
-                    module_number=r["module_number"]
-                ))
-            self._debug_log_items(f"Kit_number={Kit_number}", items)
+            for row in rows:
+                item = dict(row)
+                # Enrich with additional details
+                enriched = self.enrich_stock_row(
+                    scenario_id,
+                    item['unique_id'],
+                    item['final_qty'],
+                    item.get('exp_date'),
+                    item.get('kit_number'),
+                    item.get('module_number')
+                )
+                items.append(enriched)
+            
+            logging.debug(f"[FETCH_KIT_STOCK] Found {len(items)} items for Kit_number={Kit_number}")
             return items
+            
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_stock_data_for_kit_number error: {e}")
+            logging.error(f"[FETCH_KIT_STOCK] Error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
     def fetch_stock_data_for_module_number(self, scenario_id, module_number, Kit_code=None, module_code=None):
-        self.ensure_item_index(scenario_id)
+        """
+        Fetch stock data for a specific module number.
+        
+        Args:
+            scenario_id: Scenario ID
+            module_number: The module instance number (e.g., "M-001")
+            Kit_code: Optional kit code for filtering (extracted from dropdown)
+            module_code: Optional module code for filtering (extracted from dropdown)
+        
+        Returns:
+            List of stock items with final_qty > 0
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_stock_data_for_module_number")
             return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
-            cur.execute("""
-                SELECT unique_id, final_qty, exp_date, Kit_number, module_number
-                  FROM stock_data
-                 WHERE module_number = ?
-                   AND unique_id LIKE ?
-                   AND final_qty > 0
-            """, (module_number, f"{scenario_id}/%"))
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+            
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "module_number=?",
+                "final_qty > 0"
+            ]
+            params = [str(scenario_id), scenario_name, module_number]
+            
+            # ✅ Optional: filter by kit code
+            if Kit_code:
+                where_clauses.append("kit=?")
+                params.append(Kit_code)
+                logging.debug(f"[FETCH_MODULE_STOCK] Additional filter by Kit_code={Kit_code}")
+            
+            # ✅ Optional: filter by module code
+            if module_code:
+                where_clauses.append("module=?")
+                params.append(module_code)
+                logging.debug(f"[FETCH_MODULE_STOCK] Additional filter by module_code={module_code}")
+            
+            sql = f"""
+                SELECT *
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY unique_id
+            """
+            
+            logging.debug(f"[FETCH_MODULE_STOCK] SQL: {sql}")
+            logging.debug(f"[FETCH_MODULE_STOCK] Params: {params}")
+            
+            cur.execute(sql, params)
             rows = cur.fetchall()
+            
             items = []
-            for r in rows:
-                items.append(self.enrich_stock_row(
-                    scenario_id=scenario_id,
-                    unique_id=r["unique_id"],
-                    final_qty=r["final_qty"],
-                    exp_date=r["exp_date"],
-                    Kit_number=r["Kit_number"],
-                    module_number=r["module_number"]
-                ))
-            self._debug_log_items(f"module_number={module_number}", items)
+            for row in rows:
+                item = dict(row)
+                # Enrich with additional details
+                enriched = self.enrich_stock_row(
+                    scenario_id,
+                    item['unique_id'],
+                    item['final_qty'],
+                    item.get('exp_date'),
+                    item.get('kit_number'),
+                    item.get('module_number')
+                )
+                items.append(enriched)
+            
+            logging.debug(f"[FETCH_MODULE_STOCK] Found {len(items)} items for module_number={module_number}")
             return items
+            
         except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_stock_data_for_module_number error: {e}")
+            logging.error(f"[FETCH_MODULE_STOCK] Error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
     def fetch_standalone_stock_items(self, scenario_id):
-        self.ensure_item_index(scenario_id)
+        """
+        Fetch standalone items (type='Item' at primary level) with available stock.
+        
+        Args:
+            scenario_id: Scenario ID
+        
+        Returns: 
+            List of stock row dicts with enriched data
+        """
         conn = connect_db()
         if conn is None:
-            logging.error("[DISPATCH] DB connection failed fetch_standalone_stock_items")
+            logging.error("[DISPATCH] DB connection failed")
             return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        try:
+        
+        try: 
+            # Get items from stock_data with non-zero stock
             cur.execute("""
-                SELECT unique_id, final_qty, exp_date, Kit_number, module_number
-                  FROM stock_data
-                 WHERE final_qty > 0
-                   AND (Kit_number IS NULL OR Kit_number='None')
-                   AND (module_number IS NULL OR module_number='None')
-                   AND unique_id LIKE ?
-            """, (f"{scenario_id}/%",))
+                SELECT 
+                    unique_id,
+                    code,
+                    scenario,
+                    kit,
+                    module,
+                    kit_number,
+                    module_number,
+                    exp_date,
+                    final_qty
+                FROM stock_data
+                WHERE scenario=? 
+                  AND final_qty > 0
+                  AND code IS NOT NULL
+                ORDER BY code
+            """, (scenario_id,))
+            
             rows = cur.fetchall()
-            items = []
+            
+            if not rows:
+                logging.info(f"[DISPATCH] No stock found for scenario {scenario_id}")
+                return []
+            
+            # Filter to only include primary-level items (type='Item')
+            result = []
             for r in rows:
-                items.append(self.enrich_stock_row(
-                    scenario_id=scenario_id,
-                    unique_id=r["unique_id"],
-                    final_qty=r["final_qty"],
-                    exp_date=r["exp_date"],
-                    Kit_number=r["Kit_number"],
-                    module_number=r["module_number"]
-                ))
-            return items
+                code = r['code']
+                desc = get_item_description(code)
+                item_type = detect_type(code, desc).upper()
+                
+                # Check if it's an item at primary level
+                # Primary level means:  kit=NULL/None AND module=NULL/None
+                is_primary = (not r['kit'] or r['kit'] == '') and (not r['module'] or r['module'] == '')
+                
+                # Only include if type is ITEM and at primary level
+                if item_type == "ITEM" and is_primary:
+                    enriched = self. enrich_stock_row(
+                        scenario_id,
+                        r['unique_id'],
+                        r['final_qty'],
+                        r['exp_date'],
+                        code,
+                        desc,
+                        item_type,
+                        r['kit'],
+                        r['module'],
+                        r['kit_number'],
+                        r['module_number']
+                    )
+                    result.append(enriched)
+            
+            logging.info(f"[DISPATCH] Found {len(result)} standalone items for scenario {scenario_id}")
+            return result
+            
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] fetch_standalone_stock_items error: {e}")
             return []
@@ -804,13 +1156,15 @@ class StockDispatchKit(tk.Frame):
         self.mode_cb.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.mode_cb.bind("<<ComboboxSelected>>", self.on_mode_changed)
 
+        # Kit selector
         self.Kit_var = tk.StringVar()
-        self.Kit_cb = ttk.Combobox(main, textvariable=self.Kit_var, state="disabled", width=40)
+        self.Kit_cb = ttk.Combobox(main, textvariable=self.Kit_var, state="disabled", width=80)  # ✅ Increased width
         tk.Label(main, text=lang.t("dispatch_kit.select_kit", "Select Kit:"), bg="#F0F4F8")\
             .grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.Kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.Kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
 
+        # Kit number selector
         self.Kit_number_var = tk.StringVar()
         self.Kit_number_cb = ttk.Combobox(main, textvariable=self.Kit_number_var, state="disabled", width=20)
         tk.Label(main, text=lang.t("dispatch_kit.select_kit_number", "Select Kit Number:"), bg="#F0F4F8")\
@@ -818,13 +1172,15 @@ class StockDispatchKit(tk.Frame):
         self.Kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.Kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
 
-        self.module_var = tk.StringVar()
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
+        # Module selector
+        self. module_var = tk.StringVar()
+        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=80)  # ✅ Increased width
         tk.Label(main, text=lang.t("dispatch_kit.select_module", "Select Module:"), bg="#F0F4F8")\
             .grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
+        self.module_cb. bind("<<ComboboxSelected>>", self.on_module_selected)
 
+        # Module number selector
         self.module_number_var = tk.StringVar()
         self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, state="disabled", width=20)
         tk.Label(main, text=lang.t("dispatch_kit.select_module_number", "Select Module Number:"), bg="#F0F4F8")\
@@ -1170,40 +1526,95 @@ class StockDispatchKit(tk.Frame):
                 self.tree.item(iid, tags=tuple(tags))
 
     def _derive_items_from_modules(self):
-        module_qty_map = {}
-        for iid in self.tree.get_children():
-            meta = self.row_data.get(iid, {})
+        """
+        Derive item quantities from module quantities using FEFO logic.
+        Groups items by code and distributes quantities starting from earliest expiry.
+        """
+        # Collect module quantities
+        module_quantities = {}
+        for iid in self. tree.get_children():
+            meta = self.row_data. get(iid, {})
             if meta.get("is_header"):
                 continue
             vals = self.tree.item(iid, "values")
-            if vals[2] == "Module":
+            if (vals[2] or "").lower() == "module":
                 raw = vals[8]
                 if raw.startswith("★"):
                     raw = raw[2:].strip()
-                mqty = int(raw) if raw.isdigit() else 0
-                module_qty_map[meta.get("module_number")] = mqty
-
+                module_qty = int(raw) if raw.isdigit() else 0
+                
+                # Key by (kit_number, module_number) for uniqueness
+                key = (meta. get("Kit_number"), meta.get("module_number"))
+                module_quantities[key] = module_qty
+        
+        # Group items by (kit_number, module_number, item_code)
+        item_groups = {}
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
-            if meta.get("row_type") != "Item":
-                continue
-            mnum = meta.get("module_number")
-            if not mnum:
-                continue
-            mod_qty = module_qty_map.get(mnum, 0)
-            std_qty = meta.get("std_qty") or 1
-            desired = std_qty * mod_qty
             vals = list(self.tree.item(iid, "values"))
+            if (vals[2] or "").lower() != "item":
+                continue
+            
+            item_code = vals[0]
+            kit_number = meta.get("Kit_number")
+            module_number = meta.get("module_number")
+            
+            # Get std_qty for this item
+            std_qty = meta.get("std_qty")
+            if std_qty is None:
+                std_qty = 1  # Default
+            
             try:
-                stock = int(vals[5]) if vals[5] else 0
+                current_stock = int(vals[5]) if vals[5] else 0
             except Exception:
-                stock = 0
-            if desired > stock:
-                desired = stock
-            vals[8] = str(desired)
-            self.tree.item(iid, values=vals)
+                current_stock = 0
+            
+            # Group key
+            group_key = (kit_number, module_number, item_code)
+            
+            if group_key not in item_groups:
+                item_groups[group_key] = []
+            
+            item_groups[group_key].append({
+                'iid': iid,
+                'expiry_date': vals[6] or "",
+                'current_stock': current_stock,
+                'std_qty': std_qty
+            })
+        
+        # Apply FEFO distribution for each item group
+        for group_key, item_rows in item_groups.items():
+            kit_number, module_number, item_code = group_key
+            
+            # Get module quantity for this group
+            module_key = (kit_number, module_number)
+            module_qty = module_quantities.get(module_key, 0)
+            
+            if module_qty == 0:
+                # Module qty is 0, set all items to 0
+                for row in item_rows:
+                    vals = list(self.tree.item(row['iid'], "values"))
+                    vals[8] = "0"
+                    self.tree.item(row['iid'], values=vals)
+                continue
+            
+            # Calculate required quantity:  module_qty * std_qty
+            std_qty = item_rows[0]['std_qty']  # All rows should have same std_qty
+            required_qty = module_qty * std_qty
+            
+            # Distribute using FEFO
+            fefo_distribution = self._distribute_qty_by_fefo(item_rows, required_qty)
+            
+            # Apply quantities to tree
+            for row in item_rows:
+                iid = row['iid']
+                qty = fefo_distribution.get(iid, 0)
+                
+                vals = list(self.tree.item(iid, "values"))
+                vals[8] = str(qty)
+                self.tree. item(iid, values=vals)
 
     # ---------------------------------------------------------
     # Out Type Dependents
@@ -1241,70 +1652,185 @@ class StockDispatchKit(tk.Frame):
     # Event Handlers / Loading
     # ---------------------------------------------------------
     def on_kit_selected(self, event=None):
-        Kit_code = (self.Kit_var.get() or "").strip()
-
-        if not Kit_code:
-            self.Kit_number_cb.config(state="disabled")
-            self.Kit_number_cb['values'] = []
-            self.Kit_number_var.set("")
-            return
-
-        self.Kit_number_cb.config(state="readonly")
-        self.Kit_number_cb['values'] = self.fetch_available_kit_numbers(
-            self.selected_scenario_id,
-            Kit_code
-        )
+        """Handle kit selection - update Kit_number dropdown with filtered values."""
+        mode_key = self.current_mode_key()
+        
+        # ✅ Extract code from dropdown display
+        Kit_display = self.Kit_var.get()
+        Kit_code = self._extract_code_from_display(Kit_display) if Kit_display else None
+        
+        logging.debug(f"[KIT_SELECTED] Display: '{Kit_display}' -> Code: '{Kit_code}'")
+        
+        # Reset dependent dropdowns
         self.Kit_number_var.set("")
+        self.module_var.set("")
+        self.module_number_var.set("")
+        
+        # Clear table
+        self.clear_table_only()
+        
+        # Update Kit_number dropdown based on mode
+        if mode_key in ["dispatch_kit", "issue_module_kit", "issue_items_kit", "issue_items_module"]:
+            if Kit_code:
+                # ✅ Fetch kit numbers filtered by kit code
+                Kit_numbers = self.fetch_available_kit_numbers(self.selected_scenario_id, Kit_code)
+                self.Kit_number_cb['values'] = Kit_numbers
+                self.Kit_number_cb.config(state="readonly" if Kit_numbers else "disabled")
+                logging.debug(f"[KIT_SELECTED] Kit numbers available: {Kit_numbers}")
+            else:
+                self.Kit_number_cb['values'] = []
+                self.Kit_number_cb.config(state="disabled")
+        
+        # Update module dropdown for issue_items_module mode
+        if mode_key == "issue_items_module":
+            if Kit_code:
+                # Fetch modules for this kit
+                modules = self.fetch_all_modules(self.selected_scenario_id)
+                self.module_cb['values'] = modules
+                self.module_cb.config(state="readonly")
+            else:
+                self.module_cb['values'] = []
+                self.module_cb.config(state="disabled")
+            
+            # Module number starts disabled until module selected
+            self.module_number_cb['values'] = []
+            self.module_number_cb.config(state="disabled")
 
+            
     def on_kit_number_selected(self, event=None):
-        Kit_number = (self.Kit_number_var.get() or "").strip()
+        """Handle kit number selection - load stock data or update module numbers."""
+        mode_key = self.current_mode_key()
+        Kit_number = self.Kit_number_var.get().strip() if self.Kit_number_var.get() else None
+        
+        # ✅ Extract kit code from dropdown
+        Kit_display = self.Kit_var.get()
+        Kit_code = self._extract_code_from_display(Kit_display) if Kit_display else None
+        
+        logging.debug(f"[KIT_NUMBER_SELECTED] Kit_number={Kit_number}, Kit_code={Kit_code}, mode={mode_key}")
+        
         if not Kit_number:
             self.clear_table_only()
-            self.full_items = []
             return
-        Kit_code = self.Kit_var.get() or None
-        items = self.fetch_stock_data_for_kit_number(self.selected_scenario_id, Kit_number, Kit_code)
-        self.full_items = items[:]
-        self.populate_rows(self.full_items,
-                           lang.t("dispatch_kit.loaded_rows_kit", "Loaded {n} stock rows for Kit number {k}")
-                           .format(n=len(self.full_items), k=Kit_number))
+        
+        # For issue_items_module mode, update module number dropdown
+        if mode_key == "issue_items_module":
+            # ✅ Extract module code from dropdown
+            module_display = self.module_var.get()
+            module_code = self._extract_code_from_display(module_display) if module_display else None
+            
+            if module_code and Kit_number:
+                # ✅ Fetch module numbers filtered by Kit_number AND module_code
+                module_numbers = self.fetch_module_numbers(
+                    self.selected_scenario_id,
+                    kit_code=None,  # Not used
+                    module_code=module_code,
+                    kit_number=Kit_number
+                )
+                self.module_number_cb['values'] = module_numbers
+                self.module_number_cb.config(state="readonly" if module_numbers else "disabled")
+                logging.debug(f"[KIT_NUMBER_SELECTED] Module numbers available: {module_numbers}")
+            else:
+                self.module_number_cb['values'] = []
+                self.module_number_cb.config(state="disabled")
+            return
+        
+        # For other modes, load stock data
+        if mode_key in ["dispatch_kit", "issue_module_kit", "issue_items_kit"]:
+            if Kit_code and Kit_number:
+                items = self.fetch_stock_data_for_kit_number(
+                    self.selected_scenario_id,
+                    Kit_number,
+                    Kit_code
+                )
+                self.populate_rows(
+                    items,
+                    lang.t(
+                        "dispatch_kit.loaded_kit_stock",
+                        "Loaded {count} items for kit {Kit_number}",
+                        count=len(items),
+                        Kit_number=Kit_number
+                    )
+                )
+            else:
+                self.clear_table_only()
 
     def on_module_selected(self, event=None):
-        module_code = (self.module_var.get() or "").strip()
-        Kit_code = (self.Kit_var.get() or "").strip() or None
+        """Handle module selection - update module_number dropdown."""
+        mode_key = self.current_mode_key()
+        
+        # ✅ Extract codes from dropdowns
+        module_display = self.module_var.get()
+        module_code = self._extract_code_from_display(module_display) if module_display else None
+        
+        Kit_display = self.Kit_var.get()
+        Kit_code = self._extract_code_from_display(Kit_display) if Kit_display else None
+        
+        Kit_number = self.Kit_number_var.get().strip() if self.Kit_number_var.get() else None
+        
+        logging.debug(f"[MODULE_SELECTED] module_code={module_code}, Kit_code={Kit_code}, Kit_number={Kit_number}")
+        
+        # Reset module number
+        self.module_number_var.set("")
+        
+        if mode_key == "issue_items_module":
+            if module_code and Kit_number:
+                # ✅ Fetch module numbers filtered by Kit_number AND module_code
+                module_numbers = self.fetch_module_numbers(
+                    self.selected_scenario_id,
+                    kit_code=None,  # Not used
+                    module_code=module_code,
+                    kit_number=Kit_number
+                )
+                self.module_number_cb['values'] = module_numbers
+                self.module_number_cb.config(state="readonly" if module_numbers else "disabled")
+                logging.debug(f"[MODULE_SELECTED] Module numbers available: {module_numbers}")
+            else:
+                self.module_number_cb['values'] = []
+                self.module_number_cb.config(state="disabled")
+        
+        # Clear table until module number is selected
+        self.clear_table_only()
 
-        if not module_code:
-            self.module_number_cb.config(state="disabled")
-            self.module_number_cb['values'] = []
-            self.module_number_var.set("")
+
+    def on_module_number_selected(self, event=None):
+        """Handle module number selection - load stock data."""
+        mode_key = self.current_mode_key()
+        module_number = self.module_number_var.get().strip() if self.module_number_var.get() else None
+        
+        if mode_key != "issue_items_module":
+            self.clear_table_only()
             return
-
-        self.module_number_cb.config(state="readonly")
-        self.module_number_cb['values'] = self.fetch_module_numbers(
+        
+        if not module_number:
+            self.clear_table_only()
+            return
+        
+        # ✅ Extract codes from dropdowns
+        Kit_display = self.Kit_var.get()
+        Kit_code = self._extract_code_from_display(Kit_display) if Kit_display else None
+        
+        module_display = self.module_var.get()
+        module_code = self._extract_code_from_display(module_display) if module_display else None
+        
+        logging.debug(f"[MODULE_NUMBER_SELECTED] module_number={module_number}, Kit_code={Kit_code}, module_code={module_code}")
+        
+        # Load stock data
+        items = self.fetch_stock_data_for_module_number(
             self.selected_scenario_id,
+            module_number,
             Kit_code,
             module_code
         )
-        self.module_number_var.set("")
-
-    def on_module_number_selected(self, event=None):
-        module_number = (self.module_number_var.get() or "").strip()
-        mode_key = self.current_mode_key()
-        if mode_key not in ("issue_items_module", "issue_module_scenario", "issue_module_kit"):
-            return
-        if not module_number:
-            self.clear_table_only()
-            self.full_items = []
-            return
-        Kit_code = self.Kit_var.get() or None
-        module_code = self.module_var.get() or None
-        items = self.fetch_stock_data_for_module_number(
-            self.selected_scenario_id, module_number, Kit_code, module_code
+        
+        self.populate_rows(
+            items,
+            lang.t(
+                "dispatch_kit.loaded_module_stock",
+                "Loaded {count} items for module {module_number}",
+                count=len(items),
+                module_number=module_number
+            )
         )
-        self.full_items = items[:]
-        self.populate_rows(self.full_items,
-                           lang.t("dispatch_kit.loaded_rows_module", "Loaded {n} stock rows for module number {m}")
-                           .format(n=len(self.full_items), m=module_number))
 
     def populate_standalone_items(self):
         if not self.selected_scenario_id:
@@ -1324,11 +1850,53 @@ class StockDispatchKit(tk.Frame):
         self.row_data.clear()
 
     def populate_rows(self, items=None, status_msg=""):
+        """
+        Populate tree with items, applying FEFO sorting and quantity initialization.
+        Items are sorted by kit_number, module_number, code, then expiry_date (earliest first).
+        """
         if items is None:
             items = self.full_items
-        display_rows = self._build_with_headers(items)
+        else:
+            self.full_items = items[:]
+        
+        # ✅ FEFO Sorting: Sort by kit/module/code, then by expiry date (earliest first)
+        def sort_key_with_expiry(item):
+            """Sort items with FEFO logic - earliest expiry first."""
+            kit_num = item.get("Kit_number") or ""
+            mod_num = item.get("module_number") or ""
+            code = item.get("code") or ""
+            exp_date = item. get("expiry_date") or ""
+            
+            # Parse expiry to sortable format (YYYY-MM-DD)
+            sortable_exp = "9999-12-31"  # Default for items without expiry
+            
+            if exp_date: 
+                try:
+                    # Check if already in ISO format (YYYY-MM-DD)
+                    if len(exp_date) == 10 and exp_date[4] == '-' and exp_date[7] == '-':
+                        sortable_exp = exp_date
+                    else:
+                        # Try parsing DD-Mon-YYYY format
+                        from datetime import datetime
+                        dt = datetime.strptime(exp_date, "%d-%b-%Y")
+                        sortable_exp = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    # If parsing fails, keep default
+                    pass
+            
+            return (kit_num, mod_num, code, sortable_exp)
+        
+        # Sort items using FEFO logic
+        sorted_items = sorted(items, key=sort_key_with_expiry)
+        
+        # Build display rows with headers (preserves sorting)
+        display_rows = self._build_with_headers(sorted_items)
+        
+        # Clear existing tree
         self.clear_table_only()
+        self.row_data.clear()
 
+        # Populate tree
         for row in display_rows:
             if row.get("is_header"):
                 values = (
@@ -1341,50 +1909,48 @@ class StockDispatchKit(tk.Frame):
                 self.row_data[iid] = {
                     "is_header": True,
                     "row_type": row["type"],
-                    "Kit_number": row["Kit_number"],
-                    "module_number": row["module_number"]
+                    "Kit_number":  row["Kit_number"],
+                    "module_number": row["module_number"],
+                    "header_level": row.get("header_level")
                 }
-            else:
+            else: 
                 values = (
                     row["code"], row["description"], row["type"],
                     row["Kit"], row["module"],
                     row["current_stock"], row["expiry_date"], row["batch_no"], "",
                     row["unique_id"]
                 )
-                iid = self.tree.insert("", "end", values=values)
-                self.row_data[iid] = {
+                iid = self. tree.insert("", "end", values=values)
+                self. row_data[iid] = {
                     "unique_id": row["unique_id"],
                     "Kit_number": row["Kit_number"],
                     "module_number": row["module_number"],
                     "current_stock": row["current_stock"],
                     "is_header": False,
                     "row_type": row["type"],
-                    "std_qty": row.get("std_qty")
+                    "std_qty": row.get("std_qty"),
+                    "treecode": row.get("treecode")
                 }
 
-        # Tags
-        self.tree.tag_configure("Kit_header", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("module_header", font=("Helvetica", 10, "bold"))
+        # Configure tags for styling
+        self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
+        self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("Kit_module_highlight", background="#FFF9C4")
         self.tree.tag_configure("editable_row", foreground="#000000")
         self.tree.tag_configure("non_editable", foreground="#666666")
+        self.tree.tag_configure("editable_cell", background="#FFF9C4")
 
+        # Initialize quantities with FEFO logic and apply highlighting
         self.initialize_quantities_and_highlight()
 
-        if status_msg:
+        # Update status bar
+        if status_msg: 
             self.status_var.set(status_msg)
         else:
             self.status_var.set(
                 lang.t("dispatch_kit.showing_rows",
                        "Showing {n} rows (incl. headers)").format(n=len(display_rows))
             )
-
-        # Header colors (optional)
-        self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("editable_cell", background="#FFF9C4")
-
-        self.initialize_quantities_and_highlight()
 
     def get_selected_unique_ids(self):
         uids = []
