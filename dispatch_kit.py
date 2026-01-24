@@ -300,28 +300,36 @@ class StockDispatchKit(tk.Frame):
     def _extract_code_from_display(self, display_string: str) -> str:
         """
         Extract code from "CODE - Description" format.
-        
+        Handles prefixes like "● CODE - Description" or "[S] CODE - Description"
+    
         Args:
-            display_string: Either "CODE" or "CODE - Description"
-        
+            display_string: Either "CODE" or "CODE - Description" or "● CODE - Description"
+    
         Returns:
             Just the code part, or None if empty/invalid
         """
         if not display_string:
             return None
-        
+    
         # Remove whitespace
         display_string = display_string.strip()
-        
+    
         # Handle "-----" placeholder
         if display_string == "-----":
             return None
-        
+    
+        # ✅ Strip visual indicators/prefixes (excluding ⭐ which is for editable cells)
+        prefixes = ["●", "■", "◆", "►", "[S]", "[Primary]", "[Standalone]"]
+        for prefix in prefixes:
+            if display_string.startswith(prefix):
+                display_string = display_string[len(prefix):].strip()
+                break
+    
         # Check if it contains " - " separator
         if " - " in display_string:
             code = display_string.split(" - ", 1)[0].strip()
             return code if code else None
-        
+    
         # Already just a code
         return display_string
     
@@ -1103,11 +1111,11 @@ class StockDispatchKit(tk.Frame):
     def fetch_all_modules_combined(self, scenario_id):
         """
         Fetch ALL modules for a scenario:
-        - Primary standalone modules (no parent kit)
+        - Primary standalone modules (marked with ●)
         - Secondary modules (inside kits)
     
         Returns:
-            List of formatted strings: "CODE - Description"
+            List of formatted strings: "CODE - Description" or "● CODE - Description"
         """
         conn = connect_db()
         if conn is None:
@@ -1117,28 +1125,48 @@ class StockDispatchKit(tk.Frame):
         cur = conn.cursor()
     
         try:
-            # Get all modules (primary and secondary)
+            # ✅ Get all modules with level information
             cur.execute("""
-                SELECT DISTINCT code
+                SELECT DISTINCT code, level, kit
                 FROM kit_items
                 WHERE scenario_id=? 
-                AND module IS NOT NULL 
-                AND module != ''
-                AND module != 'None'
-                AND code IS NOT NULL 
-                AND code != ''
-                ORDER BY code
+                  AND module IS NOT NULL 
+                  AND module != ''
+                  AND module != 'None'
+                  AND code IS NOT NULL 
+                  AND code != ''
+                ORDER BY 
+                  CASE 
+                    WHEN level='primary' AND (kit IS NULL OR kit='' OR kit='None') THEN 0
+                    ELSE 1
+                  END,
+                code
             """, (scenario_id,))
         
-            module_codes = [r['code'] for r in cur.fetchall()]
+            rows = cur.fetchall()
         
             result = []
-            for module_code in module_codes:
+            for row in rows:
+                module_code = row['code']
+                level = row['level']
+                kit = row['kit']
+            
                 desc = get_item_description(module_code)
                 item_type = detect_type(module_code, desc).upper()
             
                 if item_type == "MODULE":
-                    display = f"{module_code} - {desc}" if desc else module_code
+                    # ✅ Check if it's a standalone primary module
+                    is_standalone = (
+                        level == 'primary' and 
+                        (kit is None or kit == '' or kit == 'None')
+                    )
+                
+                    # ✅ Add bullet for standalone modules
+                    if is_standalone:
+                        display = f"● {module_code} - {desc}" if desc else f"● {module_code}"
+                    else:
+                        display = f"{module_code} - {desc}" if desc else module_code
+                
                     result.append(display)
         
             logging.debug(f"[FETCH_ALL_MODULES_COMBINED] Found {len(result)} modules")
