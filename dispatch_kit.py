@@ -431,7 +431,7 @@ class StockDispatchKit(tk.Frame):
                 self._item_index_cache["triple_map"][(Kit or None,
                                                       module or None,
                                                       item or None)] = entry
-            logging.info(f"[DISPATCH] item_index built: {len(self._item_index_cache['flat_map'])} tokens")
+            logging.debug(f"[DISPATCH] item_index built:{len(self._item_index_cache['flat_map'])} tokens")
         except sqlite3.Error as e:
             logging.error(f"[DISPATCH] ensure_item_index error: {e}")
         finally:
@@ -2232,24 +2232,6 @@ class StockDispatchKit(tk.Frame):
             logging.error(f"[INIT_QTY] Refresh failed: {e}")
         
         logging.info(f"[INIT_QTY] Quantities initialized, {stars_added} stars added to editable cells")
-
-    def _force_tree_redraw(self):
-        """Helper to force tree redraw - called with delay."""
-        try:
-            if self.tree and self.tree.winfo_exists():
-                visible = self.tree.get_children()
-                if visible:
-                    current_selection = self.tree.selection()
-                    self.tree.selection_set(visible[0])
-                    self.tree.update()
-                    if current_selection:
-                        self.tree.selection_set(current_selection)
-                    else:
-                        self.tree.selection_remove(visible[0])
-                    self.tree.update()
-                logging.debug("[INIT_QTY] Forced tree redraw completed")
-        except Exception as e:
-            logging.debug(f"[INIT_QTY] Force redraw failed (non-critical): {e}")
 
     def _force_tree_redraw(self):
         """Helper to force tree redraw - called with delay."""
