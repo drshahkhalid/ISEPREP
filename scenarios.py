@@ -7,20 +7,27 @@ from language_manager import lang as lang_lang   # (kept original alias style)
 from popup_utils import custom_popup, custom_askyesno
 import time
 
-# -----------------------------------------------------------------------------------
-# Configuration / Constants
-# -----------------------------------------------------------------------------------
-BG_MAIN          = "#F0F4F8"
-BG_PANEL         = "#FFFFFF"
-COLOR_PRIMARY    = "#2C3E50"
-COLOR_ACCENT     = "#2563EB"
-COLOR_BORDER     = "#D0D7DE"
-COLOR_ROW_ALT    = "#F7FAFC"
-COLOR_ROW_NORM   = "#FFFFFF"
-BTN_BG_ADD       = "#27AE60"
-BTN_BG_EDIT      = "#2980B9"
-BTN_BG_DELETE    = "#C0392B"
-BTN_BG_DISABLED  = "#95A5A6"
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
+
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN          = "#F0F4F8"
+# BG_PANEL         = "#FFFFFF"
+# COLOR_PRIMARY    = "#2C3E50"
+# COLOR_ACCENT     = "#2563EB"
+# COLOR_BORDER     = "#D0D7DE"
+# COLOR_ROW_ALT    = "#F7FAFC"
+# COLOR_ROW_NORM   = "#FFFFFF"
+# BTN_BG_ADD       = "#27AE60"
+# BTN_BG_EDIT      = "#2980B9"
+# BTN_BG_DELETE    = "#C0392B"
+# BTN_BG_DISABLED  = "#95A5A6"
+
 MAX_SCENARIOS    = 15
 SIMILARITY_THRESHOLD = 0.70  # 70%
 
@@ -77,7 +84,7 @@ class Scenarios(tk.Frame):
         (Also covers canonical names 'manager' / 'supervisor')
     """
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = getattr(app, "role", "user") or "user"
         self.pack(fill="both", expand=True)
@@ -93,56 +100,54 @@ class Scenarios(tk.Frame):
         return r not in RESTRICTED_ROLES
 
     # --------------------------------------------------------------------------------
-    # Styles
+    # Styles (UPDATED: Removed theme_use, using AppTheme)
     # --------------------------------------------------------------------------------
     def _configure_styles(self):
+        # Global theme already applied by login_gui
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        # REMOVED: style.theme_use("clam") - already applied globally
 
         style.configure(
             "Sc.Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            bordercolor=COLOR_BORDER,
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat",
-            font=("Helvetica", 10)
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL)  # UPDATED: Use AppTheme
         )
         style.map("Sc.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
 
         style.configure(
             "Sc.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat"
         )
 
         style.configure(
             "Sc.TButton",
-            font=("Helvetica", 10, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
             padding=6
         )
-        style.configure("Sc.TEntry", font=("Helvetica", 10))
-        style.configure("Sc.TCombobox", font=("Helvetica", 10))
+        style.configure("Sc.TEntry", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
+        style.configure("Sc.TCombobox", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
 
     # --------------------------------------------------------------------------------
-    # UI Build
+    # UI Build (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------------------------------
     def _build_ui(self):
         # Title
         tk.Label(
             self,
             text=lang_lang.t("scenarios.title", "Manage Scenarios"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", pady=(8, 4), padx=12)
@@ -152,15 +157,15 @@ class Scenarios(tk.Frame):
         tk.Label(
             self,
             textvariable=self.last_updated_var,
-            font=("Helvetica", 10, "italic"),
-            bg=BG_MAIN,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "italic"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
             fg="#7F8C8D",
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(0, 8))
 
         # Table frame with border
-        table_outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        table_outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         table_outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         columns = (
@@ -202,35 +207,38 @@ class Scenarios(tk.Frame):
         sb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=sb.set)
 
-        # Buttons
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        # Buttons (UPDATED: All button colors use AppTheme)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
 
         can_modify = self._can_modify()
 
         self.btn_add = tk.Button(
             btn_frame, text=lang_lang.t("scenarios.add", "Add Scenario"),
-            bg=BTN_BG_ADD if can_modify else BTN_BG_DISABLED,
-            fg="#FFFFFF", relief="flat",
-            activebackground="#1E874B" if can_modify else BTN_BG_DISABLED,
+            bg=AppTheme.BTN_SUCCESS if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+            relief="flat",
+            activebackground="#1E874B" if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
             command=(self.add_scenario if can_modify else self._denied_popup)
         )
         self.btn_add.pack(side="left", padx=4)
 
         self.btn_edit = tk.Button(
             btn_frame, text=lang_lang.t("scenarios.edit", "Edit Scenario"),
-            bg=BTN_BG_EDIT if can_modify else BTN_BG_DISABLED,
-            fg="#FFFFFF", relief="flat",
-            activebackground="#1F5D82" if can_modify else BTN_BG_DISABLED,
+            bg=AppTheme.BTN_WARNING if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+            relief="flat",
+            activebackground="#1F5D82" if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
             command=(self.edit_scenario if can_modify else self._denied_popup)
         )
         self.btn_edit.pack(side="left", padx=4)
 
         self.btn_delete = tk.Button(
             btn_frame, text=lang_lang.t("scenarios.delete", "Delete Scenario"),
-            bg=BTN_BG_DELETE if can_modify else BTN_BG_DISABLED,
-            fg="#FFFFFF", relief="flat",
-            activebackground="#962D22" if can_modify else BTN_BG_DISABLED,
+            bg=AppTheme.BTN_DANGER if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+            relief="flat",
+            activebackground="#962D22" if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
             command=(self.delete_scenario if can_modify else self._denied_popup)
         )
         self.btn_delete.pack(side="left", padx=4)
@@ -239,8 +247,8 @@ class Scenarios(tk.Frame):
         tk.Label(
             self,
             text=lang_lang.t("scenarios.limit_note", "Note: Maximum 15 active scenarios allowed."),
-            font=("Helvetica", 9, "italic"),
-            bg=BG_MAIN,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_SMALL, "italic"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
             fg="#7F8C8D",
             anchor="w",
             justify="left"
@@ -252,8 +260,8 @@ class Scenarios(tk.Frame):
                 self,
                 text=lang_lang.t("scenarios.read_only_notice",
                                  "Read-only: Your role is not permitted to modify scenarios."),
-                font=("Helvetica", 9, "italic"),
-                bg=BG_MAIN,
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_SMALL, "italic"),  # UPDATED: Use AppTheme
+                bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
                 fg="#A855F7",
                 anchor="w",
                 justify="left"
@@ -292,7 +300,7 @@ class Scenarios(tk.Frame):
             return ts
 
     # --------------------------------------------------------------------------------
-    # Data Loading
+    # Data Loading (UPDATED: Row colors use AppTheme)
     # --------------------------------------------------------------------------------
     def load_data(self):
         for row in self.tree.get_children():
@@ -328,8 +336,8 @@ class Scenarios(tk.Frame):
                 tag = "alt" if (len(rows) + i) % 2 else "norm"
                 self.tree.insert("", "end", values=("", "", "", "", "", ""), tags=(tag,))
 
-            self.tree.tag_configure("norm", background=COLOR_ROW_NORM)
-            self.tree.tag_configure("alt", background=COLOR_ROW_ALT)
+            self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+            self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
 
             last_ts = max([row["created_at"] for row in rows if row["created_at"]]) if rows else None
             last_local = self._utc_to_local_display(last_ts) if last_ts else "N/A"
@@ -476,7 +484,7 @@ class Scenarios(tk.Frame):
         return similar
 
     # --------------------------------------------------------------------------------
-    # Form (Add/Edit)
+    # Form (Add/Edit) (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------------------------------
     def _open_form(self, edit=False, scenario_data=None):
         if not self._can_modify():
@@ -488,16 +496,19 @@ class Scenarios(tk.Frame):
             lang_lang.t("scenarios.edit", "Edit Scenario") if edit
             else lang_lang.t("scenarios.add", "Add Scenario")
         )
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("430x520")
         form.transient(self)
         form.grab_set()
 
         def label(parent, text):
-            return tk.Label(parent, text=text, bg=BG_MAIN, fg=COLOR_PRIMARY,
-                            font=("Helvetica", 10), anchor="w", justify="left")
+            return tk.Label(parent, text=text, 
+                          bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                          fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                          font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                          anchor="w", justify="left")
 
-        frame = tk.Frame(form, bg=BG_MAIN)
+        frame = tk.Frame(form, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         frame.pack(fill="both", expand=True, padx=16, pady=16)
 
         # Name

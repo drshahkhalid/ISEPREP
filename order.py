@@ -44,19 +44,30 @@ from manage_items import get_item_description, detect_type
 from language_manager import lang
 from popup_utils import custom_popup
 
-# ---------- Theme ----------
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-BTN_EXPORT     = "#2980B9"
-BTN_REFRESH    = "#2563EB"
-BTN_CLEAR      = "#7F8C8D"
-BTN_TOGGLE     = "#8E44AD"
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
 
-KIT_FILL_COLOR    = "228B22"
-MODULE_FILL_COLOR = "ADD8E6"
+# ============================================================
+# REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# BTN_EXPORT     = "#2980B9"
+# BTN_REFRESH    = "#2563EB"
+# BTN_CLEAR      = "#7F8C8D"
+# BTN_TOGGLE     = "#8E44AD"
+
+# ============================================================
+# KEPT VISUALIZATION-SPECIFIC COLORS (Excel fill specific)
+# ============================================================
+KIT_FILL_COLOR    = "228B22"    # Excel fill color (no #)
+MODULE_FILL_COLOR = "ADD8E6"    # Excel fill color (no #)
 
 LOAN_OUT_TYPES = {"Loan","Return of Borrowing"}
 LOAN_IN_TYPES  = {"In Borrowing","In Return of Loan"}
@@ -357,7 +368,7 @@ class OrderData:
         except:
             return u
 
-# ---------- UI ----------
+# ---------- UI (UPDATED: All color references use AppTheme) ----------
 class OrderNeeds(tk.Frame):
     SIMPLE_COLS = ["code","description","standard_qty","current_stock",
                    "qty_needed","qty_to_order_rounded","amount","weight_kg","volume_m3"]
@@ -371,7 +382,7 @@ class OrderNeeds(tk.Frame):
     EDITABLE_COLS = {"back_orders","planned_dons_give","dons_receive","qty_to_order","remarks"}
 
     def __init__(self, parent, app, *args, **kwargs):
-        super().__init__(parent, bg=BG_MAIN, *args, **kwargs)
+        super().__init__(parent, bg=AppTheme.BG_MAIN, *args, **kwargs)  # UPDATED: Use AppTheme
         self.app = app
         self.rows=[]
         self.simple_mode=False
@@ -398,104 +409,129 @@ class OrderNeeds(tk.Frame):
         self.populate_dropdowns()
         self.refresh()
 
-    # ----- UI Build -----
+    # ----- UI Build (UPDATED: All color references use AppTheme) -----
     def _build_ui(self):
-        header=tk.Frame(self,bg=BG_MAIN)
+        header=tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         header.pack(fill="x",padx=12,pady=(12,6))
         tk.Label(header,text=lang.t("menu.reports.order_needs","Order / Needs"),
-                 font=("Helvetica",20,"bold"),bg=BG_MAIN,fg=COLOR_PRIMARY)\
-            .pack(side="left")
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY)\
+            .pack(side="left")  # UPDATED: Use AppTheme
         self.toggle_btn=tk.Button(header,text=lang.t("order_needs.detailed","Detailed"),
-                                  bg=BTN_TOGGLE,fg="#FFFFFF",relief="flat",
+                                  bg=AppTheme.BTN_TOGGLE,  # UPDATED: Use AppTheme
+                                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                                  relief="flat",
                                   padx=14,pady=6,command=self.toggle_mode)
         self.toggle_btn.pack(side="right",padx=(6,0))
         tk.Button(header,text=lang.t("generic.export","Export"),
-                  bg=BTN_EXPORT,fg="#FFFFFF",relief="flat",
+                  bg=AppTheme.BTN_EXPORT,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14,pady=6,command=self.export_excel)\
             .pack(side="right",padx=(6,0))
         tk.Button(header,text=lang.t("generic.clear","Clear"),
-                  bg=BTN_CLEAR,fg="#FFFFFF",relief="flat",
+                  bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14,pady=6,command=self.clear_all)\
             .pack(side="right",padx=(6,0))
         tk.Button(header,text=lang.t("generic.refresh","Refresh"),
-                  bg=BTN_REFRESH,fg="#FFFFFF",relief="flat",
+                  bg=AppTheme.BTN_REFRESH,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14,pady=6,command=self.refresh)\
             .pack(side="right",padx=(6,0))
 
         # Filters
-        filt=tk.Frame(self,bg=BG_MAIN); filt.pack(fill="x",padx=12,pady=(0,6))
-        r1=tk.Frame(filt,bg=BG_MAIN); r1.pack(fill="x",pady=2)
-        tk.Label(r1,text=lang.t("generic.kit_number","Kit Number"),bg=BG_MAIN).grid(row=0,column=0,sticky="w",padx=(0,4))
+        filt=tk.Frame(self, bg=AppTheme.BG_MAIN); filt.pack(fill="x",padx=12,pady=(0,6))  # UPDATED: Use AppTheme
+        r1=tk.Frame(filt, bg=AppTheme.BG_MAIN); r1.pack(fill="x",pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r1,text=lang.t("generic.kit_number","Kit Number"),bg=AppTheme.BG_MAIN).grid(row=0,column=0,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.kit_cb=ttk.Combobox(r1,textvariable=self.kit_var,state="readonly",width=18)
         self.kit_cb.grid(row=0,column=1,padx=(0,12))
         self.kit_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
-        tk.Label(r1,text=lang.t("generic.module_number","Module Number"),bg=BG_MAIN).grid(row=0,column=2,sticky="w",padx=(0,4))
+        tk.Label(r1,text=lang.t("generic.module_number","Module Number"),bg=AppTheme.BG_MAIN).grid(row=0,column=2,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.module_cb=ttk.Combobox(r1,textvariable=self.module_var,state="readonly",width=18)
         self.module_cb.grid(row=0,column=3,padx=(0,12))
         self.module_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
-        tk.Label(r1,text=lang.t("generic.type","Type"),bg=BG_MAIN).grid(row=0,column=4,sticky="w",padx=(0,4))
+        tk.Label(r1,text=lang.t("generic.type","Type"),bg=AppTheme.BG_MAIN).grid(row=0,column=4,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.type_cb=ttk.Combobox(r1,textvariable=self.type_var,state="readonly",width=12,
                                   values=["All","Kit","Module","Item"])
         self.type_cb.grid(row=0,column=5,padx=(0,12))
         self.type_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
-        tk.Label(r1,text=lang.t("order_needs.item_search","Item Search"),bg=BG_MAIN).grid(row=0,column=6,sticky="w",padx=(0,4))
+        tk.Label(r1,text=lang.t("order_needs.item_search","Item Search"),bg=AppTheme.BG_MAIN).grid(row=0,column=6,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.item_entry=tk.Entry(r1,textvariable=self.item_search_var,width=20)
         self.item_entry.grid(row=0,column=7,padx=(0,12))
         self.item_entry.bind("<Return>", lambda e: self.refresh())
         self.item_entry.bind("<Escape>", lambda e: self._clear_field(self.item_search_var))
 
         # Parameters
-        r2=tk.Frame(filt,bg=BG_MAIN); r2.pack(fill="x",pady=2)
-        tk.Label(r2,text=lang.t("order_needs.lead_time","Lead Time (months)"),bg=BG_MAIN).grid(row=0,column=0,sticky="w",padx=(0,4))
+        r2=tk.Frame(filt, bg=AppTheme.BG_MAIN); r2.pack(fill="x",pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r2,text=lang.t("order_needs.lead_time","Lead Time (months)"),bg=AppTheme.BG_MAIN).grid(row=0,column=0,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.lead_entry=tk.Entry(r2,textvariable=self.lead_var,width=6)
         self.lead_entry.grid(row=0,column=1,padx=(0,12))
         self.lead_entry.bind("<FocusOut>", lambda e: self._param_focus_refresh())
         self.lead_entry.bind("<Return>", lambda e: self._param_focus_refresh())
 
-        tk.Label(r2,text=lang.t("order_needs.cover_period","Cover Period (months)"),bg=BG_MAIN).grid(row=0,column=2,sticky="w",padx=(0,4))
+        tk.Label(r2,text=lang.t("order_needs.cover_period","Cover Period (months)"),bg=AppTheme.BG_MAIN).grid(row=0,column=2,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.cover_entry=tk.Entry(r2,textvariable=self.cover_var,width=6)
         self.cover_entry.grid(row=0,column=3,padx=(0,12))
         self.cover_entry.bind("<FocusOut>", lambda e: self._param_focus_refresh())
         self.cover_entry.bind("<Return>", lambda e: self._param_focus_refresh())
 
-        tk.Label(r2,text=lang.t("order_needs.buffer","Security Stock (buffer, months)"),bg=BG_MAIN).grid(row=0,column=4,sticky="w",padx=(0,4))
+        tk.Label(r2,text=lang.t("order_needs.buffer","Security Stock (buffer, months)"),bg=AppTheme.BG_MAIN).grid(row=0,column=4,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
         self.buffer_entry=tk.Entry(r2,textvariable=self.buffer_var,width=6)
         self.buffer_entry.grid(row=0,column=5,padx=(0,12))
         self.buffer_entry.bind("<FocusOut>", lambda e: self._param_focus_refresh())
         self.buffer_entry.bind("<Return>", lambda e: self._param_focus_refresh())
 
-        # Totals Row
-        info=tk.Frame(self,bg=BG_MAIN); info.pack(fill="x",padx=12,pady=(2,4))
+        # Totals Row (UPDATED: Colors use AppTheme)
+        info=tk.Frame(self, bg=AppTheme.BG_MAIN); info.pack(fill="x",padx=12,pady=(2,4))  # UPDATED: Use AppTheme
         tk.Label(info,text=lang.t("order_needs.total_amount","Total Amount (€):"),
-                 bg=BG_MAIN,fg=COLOR_PRIMARY,font=("Helvetica",10,"bold"))\
-            .grid(row=0,column=0,sticky="w",padx=(0,4))
-        tk.Label(info,textvariable=self.total_amount_var,bg=BG_MAIN,fg=COLOR_PRIMARY)\
-            .grid(row=0,column=1,padx=(0,14),sticky="w")
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"))\
+            .grid(row=0,column=0,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+        tk.Label(info,textvariable=self.total_amount_var,
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY)\
+            .grid(row=0,column=1,padx=(0,14),sticky="w")  # UPDATED: Use AppTheme
 
         tk.Label(info,text=lang.t("order_needs.total_weight","Total Weight (kg):"),
-                 bg=BG_MAIN,fg=COLOR_PRIMARY,font=("Helvetica",10,"bold"))\
-            .grid(row=0,column=2,sticky="w",padx=(0,4))
-        tk.Label(info,textvariable=self.total_weight_var,bg=BG_MAIN,fg=COLOR_PRIMARY)\
-            .grid(row=0,column=3,padx=(0,14),sticky="w")
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"))\
+            .grid(row=0,column=2,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+        tk.Label(info,textvariable=self.total_weight_var,
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY)\
+            .grid(row=0,column=3,padx=(0,14),sticky="w")  # UPDATED: Use AppTheme
 
         tk.Label(info,text=lang.t("order_needs.total_volume","Total Volume (m3):"),
-                 bg=BG_MAIN,fg=COLOR_PRIMARY,font=("Helvetica",10,"bold"))\
-            .grid(row=0,column=4,sticky="w",padx=(0,4))
-        tk.Label(info,textvariable=self.total_volume_var,bg=BG_MAIN,fg=COLOR_PRIMARY)\
-            .grid(row=0,column=5,padx=(0,14),sticky="w")
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"))\
+            .grid(row=0,column=4,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+        tk.Label(info,textvariable=self.total_volume_var,
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY)\
+            .grid(row=0,column=5,padx=(0,14),sticky="w")  # UPDATED: Use AppTheme
 
-        tk.Label(info,textvariable=self.missing_price_var,bg=BG_MAIN,
-                 fg="#B45309",font=("Helvetica",9,"italic")).grid(row=0,column=6,sticky="w")
+        tk.Label(info,textvariable=self.missing_price_var,
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg="#B45309",font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_SMALL, "italic")).grid(row=0,column=6,sticky="w")  # UPDATED: Use AppTheme
 
         tk.Label(self,textvariable=self.status_var,anchor="w",
-                 bg=BG_MAIN,fg=COLOR_PRIMARY,relief="sunken")\
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 relief="sunken")\
             .pack(fill="x",padx=12,pady=(0,8))
 
-        # Table
-        frame = tk.Frame(self,bg=COLOR_BORDER,bd=1,relief="solid")
+        # Table (UPDATED: Colors use AppTheme)
+        frame = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         frame.pack(fill="both",expand=True,padx=12,pady=(0,12))
         self.tree=ttk.Treeview(frame,columns=(),show="headings",height=24)
         self.tree.pack(side="left",fill="both",expand=True)
@@ -505,17 +541,23 @@ class OrderNeeds(tk.Frame):
         hsb.pack(fill="x",padx=12,pady=(0,12))
         self.tree.configure(yscrollcommand=vsb.set,xscrollcommand=hsb.set)
 
+        # Style configuration (UPDATED: Removed theme_use, using AppTheme)
         style=ttk.Style()
-        try: style.theme_use("clam")
-        except: pass
-        style.configure("Treeview",background=BG_PANEL,fieldbackground=BG_PANEL,
-                        foreground=COLOR_PRIMARY,rowheight=24,font=("Helvetica",10))
-        style.configure("Treeview.Heading",background="#E5E8EB",
-                        foreground=COLOR_PRIMARY,font=("Helvetica",11,"bold"))
-        self.tree.tag_configure("alt",background=ROW_ALT_COLOR)
-        self.tree.tag_configure("kitrow",background="#228B22",foreground="#FFFFFF")
-        self.tree.tag_configure("modrow",background="#ADD8E6")
-        self.tree.tag_configure("remarks_italic",font=("Helvetica",10,"italic"))
+        # REMOVED: style.theme_use("clam") - already applied globally
+        style.configure("Treeview",
+                       background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                       fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                       foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                       rowheight=24,
+                       font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
+        style.configure("Treeview.Heading",
+                       background="#E5E8EB",
+                       foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                       font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"))  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("kitrow", background=AppTheme.KIT_COLOR, foreground=AppTheme.TEXT_WHITE)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("modrow", background=AppTheme.MODULE_COLOR)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("remarks_italic", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "italic"))  # UPDATED: Use AppTheme
 
         self.tree.bind("<Double-1>", self._start_edit)
         self.tree.bind("<Button-1>", self._click_cancel_edit)
@@ -695,7 +737,7 @@ class OrderNeeds(tk.Frame):
         if not bbox: return
         x,y,w,h=bbox
         value=self.tree.set(row_id,col_name)
-        entry=tk.Entry(self.tree,font=("Helvetica",10,"italic" if col_name=="remarks" else "normal"))
+        entry=tk.Entry(self.tree,font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "italic" if col_name=="remarks" else "normal"))  # UPDATED: Use AppTheme
         entry.place(x=x,y=y,width=w,height=h)
         entry.insert(0,value)
         entry.focus()

@@ -6,28 +6,33 @@ from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 
 # ============================================================
-# THEME (aligned with manage_items / receive_kit / manage_users)
+# IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
+from theme_config import AppTheme, configure_tree_tags
 
-BTN_ADD        = "#27AE60"
-BTN_EDIT       = "#2980B9"
-BTN_DELETE     = "#C0392B"
-BTN_DISABLED   = "#94A3B8"
-BTN_MISC       = "#7F8C8D"
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_ADD        = "#27AE60"
+# BTN_EDIT       = "#2980B9"
+# BTN_DELETE     = "#C0392B"
+# BTN_DISABLED   = "#94A3B8"
+# BTN_MISC       = "#7F8C8D"
 
 # Canonical roles allowed to modify
 ALLOWED_CANONICAL_ROLES = {"admin", "manager"}
 SUPERVISOR_SYMBOLS = {"$", "supervisor"}
 
 
-def _center_toplevel(win:  tk.Toplevel, parent: tk.Widget = None):
+def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
     """Center a toplevel window relative to parent or screen."""
     win.update_idletasks()
     if parent and parent.winfo_exists():
@@ -49,11 +54,11 @@ def _center_toplevel(win:  tk.Toplevel, parent: tk.Widget = None):
 class ManageParties(tk.Frame):
     """
     Themed management UI for Third Parties or End Users. 
-    - Type dropdown:  displays in selected language, stores in English
+    - Type dropdown: displays in selected language, stores in English
     - Symbol-aware: role symbol "$" (supervisor) cannot add/edit/delete
     """
-    def __init__(self, parent, app, party_type:  str):
-        super().__init__(parent, bg=BG_MAIN)
+    def __init__(self, parent, app, party_type: str):
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = getattr(app, "role", "supervisor")
         self.party_type = party_type  # "third" or "end"
@@ -80,7 +85,7 @@ class ManageParties(tk.Frame):
     def _define_context(self):
         if self.party_type == "third":
             self.table_name = "third_parties"
-            self.heading = lang. t("manage.third_parties", fallback="Manage Third Parties")
+            self.heading = lang.t("manage.third_parties", fallback="Manage Third Parties")
             self.id_field = "third_party_id"
             # Canonical English values (stored in DB)
             self.type_options_canonical = [
@@ -121,7 +126,7 @@ class ManageParties(tk.Frame):
     def _display_to_canonical(self, display_value):
         """Convert display language type to canonical English"""
         if not display_value:
-            return self. default_type_canonical
+            return self.default_type_canonical
         return lang.enum_to_canonical(self.type_enum_key, display_value, fallback=display_value)
 
     # --------------------------------------------------------
@@ -131,55 +136,53 @@ class ManageParties(tk.Frame):
         return lang.t(f"manage_parties.{key}", **kwargs)
 
     # --------------------------------------------------------
-    # Style
+    # Style (UPDATED: Removed theme_use, using AppTheme)
     # --------------------------------------------------------
     def _configure_styles(self):
+        # Global theme already applied by login_gui
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        # REMOVED: style.theme_use("clam") - already applied globally
 
         style.configure(
-            "Parties. Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            font=("Helvetica", 10),
-            bordercolor=COLOR_BORDER,
+            "Parties.Treeview",
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat"
         )
         style.map("Parties.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
 
         style.configure(
             "Parties.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat",
-            bordercolor=COLOR_BORDER
+            bordercolor=AppTheme.COLOR_BORDER  # UPDATED: Use AppTheme
         )
 
     # --------------------------------------------------------
-    # UI
+    # UI (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------
     def _build_ui(self):
         # Title
         tk.Label(
             self,
             text=self.heading,
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(12, 8))
 
         # Tree frame with border
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         self.tree = ttk.Treeview(
@@ -205,9 +208,9 @@ class ManageParties(tk.Frame):
         for col in self.columns:
             # Translate column headers
             col_key = col.lower().replace(" ", "_")
-            header_text = self.t(f"column. {col_key}", fallback=col)
+            header_text = self.t(f"column.{col_key}", fallback=col)
             self.tree.heading(col, text=header_text)
-            self.tree.column(col, width=width_map. get(col, 120), anchor=anchor_map.get(col, "w"))
+            self.tree.column(col, width=width_map.get(col, 120), anchor=anchor_map.get(col, "w"))
 
         self.tree.pack(side="left", fill="both", expand=True)
 
@@ -215,8 +218,8 @@ class ManageParties(tk.Frame):
         vsb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=vsb.set)
 
-        # Buttons
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        # Buttons (UPDATED: All button colors use AppTheme)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
 
         can_modify = self._can_modify()
@@ -226,23 +229,23 @@ class ManageParties(tk.Frame):
                 btn_frame,
                 text=self.t(text, fallback=fallback),
                 command=cmd if can_modify else self._show_restricted,
-                bg=color if can_modify else BTN_DISABLED,
-                fg="#FFFFFF",
-                activebackground=color if can_modify else BTN_DISABLED,
+                bg=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+                fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                activebackground=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
                 relief="flat",
                 padx=14,
                 pady=6,
-                font=("Helvetica", 10, "bold"),
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
                 state="normal"
             )
 
-        self.btn_add = mk_btn("add_button", self. add_party, BTN_ADD, "Add")
+        self.btn_add = mk_btn("add_button", self.add_party, AppTheme.BTN_SUCCESS, "Add")  # UPDATED: Use AppTheme
         self.btn_add.pack(side="left", padx=4)
 
-        self.btn_edit = mk_btn("edit_button", self.edit_party, BTN_EDIT, "Edit")
-        self.btn_edit. pack(side="left", padx=4)
+        self.btn_edit = mk_btn("edit_button", self.edit_party, AppTheme.BTN_WARNING, "Edit")  # UPDATED: Use AppTheme
+        self.btn_edit.pack(side="left", padx=4)
 
-        self.btn_delete = mk_btn("delete_button", self.delete_party, BTN_DELETE, "Delete")
+        self.btn_delete = mk_btn("delete_button", self.delete_party, AppTheme.BTN_DANGER, "Delete")  # UPDATED: Use AppTheme
         self.btn_delete.pack(side="left", padx=4)
 
         if not can_modify:
@@ -257,10 +260,10 @@ class ManageParties(tk.Frame):
         self.status_var = tk.StringVar(value=self.t("ready", fallback="Ready"))
         tk.Label(
             self,
-            textvariable=self. status_var,
+            textvariable=self.status_var,
             anchor="w",
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             relief="sunken"
         ).pack(fill="x", padx=12, pady=(0, 10))
 
@@ -273,11 +276,11 @@ class ManageParties(tk.Frame):
         )
 
     # --------------------------------------------------------
-    # Row tags
+    # Row tags (UPDATED: Use AppTheme)
     # --------------------------------------------------------
     def _row_tags_config(self):
-        self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+        self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
 
     # --------------------------------------------------------
     # Data load with type translation
@@ -326,12 +329,12 @@ class ManageParties(tk.Frame):
             conn.close()
 
     # --------------------------------------------------------
-    # Form with translatable type dropdown
+    # Form with translatable type dropdown (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------
     def open_form(self, title, save_callback, initial_data=None):
         form = tk.Toplevel(self)
         form.title(title)
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("460x600")
         form.transient(self)
         form.grab_set()
@@ -339,9 +342,9 @@ class ManageParties(tk.Frame):
         tk.Label(
             form,
             text=title,
-            font=("Helvetica", 16, "bold"),
-            fg=COLOR_PRIMARY,
-            bg=BG_MAIN,
+            font=(AppTheme.FONT_FAMILY, 16, "bold"),  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
             anchor="w"
         ).pack(fill="x", padx=16, pady=(16, 8))
 
@@ -362,9 +365,9 @@ class ManageParties(tk.Frame):
             tk.Label(
                 form,
                 text=f"{label_text}{' *' if required else ''}:",
-                bg=BG_MAIN,
-                fg=COLOR_PRIMARY,
-                font=("Helvetica", 10),
+                bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
                 anchor="w"
             ).pack(fill="x", padx=18, pady=(6, 0))
 
@@ -376,8 +379,10 @@ class ManageParties(tk.Frame):
                 cb.pack(fill="x", padx=18, pady=(0, 6))
                 self.entries[fname] = cb
             else:
-                ent = tk.Entry(form, font=("Helvetica", 11), relief="solid", bd=1)
-                ent. pack(fill="x", padx=18, pady=(0, 6))
+                ent = tk.Entry(form, 
+                             font=(AppTheme.FONT_FAMILY, 11),  # UPDATED: Use AppTheme
+                             relief="solid", bd=1)
+                ent.pack(fill="x", padx=18, pady=(0, 6))
                 self.entries[fname] = ent
 
         for fname, req in fields:
@@ -405,11 +410,11 @@ class ManageParties(tk.Frame):
             form,
             text=self.t("save_button", fallback="Save"),
             command=do_save,
-            bg=COLOR_ACCENT,
-            fg="#FFFFFF",
+            bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#1D4ED8",
             relief="flat",
-            font=("Helvetica", 11, "bold"),
+            font=(AppTheme.FONT_FAMILY, 11, "bold"),  # UPDATED: Use AppTheme
             padx=14, pady=8
         ).pack(fill="x", padx=18, pady=18)
 
@@ -433,31 +438,31 @@ class ManageParties(tk.Frame):
             if not data["name"] or not data["type"]: 
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("required_fields", fallback="Name and Type are required. "),
+                             self.t("required_fields", fallback="Name and Type are required."),
                              "error")
                 return
             conn = connect_db()
             if conn is None:
                 custom_popup(form,
-                             lang.t("dialog_titles. error", "Error"),
+                             lang.t("dialog_titles.error", "Error"),
                              self.t("db_error", fallback="Database connection failed"),
                              "error")
                 return
             cur = conn.cursor()
             try:
                 cur.execute(f"""
-                    INSERT INTO "{self. table_name}"
+                    INSERT INTO "{self.table_name}"
                       (name, type, city, address, contact_person, email, phone)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    data["name"], data["type"], data. get("city"),
+                    data["name"], data["type"], data.get("city"),
                     data.get("address"), data.get("contact_person"),
                     data.get("email"), data.get("phone")
                 ))
                 conn.commit()
                 custom_popup(self,
                              lang.t("dialog_titles.success", "Success"),
-                             self.t("add_success", fallback="Record added successfully. "),
+                             self.t("add_success", fallback="Record added successfully."),
                              "info")
                 form.destroy()
                 self.load_data()
@@ -485,7 +490,7 @@ class ManageParties(tk.Frame):
         sel = self.tree.selection()
         if not sel:
             custom_popup(self,
-                         lang.t("dialog_titles. error", "Error"),
+                         lang.t("dialog_titles.error", "Error"),
                          self.t("select_record", fallback="Please select a record to edit"),
                          "error")
             return
@@ -499,7 +504,7 @@ class ManageParties(tk.Frame):
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
-            cur.execute(f'SELECT * FROM "{self.table_name}" WHERE {self.id_field} = ? ', (party_id,))
+            cur.execute(f'SELECT * FROM "{self.table_name}" WHERE {self.id_field} = ?', (party_id,))
             row = cur.fetchone()
             if not row:
                 return
@@ -536,7 +541,7 @@ class ManageParties(tk.Frame):
                              self.t("db_error", fallback="Database connection failed"),
                              "error")
                 return
-            cur = conn. cursor()
+            cur = conn.cursor()
             try:
                 cur.execute(f"""
                     UPDATE "{self.table_name}"
@@ -575,7 +580,7 @@ class ManageParties(tk.Frame):
         if not self._can_modify():
             self._show_restricted()
             return
-        sel = self. tree.selection()
+        sel = self.tree.selection()
         if not sel:
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
@@ -594,13 +599,13 @@ class ManageParties(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self,
-                         lang.t("dialog_titles. error", "Error"),
+                         lang.t("dialog_titles.error", "Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cur = conn.cursor()
         try:
-            cur. execute(f'DELETE FROM "{self.table_name}" WHERE {self.id_field} = ?', (party_id,))
+            cur.execute(f'DELETE FROM "{self.table_name}" WHERE {self.id_field} = ?', (party_id,))
             conn.commit()
             custom_popup(self,
                          lang.t("dialog_titles.success", "Success"),
@@ -626,9 +631,9 @@ class ManageParties(tk.Frame):
 
 # Standalone test
 if __name__ == "__main__":
-    root = tk. Tk()
+    root = tk.Tk()
     class DummyApp:
-        role = "admin"  # Try:  "admin", "manager", "$", "supervisor"
+        role = "admin"  # Try: "admin", "manager", "$", "supervisor"
         project_title = "IsEPREP"
     app = DummyApp()
     root.title("Manage Parties - Test")

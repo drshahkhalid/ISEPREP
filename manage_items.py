@@ -9,23 +9,29 @@ from item_families import ItemFamilyManager
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 
 # ============================================================
-# THEME / STYLE
+# IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_ADD        = "#27AE60"
-BTN_EDIT       = "#F39C12"
-BTN_DELETE     = "#C0392B"
-BTN_IMPORT     = "#2980B9"
-BTN_EXPORT     = "#2980B9"
-BTN_CLEAR      = "#8E44AD"
-BTN_MISC       = "#7F8C8D"
-BTN_DISABLED   = "#94A3B8"
+from theme_config import AppTheme, configure_tree_tags
+
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_ADD        = "#27AE60"
+# BTN_EDIT       = "#F39C12"
+# BTN_DELETE     = "#C0392B"
+# BTN_IMPORT     = "#2980B9"
+# BTN_EXPORT     = "#2980B9"
+# BTN_CLEAR      = "#8E44AD"
+# BTN_MISC       = "#7F8C8D"
+# BTN_DISABLED   = "#94A3B8"
 
 
 # ============================================================
@@ -131,10 +137,10 @@ def get_item_description(code):
             "designation_fr": row[2],
             "designation_sp": row[3]
         }
-        lang_code = lang.lang_code. lower()
+        lang_code = lang.lang_code.lower()
         mapping = {"en": "designation_en", "fr": "designation_fr", "es": "designation_sp", "sp": "designation_sp"}
         active_col = mapping.get(lang_code, "designation_en")
-        if row_dict. get(active_col):
+        if row_dict.get(active_col):
             return row_dict[active_col]
         if row_dict.get("designation_en"):
             return row_dict["designation_en"]
@@ -142,7 +148,7 @@ def get_item_description(code):
             return row_dict["designation_fr"]
         if row_dict.get("designation_sp"):
             return row_dict["designation_sp"]
-        return row_dict. get("designation") or "No Description"
+        return row_dict.get("designation") or "No Description"
     finally:
         cursor.close()
         conn.close()
@@ -167,7 +173,7 @@ class ManageItems(tk.Frame):
       - All other roles retain existing functionality.
     """
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = getattr(app, "role", "supervisor")
         self.tree = None
@@ -185,7 +191,7 @@ class ManageItems(tk.Frame):
     def _deny(self):
         custom_popup(self,
                      lang.t("dialog_titles.restricted", fallback="Restricted"),
-                     self. t("no_modify_permission", fallback="You do not have permission to modify items."),
+                     self.t("no_modify_permission", fallback="You do not have permission to modify items."),
                      "warning")
 
     # ---------------- Translation helper ----------------
@@ -196,45 +202,44 @@ class ManageItems(tk.Frame):
     # ---------------- Language-specific column mapping ----------------
     def get_active_lang_column(self):
         """Return the designation column name for the active language."""
-        lang_code = lang. lang_code.lower()
+        lang_code = lang.lang_code.lower()
         mapping = {
             "en": "designation_en",
             "fr": "designation_fr",
             "es": "designation_sp",
             "sp": "designation_sp"
         }
-        return mapping. get(lang_code, "designation_en")
+        return mapping.get(lang_code, "designation_en")
 
-    # ---------------- Style configuration ----------------
+    # ---------------- Style configuration (UPDATED: Removed theme_use, using AppTheme) ----------------
     def _configure_styles(self):
+        # Global theme already applied by login_gui
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        style. configure(
-            "Items. Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            font=("Helvetica", 10),
-            bordercolor=COLOR_BORDER,
+        # REMOVED: style.theme_use("clam") - already applied globally
+        
+        style.configure(
+            "Items.Treeview",
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat"
         )
         style.map("Items.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
         style.configure(
             "Items.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat",
-            bordercolor=COLOR_BORDER
+            bordercolor=AppTheme.COLOR_BORDER  # UPDATED: Use AppTheme
         )
-        style.configure("Items.TEntry", font=("Helvetica", 10))
-        style.configure("Items.TCombobox", font=("Helvetica", 10))
+        style.configure("Items.TEntry", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
+        style.configure("Items.TCombobox", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
 
     # ---------------- Safe cleaners ----------------
     def clean_str(self, value):
@@ -267,15 +272,15 @@ class ManageItems(tk.Frame):
         return detect_type(code, designation)
 
     def get_active_designation(self, row):
-        """Get designation in order of priority:  active language > en > fr > sp."""
-        lang_code = lang. lang_code.lower()
+        """Get designation in order of priority: active language > en > fr > sp."""
+        lang_code = lang.lang_code.lower()
         mapping = {"en": "designation_en", "fr": "designation_fr", "es": "designation_sp", "sp": "designation_sp"}
         active_col = mapping.get(lang_code, "designation_en")
         
         # First try active language
-        if row. get(active_col):
+        if row.get(active_col):
             return row[active_col]
-        # Fallback priority:  en > fr > sp
+        # Fallback priority: en > fr > sp
         if row.get("designation_en"):
             return row["designation_en"]
         if row.get("designation_fr"):
@@ -284,32 +289,33 @@ class ManageItems(tk.Frame):
             return row["designation_sp"]
         return row.get("designation") or ""
 
-    # ---------------- UI Construction ----------------
+    # ---------------- UI Construction (UPDATED: All color references use AppTheme) ----------------
     def _build_ui(self):
         tk.Label(
             self,
             text=self.t("title", fallback="Manage Items"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(12, 6))
 
         # Search panel
-        search_frame = tk. Frame(self, bg=BG_MAIN)
+        search_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         search_frame.pack(fill="x", padx=12, pady=(0, 8))
 
         tk.Label(search_frame,
                  text=self.t("search_label", fallback="Search: "),
-                 bg=BG_MAIN, fg=COLOR_PRIMARY,
-                 font=("Helvetica", 10),
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
                  anchor="w").pack(side="left", padx=(0, 6))
 
         search_entry = tk.Entry(search_frame,
                                 textvariable=self.search_var,
                                 width=40,
-                                font=("Helvetica", 10),
+                                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
                                 relief="solid",
                                 bd=1)
         search_entry.pack(side="left", padx=(0, 6))
@@ -317,22 +323,24 @@ class ManageItems(tk.Frame):
 
         tk.Button(search_frame,
                   text=self.t("search_button", fallback="Search"),
-                  command=self. search_items,
-                  bg=COLOR_ACCENT, fg="#FFFFFF",
+                  command=self.search_items,
+                  bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   activebackground="#1D4ED8",
                   relief="flat", padx=12, pady=5,
-                  font=("Helvetica", 10, "bold")).pack(side="left", padx=4)
+                  font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")).pack(side="left", padx=4)  # UPDATED: Use AppTheme
 
         tk.Button(search_frame,
                   text=self.t("clear_button", fallback="Clear"),
-                  command=self. load_data,
-                  bg=BTN_MISC, fg="#FFFFFF",
+                  command=self.load_data,
+                  bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   activebackground="#64748B",
                   relief="flat", padx=12, pady=5,
-                  font=("Helvetica", 10, "bold")).pack(side="left", padx=4)
+                  font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")).pack(side="left", padx=4)  # UPDATED: Use AppTheme
 
         # Tree frame
-        tree_outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        tree_outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         tree_outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         columns = (
@@ -346,25 +354,25 @@ class ManageItems(tk.Frame):
                                  height=20,
                                  style="Items.Treeview")
         col_config = {
-            "code": {"width":  140, "anchor": "w"},
+            "code": {"width": 140, "anchor": "w"},
             "designation": {"width": 380, "anchor": "w"},
             "type": {"width": 80, "anchor": "w"},
             "pack": {"width": 80, "anchor": "e"},
             "price_per_pack_euros": {"width": 110, "anchor": "e"},
-            "unit_price_euros":  {"width": 110, "anchor": "e"},
-            "weight_per_pack_kg": {"width": 110, "anchor":  "e"},
-            "volume_per_pack_dm3": {"width": 110, "anchor":  "e"},
+            "unit_price_euros": {"width": 110, "anchor": "e"},
+            "weight_per_pack_kg": {"width": 110, "anchor": "e"},
+            "volume_per_pack_dm3": {"width": 110, "anchor": "e"},
             "shelf_life_months": {"width": 110, "anchor": "e"},
-            "remarks": {"width":  160, "anchor": "w"},
+            "remarks": {"width": 160, "anchor": "w"},
             "account_code": {"width": 120, "anchor": "e"}
         }
         header_names = {
             "code": self.t("col_code", fallback="Code"),
             "designation": self.t("col_designation", fallback="Designation"),
-            "type":  self.t("col_type", fallback="Type"),
+            "type": self.t("col_type", fallback="Type"),
             "pack": self.t("col_pack", fallback="Pack"),
             "price_per_pack_euros": self.t("col_price_per_pack", fallback="Price/Pack"),
-            "unit_price_euros":  self.t("col_unit_price", fallback="Unit Price"),
+            "unit_price_euros": self.t("col_unit_price", fallback="Unit Price"),
             "weight_per_pack_kg": self.t("col_weight_pack", fallback="Weight/Pack (kg)"),
             "volume_per_pack_dm3": self.t("col_volume_pack", fallback="Volume/Pack (dm³)"),
             "shelf_life_months": self.t("col_shelf_life", fallback="Shelf Life (m)"),
@@ -372,15 +380,15 @@ class ManageItems(tk.Frame):
             "account_code": self.t("col_account_code", fallback="Account Code")
         }
         for col in columns:
-            self.tree. heading(col, text=header_names. get(col, col. title()))
+            self.tree.heading(col, text=header_names.get(col, col.title()))
             self.tree.column(col, **col_config[col])
         self.tree.pack(side="left", fill="both", expand=True)
         vsb = ttk.Scrollbar(tree_outer, orient="vertical", command=self.tree.yview)
         vsb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=vsb.set)
 
-        # Buttons (with permission control)
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        # Buttons (with permission control) (UPDATED: All button colors use AppTheme)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
         can_modify = self._can_modify()
 
@@ -389,40 +397,41 @@ class ManageItems(tk.Frame):
             return tk.Button(btn_frame,
                              text=label,
                              command=cmd if is_allowed else self._deny,
-                             bg=color if is_allowed else BTN_DISABLED,
-                             fg="#FFFFFF",
-                             activebackground=color if is_allowed else BTN_DISABLED,
+                             bg=color if is_allowed else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+                             fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                             activebackground=color if is_allowed else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
                              relief="flat",
                              padx=14, pady=6,
-                             font=("Helvetica", 10, "bold"))
+                             font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"))  # UPDATED: Use AppTheme
 
-        btn_import = mk_btn(self.t("import_button", fallback="Import"), self.import_excel, BTN_IMPORT)
-        btn_export = mk_btn(self.t("export_button", fallback="Export"), self.export_excel, BTN_EXPORT, allow_readonly=True)
-        btn_add = mk_btn(self.t("add_button", fallback="Add"), self.add_item, BTN_ADD)
-        btn_edit = mk_btn(self.t("edit_button", fallback="Edit"), self.edit_item, BTN_EDIT)
-        btn_delete = mk_btn(self. t("delete_button", fallback="Delete"), self.delete_item, BTN_DELETE)
-        btn_clear_all = mk_btn(self.t("clear_all_button", fallback="Clear All"), self.clear_all, BTN_CLEAR)
+        btn_import = mk_btn(self.t("import_button", fallback="Import"), self.import_excel, AppTheme.BTN_WARNING)  # UPDATED: Use AppTheme
+        btn_export = mk_btn(self.t("export_button", fallback="Export"), self.export_excel, AppTheme.BTN_EXPORT, allow_readonly=True)  # UPDATED: Use AppTheme
+        btn_add = mk_btn(self.t("add_button", fallback="Add"), self.add_item, AppTheme.BTN_SUCCESS)  # UPDATED: Use AppTheme
+        btn_edit = mk_btn(self.t("edit_button", fallback="Edit"), self.edit_item, AppTheme.BTN_WARNING)  # UPDATED: Use AppTheme (orange -> warning blue)
+        btn_delete = mk_btn(self.t("delete_button", fallback="Delete"), self.delete_item, AppTheme.BTN_DANGER)  # UPDATED: Use AppTheme
+        btn_clear_all = mk_btn(self.t("clear_all_button", fallback="Clear All"), self.clear_all, AppTheme.BTN_TOGGLE)  # UPDATED: Use AppTheme
 
         for b in [btn_import, btn_export, btn_add, btn_edit, btn_delete, btn_clear_all]:
-            b. pack(side="left", padx=4)
+            b.pack(side="left", padx=4)
 
         if not can_modify:
             custom_popup(self,
-                         lang.t("dialog_titles. restricted", fallback="Restricted"),
-                         self.t("read_only_mode", fallback="Read-only mode:  you cannot modify items."),
+                         lang.t("dialog_titles.restricted", fallback="Restricted"),
+                         self.t("read_only_mode", fallback="Read-only mode: you cannot modify items."),
                          "warning")
 
         # Status bar
-        status_frame = tk.Frame(self, bg=BG_MAIN)
+        status_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         status_frame.pack(fill="x", padx=12, pady=(0, 8))
         self.total_label = tk.Label(status_frame,
-                                    text=self.t("total_items", count=0, fallback="Total Items:  0"),
-                                    bg=BG_MAIN, fg=COLOR_PRIMARY,
+                                    text=self.t("total_items", count=0, fallback="Total Items: 0"),
+                                    bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                                    fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                                     anchor="w",
-                                    font=("Helvetica", 10))
+                                    font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
         self.total_label.pack(side="left")
 
-    # ---------------- Data Loading ----------------
+    # ---------------- Data Loading (UPDATED: Row colors use AppTheme) ----------------
     def load_data(self):
         for iid in self.tree.get_children():
             self.tree.delete(iid)
@@ -435,12 +444,12 @@ class ManageItems(tk.Frame):
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT * FROM items_list")
-            cols = [d[0] for d in cursor. description]
+            cols = [d[0] for d in cursor.description]
             rows = cursor.fetchall()
             for idx, row in enumerate(rows):
                 row_dict = dict(zip(cols, row))
                 designation = self.get_active_designation(row_dict)
-                item_type = self.determine_type(row_dict['code'], designation, row_dict. get('type'))
+                item_type = self.determine_type(row_dict['code'], designation, row_dict.get('type'))
                 display_tuple = (
                     row_dict["code"],
                     designation or "",
@@ -466,8 +475,8 @@ class ManageItems(tk.Frame):
         self.search_var.set("")
 
     def _configure_row_tags(self):
-        self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+        self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
 
     def _blank_if_none(self, value):
         return "" if value is None else value
@@ -480,7 +489,7 @@ class ManageItems(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("db_error", fallback="Database connection failed"),
+                         self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -552,7 +561,7 @@ class ManageItems(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("db_error", fallback="Database connection failed"),
+                         self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -572,13 +581,13 @@ class ManageItems(tk.Frame):
                 self.t("excel_header_designation", fallback="Designation"),
                 self.t("excel_header_type", fallback="Type"),
                 self.t("excel_header_pack", fallback="Pack"),
-                self. t("excel_header_price_per_pack_euros", fallback="Price/Pack[Euros]"),
+                self.t("excel_header_price_per_pack_euros", fallback="Price/Pack[Euros]"),
                 self.t("excel_header_unit_price_euros", fallback="Unit price[Euros]"),
                 self.t("excel_header_weight_per_pack_kg", fallback="Weight/pack[kg]"),
                 self.t("excel_header_volume_per_pack_dm3", fallback="Volume/pack[dm3]"),
                 self.t("excel_header_shelf_life_months", fallback="Shelf life (months)"),
                 self.t("excel_header_remarks", fallback="Remarks"),
-                self. t("excel_header_account_code", fallback="Account code")
+                self.t("excel_header_account_code", fallback="Account code")
             ]
             ws.append(headers)
 
@@ -609,7 +618,7 @@ class ManageItems(tk.Frame):
                             max_len = l
                     except Exception:
                         pass
-                ws.column_dimensions[letter]. width = min(max_len + 2, 60)
+                ws.column_dimensions[letter].width = min(max_len + 2, 60)
 
             wb.save(file_path)
             custom_popup(self, lang.t("dialog_titles.success", fallback="Success"),
@@ -617,7 +626,7 @@ class ManageItems(tk.Frame):
                          "info")
         except Exception as e:
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("export_failed", fallback="Export failed: {err}").format(err=str(e)),
+                         self.t("export_failed", fallback="Export failed: {err}").format(err=str(e)),
                          "error")
         finally:
             cursor.close()
@@ -631,7 +640,7 @@ class ManageItems(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("db_error", fallback="Database connection failed"),
+                         self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
@@ -642,20 +651,20 @@ class ManageItems(tk.Frame):
                 custom_popup(
                     self,
                     lang.t("dialog_titles.warning", fallback="Warning"),
-                    self.t("cannot_clear_items", fallback="Cannot clear Items List while Standard List has data.  Clear it first."),
+                    self.t("cannot_clear_items", fallback="Cannot clear Items List while Standard List has data. Clear it first."),
                     "warning"
                 )
                 return
             ans = custom_askyesno(self,
                                   lang.t("dialog_titles.confirm", fallback="Confirm"),
-                                  self. t("confirm_clear_all",
-                                         fallback="Clear all items?  This cannot be undone."))
+                                  self.t("confirm_clear_all",
+                                         fallback="Clear all items? This cannot be undone."))
             if ans != "yes":
                 return
             cursor.execute("DELETE FROM items_list")
             conn.commit()
             self.load_data()
-            custom_popup(self, lang. t("dialog_titles.success", fallback="Success"),
+            custom_popup(self, lang.t("dialog_titles.success", fallback="Success"),
                          self.t("cleared_items", fallback="All items cleared.", count=0),
                          "info")
         finally:
@@ -676,7 +685,7 @@ class ManageItems(tk.Frame):
         ans = custom_askyesno(
             self,
             lang.t("dialog_titles.confirm", fallback="Confirm"),
-            self.t("confirm_import", fallback="Import and merge items from this file? ")
+            self.t("confirm_import", fallback="Import and merge items from this file?")
         )
         if ans != "yes":
             return
@@ -693,7 +702,7 @@ class ManageItems(tk.Frame):
             "Code": "code",
             "Pack": "pack",
             "Price/pack[Euros]": "price_per_pack_euros",
-            "Unit price[Euros]":  "unit_price_euros",
+            "Unit price[Euros]": "unit_price_euros",
             "Weight/pack[kg]": "weight_per_pack_kg",
             "Volume/pack[dm3]": "volume_per_pack_dm3",
             "Shelf life (months)": "shelf_life_months",
@@ -712,26 +721,26 @@ class ManageItems(tk.Frame):
         
         # Add missing columns with None
         for col in column_mapping: 
-            if col not in df. columns:
+            if col not in df.columns:
                 df[col] = None
         
         conn = connect_db()
         if conn is None:
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("db_error", fallback="Database connection failed"),
+                         self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
         cursor = conn.cursor()
         success = 0
         try:
             for _, r in df.iterrows():
-                code = self. clean_str(r["Code"])
+                code = self.clean_str(r["Code"])
                 if not code:
                     continue
                 
                 # Collect all designation fields from import
                 designation_data = {
-                    "designation":  self.clean_str(r. get("Designation")),
+                    "designation": self.clean_str(r.get("Designation")),
                     "designation_en": self.clean_str(r.get("Designation_EN")) or self.clean_str(r.get("Designation EN")),
                     "designation_fr": self.clean_str(r.get("Designation_FR")) or self.clean_str(r.get("Designation FR")),
                     "designation_sp": self.clean_str(r.get("Designation_SP")) or self.clean_str(r.get("Designation SP")) or self.clean_str(r.get("Designation ES")),
@@ -749,8 +758,8 @@ class ManageItems(tk.Frame):
                 
                 data = {
                     "pack": self.clean_str(r["Pack"]),
-                    "price_per_pack_euros":  self.safe_float(r["Price/pack[Euros]"]),
-                    "unit_price_euros":  self.safe_float(r["Unit price[Euros]"]),
+                    "price_per_pack_euros": self.safe_float(r["Price/pack[Euros]"]),
+                    "unit_price_euros": self.safe_float(r["Unit price[Euros]"]),
                     "weight_per_pack_kg": self.safe_float(r["Weight/pack[kg]"]),
                     "volume_per_pack_dm3": self.safe_float(r["Volume/pack[dm3]"]),
                     "shelf_life_months": self.safe_int(r["Shelf life (months)"]),
@@ -775,7 +784,7 @@ class ManageItems(tk.Frame):
                 cursor.execute("SELECT code FROM items_list WHERE code=?", (code,))
                 exists = cursor.fetchone()
                 if exists:
-                    cursor. execute("""
+                    cursor.execute("""
                         UPDATE items_list SET
                             pack=?, price_per_pack_euros=?, unit_price_euros=?,
                             weight_per_pack_kg=?, volume_per_pack_dm3=?, shelf_life_months=?,
@@ -816,13 +825,13 @@ class ManageItems(tk.Frame):
         except Exception as e:
             conn.rollback()
             custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
-                         self. t("import_failed", fallback="Import failed: {err}").format(err=str(e)),
+                         self.t("import_failed", fallback="Import failed: {err}").format(err=str(e)),
                          "error")
         finally:
             cursor.close()
             conn.close()
 
-    # ---------------- CRUD:  Add/Edit/Delete ----------------
+    # ---------------- CRUD: Add/Edit/Delete ----------------
     def add_item(self):
         if not self._can_modify():
             self._deny()
@@ -845,11 +854,11 @@ class ManageItems(tk.Frame):
         # Fetch full record from DB to get all designation fields
         conn = connect_db()
         if conn is None: 
-            custom_popup(self, lang.t("dialog_titles. error", fallback="Error"),
+            custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
-        cursor = conn. cursor()
+        cursor = conn.cursor()
         try:
             cursor.execute("SELECT * FROM items_list WHERE code=?", (code,))
             cols = [d[0] for d in cursor.description]
@@ -858,7 +867,7 @@ class ManageItems(tk.Frame):
                 full_record = dict(zip(cols, row))
                 self._item_form(self.t("edit_title", fallback="Edit Item"), values, full_record)
             else:
-                custom_popup(self, lang.t("dialog_titles. error", fallback="Error"),
+                custom_popup(self, lang.t("dialog_titles.error", fallback="Error"),
                              self.t("item_not_found", fallback="Item not found"),
                              "error")
         finally:
@@ -891,7 +900,7 @@ class ManageItems(tk.Frame):
             return
         cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM items_list WHERE code=? ", (code,))
+            cursor.execute("DELETE FROM items_list WHERE code=?", (code,))
             conn.commit()
             self.load_data()
             custom_popup(self, lang.t("dialog_titles.success", fallback="Success"),
@@ -901,24 +910,24 @@ class ManageItems(tk.Frame):
             cursor.close()
             conn.close()
 
-    # ---------------- Item Form (Add/Edit) ----------------
+    # ---------------- Item Form (Add/Edit) (UPDATED: All color references use AppTheme) ----------------
     def _item_form(self, title, values=None, full_record=None):
         # Extra safety
         if not self._can_modify():
             self._deny()
             return
-        form = tk. Toplevel(self)
+        form = tk.Toplevel(self)
         form.title(title)
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("520x840")
         form.transient(self)
         form.grab_set()
 
         tk.Label(form,
                  text=title,
-                 font=("Helvetica", 16, "bold"),
-                 fg=COLOR_PRIMARY,
-                 bg=BG_MAIN,
+                 font=(AppTheme.FONT_FAMILY, 16, "bold"),  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
                  anchor="w").pack(fill="x", padx=16, pady=(14, 8))
 
         fields = [
@@ -942,12 +951,12 @@ class ManageItems(tk.Frame):
             label_text = self.t(label_key, fallback=fname.replace('_', ' ').title())
             tk.Label(form,
                      text=f"{label_text}{' *' if required else ''}:",
-                     font=("Helvetica", 10),
-                     fg=COLOR_PRIMARY,
-                     bg=BG_MAIN,
+                     font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                     fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                     bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
                      anchor="w").pack(fill="x", padx=18, pady=(6, 0))
             ent = tk.Entry(form,
-                           font=("Helvetica", 11),
+                           font=(AppTheme.FONT_FAMILY, 11),  # UPDATED: Use AppTheme
                            relief="solid",
                            bd=1)
             ent.pack(fill="x", padx=18, pady=(0, 6))
@@ -966,7 +975,7 @@ class ManageItems(tk.Frame):
             entries["price_per_pack_euros"].insert(0, values[4] if values[4] is not None and values[4] != "" else "")
             entries["unit_price_euros"].insert(0, values[5] if values[5] is not None and values[5] != "" else "")
             entries["weight_per_pack_kg"].insert(0, values[6] if values[6] is not None and values[6] != "" else "")
-            entries["volume_per_pack_dm3"]. insert(0, values[7] if values[7] is not None and values[7] != "" else "")
+            entries["volume_per_pack_dm3"].insert(0, values[7] if values[7] is not None and values[7] != "" else "")
             entries["shelf_life_months"].insert(0, values[8] if values[8] is not None and values[8] != "" else "")
             entries["remarks"].insert(0, values[9] if values[9] is not None else "")
             entries["account_code"].insert(0, values[10] if values[10] is not None else "")
@@ -1025,7 +1034,7 @@ class ManageItems(tk.Frame):
             elif active_lang_col == "designation_sp":
                 payload["designation_sp"] = designation
             
-            # Set main designation field (priority:  en > fr > sp)
+            # Set main designation field (priority: en > fr > sp)
             payload["designation"] = (payload["designation_en"] or 
                                      payload["designation_fr"] or 
                                      payload["designation_sp"] or 
@@ -1041,7 +1050,7 @@ class ManageItems(tk.Frame):
             conn = connect_db()
             if conn is None:
                 custom_popup(form, lang.t("dialog_titles.error", fallback="Error"),
-                             self. t("db_error", fallback="Database connection failed"),
+                             self.t("db_error", fallback="Database connection failed"),
                              "error")
                 return
             cursor = conn.cursor()
@@ -1074,14 +1083,14 @@ class ManageItems(tk.Frame):
                         self.safe_float(payload["unit_price_euros"]),
                         self.safe_float(payload["weight_per_pack_kg"]),
                         self.safe_float(payload["volume_per_pack_dm3"]),
-                        self. safe_int(payload["shelf_life_months"]),
+                        self.safe_int(payload["shelf_life_months"]),
                         payload["remarks"],
                         payload["account_code"],
                         payload["type"],
                         unique_id_1,
                         code
                     ))
-                else:   # Insert
+                else:  # Insert
                     cursor.execute("""
                         INSERT INTO items_list (
                             code, designation, designation_en, designation_fr, designation_sp,
@@ -1100,7 +1109,7 @@ class ManageItems(tk.Frame):
                         self.safe_float(payload["price_per_pack_euros"]),
                         self.safe_float(payload["unit_price_euros"]),
                         self.safe_float(payload["weight_per_pack_kg"]),
-                        self. safe_float(payload["volume_per_pack_dm3"]),
+                        self.safe_float(payload["volume_per_pack_dm3"]),
                         self.safe_int(payload["shelf_life_months"]),
                         payload["remarks"],
                         payload["account_code"],
@@ -1113,7 +1122,7 @@ class ManageItems(tk.Frame):
                 custom_popup(
                     self,
                     lang.t("dialog_titles.success", fallback="Success"),
-                    self. t("save_success", fallback="Item saved successfully. "),
+                    self.t("save_success", fallback="Item saved successfully."),
                     "info"
                 )
             except sqlite3.IntegrityError:
@@ -1131,9 +1140,10 @@ class ManageItems(tk.Frame):
         tk.Button(form,
                   text=self.t("save_button", fallback="Save"),
                   command=save,
-                  bg=BTN_ADD, fg="#FFFFFF",
+                  bg=AppTheme.BTN_SUCCESS,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat",
-                  font=("Helvetica", 11, "bold"),
+                  font=(AppTheme.FONT_FAMILY, 11, "bold"),  # UPDATED: Use AppTheme
                   padx=14, pady=8,
                   activebackground="#1E874B").pack(pady=20, padx=18, fill="x")
 
@@ -1144,9 +1154,9 @@ class ManageItems(tk.Frame):
 
 if __name__ == "__main__": 
     root = tk.Tk()
-    class DummyApp:  pass
+    class DummyApp: pass
     dummy = DummyApp()
-    # Try roles:  "admin", "manager", "~", "$"
+    # Try roles: "admin", "manager", "~", "$"
     dummy.role = "admin"  # Full access for testing
     root.title("Manage Items")
     ManageItems(root, dummy)

@@ -1,10 +1,17 @@
 import tkinter as tk
 from tkinter import ttk
 
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme
+
 """
 popup_utils.py
 Unified Windows 11–style popup utilities (dynamic sizing & centering)
 with accessible entry styling helpers.
+
+NOW USES CENTRALIZED THEME from theme_config.py for consistency!
 
 Exports:
     custom_popup(parent, title, message, kind="info")
@@ -14,21 +21,22 @@ Exports:
 """
 
 # ---------------------------------------------------------------------------
-# Accent / Theme Configuration
+# Accent / Theme Configuration (UPDATED to use AppTheme)
 # ---------------------------------------------------------------------------
 
 _ACCENTS = {
-    "info":     {"fg": "#2563EB", "emoji": "\u2139"},   # ℹ
-    "success":  {"fg": "#1B873F", "emoji": "\u2714"},   # ✔
-    "warning":  {"fg": "#B45309", "emoji": "\u26A0"},   # ⚠
-    "error":    {"fg": "#B91C1C", "emoji": "\u26A0"},   # ⚠
-    "question": {"fg": "#2563EB", "emoji": "\u2753"},   # ❓
+    "info":     {"fg": AppTheme.COLOR_ACCENT, "emoji": "\u2139"},   # ℹ - Blue
+    "success":  {"fg": AppTheme.BTN_SUCCESS, "emoji": "\u2714"},    # ✔ - Green
+    "warning":  {"fg": "#B45309", "emoji": "\u26A0"},               # ⚠ - Orange
+    "error":    {"fg": AppTheme.BTN_DANGER, "emoji": "\u26A0"},     # ⚠ - Red
+    "question": {"fg": AppTheme.COLOR_ACCENT, "emoji": "\u2753"},   # ❓ - Blue
 }
 
-_BG_MAIN        = "#FFFFFF"
-_BORDER_COLOR   = "#D0D7DE"
-_TEXT_COLOR     = "#1F2328"
-_FONT_FAMILY    = "Segoe UI"
+# Use AppTheme colors
+_BG_MAIN        = AppTheme.BG_PANEL         # White
+_BORDER_COLOR   = AppTheme.COLOR_BORDER     # Light gray
+_TEXT_COLOR     = AppTheme.COLOR_PRIMARY    # Dark text
+_FONT_FAMILY    = AppTheme.FONT_FAMILY      # Helvetica (or Segoe UI fallback)
 _MIN_WIDTH      = 320
 _MAX_WIDTH      = 620
 _PADDING_X      = 22
@@ -36,12 +44,12 @@ _PADDING_Y      = 18
 _WRAP_MARGIN    = 40
 _MARGIN_HEIGHT  = 14
 
-# Accessible Entry Style Colors
+# Accessible Entry Style Colors (UPDATED)
 _ENTRY_BORDER_NORMAL = "#93A1B5"
-_ENTRY_BORDER_FOCUS  = "#2563EB"
-_ENTRY_BORDER_ERROR  = "#DC2626"
-_ENTRY_BG            = "#FFFFFF"
-_ENTRY_FONT          = (_FONT_FAMILY, 10)
+_ENTRY_BORDER_FOCUS  = AppTheme.COLOR_ACCENT    # Blue
+_ENTRY_BORDER_ERROR  = AppTheme.BTN_DANGER       # Red
+_ENTRY_BG            = AppTheme.ENTRY_BG         # White
+_ENTRY_FONT          = (AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL)
 
 # ---------------------------------------------------------------------------
 # Helper Functions (Styles / Geometry)
@@ -55,21 +63,34 @@ def _apply_style(context: tk.Toplevel):
     except:
         pass
 
+    # UPDATED: Use AppTheme colors
     style.configure("Popup.TFrame", background=_BG_MAIN)
-    style.configure("Popup.Icon.TLabel", background=_BG_MAIN, font=(_FONT_FAMILY, 30, "bold"))
-    style.configure("Popup.Title.TLabel", background=_BG_MAIN, foreground=_TEXT_COLOR, font=(_FONT_FAMILY, 13, "bold"))
-    style.configure("Popup.Msg.TLabel", background=_BG_MAIN, foreground=_TEXT_COLOR, font=(_FONT_FAMILY, 10))
+    style.configure("Popup.Icon.TLabel", 
+                   background=_BG_MAIN, 
+                   font=(AppTheme.FONT_FAMILY, 30, "bold"))
+    style.configure("Popup.Title.TLabel", 
+                   background=_BG_MAIN, 
+                   foreground=_TEXT_COLOR, 
+                   font=(AppTheme.FONT_FAMILY, 13, "bold"))
+    style.configure("Popup.Msg.TLabel", 
+                   background=_BG_MAIN, 
+                   foreground=_TEXT_COLOR, 
+                   font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))
     
     # Generic button style
-    style.configure("Popup.TButton", font=(_FONT_FAMILY, 10), padding=(14, 6))
+    style.configure("Popup.TButton", 
+                   font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL), 
+                   padding=(14, 6))
     style.map("Popup.TButton", background=[("active", "#F1F4F8")])
 
     # Primary action button style (e.g., Yes, OK, Adopt)
-    style.configure("Primary.Popup.TButton", font=(_FONT_FAMILY, 10, "bold"))
+    style.configure("Primary.Popup.TButton", 
+                   font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"))
     style.map("Primary.Popup.TButton", background=[("active", "#E3F2E9")])
 
     # Secondary/Cancel action button style
-    style.configure("Secondary.Popup.TButton", font=(_FONT_FAMILY, 10))
+    style.configure("Secondary.Popup.TButton", 
+                   font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))
     style.map("Secondary.Popup.TButton", background=[("active", "#F8E5E5")])
 
 def _center_window(win: tk.Toplevel, parent: tk.Widget = None):
@@ -103,7 +124,7 @@ def _auto_size(top: tk.Toplevel, container: ttk.Frame, text_widgets):
     top.geometry(f"{width}x{height}")
 
 # ---------------------------------------------------------------------------
-# Public Popups
+# Public Popups (NO CHANGES NEEDED)
 # ---------------------------------------------------------------------------
 
 def custom_popup(parent, title, message, kind="info"):
@@ -179,7 +200,6 @@ def custom_dialog(parent, title, message, buttons, kind="question"):
     return result["value"]
 
 def show_toast(parent, message, kind="info", duration=2500):
-    # This function remains unchanged
     if kind not in _ACCENTS: kind = "info"
     toast = tk.Toplevel(parent if parent and parent.winfo_exists() else None)
     toast.overrideredirect(True)

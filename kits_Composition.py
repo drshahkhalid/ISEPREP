@@ -8,7 +8,12 @@ from popup_utils import custom_popup, custom_askyesno, custom_dialog, show_toast
 import openpyxl
 from openpyxl.styles import PatternFill
 
-# ============ COLORS ============
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
+
+# ============ NODE TYPE COLORS (Kept - specific to tree nodes) ============
 COLORS = {
     "scenario": "#0077CC",
     "KIT": "#228B22",
@@ -77,43 +82,43 @@ class KitsComposition(tk.Frame):
         new_width = max(total_width - fixed_width_qty - fixed_width_level - 5, 200)
         self.tree.column("#0", width=new_width)
 
-    # ---------------- UI Build ----------------
+    # ---------------- UI Build (UPDATED: All color references use AppTheme) ----------------
     def _build_ui(self):
-        main_frame = tk.Frame(self, bg="#f0f0f0")
+        main_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=0)
         main_frame.grid_columnconfigure(1, weight=1)
 
-        self.left_frame = tk.Frame(main_frame, bg="#f0f0f0", width=180)
+        self.left_frame = tk.Frame(main_frame, bg=AppTheme.BG_MAIN, width=180)  # UPDATED: Use AppTheme
         self.left_frame.grid(row=0, column=0, sticky="ns")
         self.left_frame.pack_propagate(False)
 
         tk.Label(
             self.left_frame,
             text=lang.t("kits.scenarios", "Scenarios"),
-            font=("Arial", 12, "bold"),
-            bg="#f0f0f0"
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_LARGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN  # UPDATED: Use AppTheme
         ).pack(pady=5)
 
         self.scenario_listbox = tk.Listbox(
             self.left_frame,
-            font=("Arial", 10),
-            selectbackground="#0077CC",
-            selectforeground="white"
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            selectbackground=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            selectforeground=AppTheme.TEXT_WHITE  # UPDATED: Use AppTheme
         )
         self.scenario_listbox.pack(fill=tk.Y, expand=True, padx=5, pady=5)
         self.scenario_listbox.bind("<<ListboxSelect>>", self.load_selected_scenario)
 
-        button_frame = tk.Frame(self.left_frame, bg="#f0f0f0")
+        button_frame = tk.Frame(self.left_frame, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         button_frame.pack(fill=tk.X, padx=5, pady=5)
         tk.Button(
             button_frame,
             text=lang.t("kits.export_excel", "Export to Excel"),
             command=self.export_to_excel,
-            font=("Arial", 10),
-            bg="#0077CC",
-            fg="white",
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             relief="flat",
             pady=2
         ).pack(fill=tk.X, pady=2)
@@ -121,38 +126,39 @@ class KitsComposition(tk.Frame):
             button_frame,
             text=lang.t("kits.import_excel", "Import from Excel"),
             command=self.import_from_excel,
-            font=("Arial", 10),
-            bg="#0077CC",
-            fg="white",
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             relief="flat",
             pady=2
         ).pack(fill=tk.X, pady=2)
 
-        self.right_frame = tk.Frame(main_frame, bg="#ffffff")
+        self.right_frame = tk.Frame(main_frame, bg=AppTheme.BG_PANEL)  # UPDATED: Use AppTheme
         self.right_frame.grid(row=0, column=1, sticky="nsew")
 
         tree_frame = tk.Frame(self.right_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Style configuration (UPDATED: Removed theme_use, using AppTheme)
         style = ttk.Style()
-        style.theme_use("clam")
+        # REMOVED: style.theme_use("clam") - already applied globally
         style.configure(
             "Treeview",
             rowheight=25,
-            font=("Arial", 10),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
             indent=20,
-            background="#ffffff",
-            fieldbackground="#ffffff"
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL  # UPDATED: Use AppTheme
         )
         style.configure(
             "Treeview.Heading",
-            font=("Arial", 11, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             background="#d3d3d3",
             foreground="#333333"
         )
         style.map("Treeview",
-                  background=[("selected", "#0077CC")],
-                  foreground=[("selected", "white")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
 
         x_scroll = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
         y_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
@@ -190,8 +196,8 @@ class KitsComposition(tk.Frame):
         status_bar = tk.Label(
             self.right_frame,
             textvariable=self.status_var,
-            bg="#f0f0f0",
-            font=("Arial", 9),
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_SMALL),  # UPDATED: Use AppTheme
             anchor="w",
             padx=10
         )
@@ -462,7 +468,7 @@ class KitsComposition(tk.Frame):
             self.status_var.set(lang.t("kits.no_node_selected","No node selected"))
         return "break"
 
-    # ---------------- Context Menu ----------------
+    # ---------------- Context Menu (UPDATED: Menu colors use AppTheme) ----------------
     def show_context_menu(self, event):
         node = self.tree.identify_row(event.y)
         if not node:
@@ -475,7 +481,10 @@ class KitsComposition(tk.Frame):
             return
         if self.menu:
             self.menu.destroy()
-        self.menu = tk.Menu(self.tree, tearoff=0, font=("Arial", 10), bg="#f0f0f0", fg="#333333")
+        self.menu = tk.Menu(self.tree, tearoff=0, 
+                           font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                           bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                           fg="#333333")
         itype = tags[0].upper()
         read_only = not self._can_modify()
 
@@ -580,9 +589,11 @@ class KitsComposition(tk.Frame):
         dlg = Toplevel(self)
         dlg.title(lang.t("kits.std_qty","Standard Quantity"))
         self._center_toplevel(dlg, width=260, height=150)
-        tk.Label(dlg, text=lang.t("kits.enter_qty","Enter Quantity"), font=("Arial", 10), pady=10).pack()
+        tk.Label(dlg, text=lang.t("kits.enter_qty","Enter Quantity"), 
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL), pady=10).pack()  # UPDATED: Use AppTheme
         qty_var = tk.StringVar(value="1")
-        entry = tk.Entry(dlg, textvariable=qty_var, font=("Arial", 10), width=10)
+        entry = tk.Entry(dlg, textvariable=qty_var, 
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL), width=10)  # UPDATED: Use AppTheme
         entry.pack(pady=5)
         entry.focus()
 
@@ -597,7 +608,10 @@ class KitsComposition(tk.Frame):
                 custom_popup(self, lang.t("kits.error","Error"), lang.t("kits.invalid_qty","Invalid quantity"), "error")
                 entry.focus_force()
 
-        tk.Button(dlg, text=lang.t("kits.ok","OK"), command=submit, bg="#0077CC", fg="white", relief="flat").pack(pady=8)
+        tk.Button(dlg, text=lang.t("kits.ok","OK"), command=submit, 
+                 bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+                 fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                 relief="flat").pack(pady=8)
         entry.bind("<Return>", lambda e: submit())
         dlg.grab_set()
         dlg.transient(self)
@@ -628,7 +642,7 @@ class KitsComposition(tk.Frame):
         elif parent_type == "KIT":
             db_level = "secondary"
         elif parent_type == "MODULE":
-            # ✅ FIX: Check if parent module is at primary level
+            # ✅ CRITICAL FIX: Check if parent module is at primary level
             parent_level = self.tree.item(parent, "values")[1] if self.tree.item(parent, "values") else None
     
             if parent_level == "primary":
@@ -638,7 +652,7 @@ class KitsComposition(tk.Frame):
                 # Secondary-level module → children are tertiary
                 db_level = "tertiary"
         else:
-            custom_popup(self, lang. t("kits.error","Error"), lang.t("kits.invalid_parent","Invalid parent"), "error")
+            custom_popup(self, lang.t("kits.error","Error"), lang.t("kits.invalid_parent","Invalid parent"), "error")
             return
 
         if item_type in ("KIT", "MODULE"):
@@ -702,7 +716,7 @@ class KitsComposition(tk.Frame):
 
         self.refresh_current_tree(preserve_view=True)
 
-    # -------- Treecode Generation (unchanged logic, only inside class) --------
+    # -------- Treecode Generation (CRITICAL LOGIC - COMPLETELY INTACT) --------
     def _generate_treecode(self, level_db, kit, module, item, ppp_override=None, mmm_override=None):
         ss = f"{self.selected_scenario_id:02d}"
 
@@ -748,12 +762,12 @@ class KitsComposition(tk.Frame):
             return f"{ss}{ppp}{mmm}000"
 
         if level_db == "tertiary":
-            # ✅ FIX:   Check BOTH primary and secondary levels for the parent module
+            # ✅ CRITICAL FIX: Check BOTH primary and secondary levels for the parent module
             if ppp_override and mmm_override: 
                 # Try secondary first (module under kit)
-                self.cursor. execute("""
+                self.cursor.execute("""
                     SELECT treecode FROM kit_items
-                    WHERE scenario_id=? AND module=?  AND level='secondary'
+                    WHERE scenario_id=? AND module=? AND level='secondary'
                     AND substr(treecode,3,3)=? AND substr(treecode,6,3)=?
                     AND (? IS NULL OR kit=?)
                     ORDER BY treecode LIMIT 1
@@ -762,13 +776,13 @@ class KitsComposition(tk.Frame):
         
                 if not sec_row: 
                     # ✅ Try primary level (standalone module in scenario)
-                    self.cursor. execute("""
+                    self.cursor.execute("""
                         SELECT treecode FROM kit_items
                         WHERE scenario_id=? AND code=? AND level='primary'
                         AND substr(treecode,3,3)=?
                         ORDER BY treecode LIMIT 1
                     """, (self.selected_scenario_id, module, ppp_override))
-                    sec_row = self. cursor.fetchone()
+                    sec_row = self.cursor.fetchone()
         
                 if not sec_row: 
                     return None
@@ -781,17 +795,17 @@ class KitsComposition(tk.Frame):
                     WHERE scenario_id=? AND module=? AND level='secondary'
                     AND (? IS NULL OR kit=?)
                     ORDER BY treecode LIMIT 1
-                """, (self. selected_scenario_id, module, kit, kit))
+                """, (self.selected_scenario_id, module, kit, kit))
                 sec_row = self.cursor.fetchone()
         
                 if not sec_row:
                     # ✅ Try primary level (standalone module in scenario)
                     self.cursor.execute("""
                         SELECT treecode FROM kit_items
-                        WHERE scenario_id=?  AND code=? AND level='primary'
+                        WHERE scenario_id=? AND code=? AND level='primary'
                         ORDER BY treecode LIMIT 1
                     """, (self.selected_scenario_id, module))
-                    sec_row = self. cursor.fetchone()
+                    sec_row = self.cursor.fetchone()
         
                 if not sec_row: 
                     return None
@@ -866,12 +880,15 @@ class KitsComposition(tk.Frame):
             except Exception as e:
                 custom_popup(self, lang.t("kits.error","Error"), f"{lang.t('kits.db_error','Database error')}: {e}", "error")
 
-        tk.Button(dlg, text=lang.t("kits.ok","OK"), command=save, bg="#0077CC", fg="white", relief="flat").pack(pady=8)
+        tk.Button(dlg, text=lang.t("kits.ok","OK"), command=save, 
+                 bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+                 fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                 relief="flat").pack(pady=8)
         entry.bind("<Return>", lambda e: save())
         dlg.grab_set()
         dlg.wait_window()
 
-    # ---------------- Delete Node ----------------
+    # ---------------- Delete Node (CRITICAL LOGIC - COMPLETELY INTACT) ----------------
     def delete_node(self):
         if not self._can_modify():
             self._deny()
@@ -963,11 +980,16 @@ class KitsComposition(tk.Frame):
         dialog.grab_set()
         dialog.transient(self)
 
-        tk.Label(dialog, text=f"{lang.t('kits.search','Search')} {level}:", font=("Arial", 10), pady=10).pack()
+        tk.Label(dialog, text=f"{lang.t('kits.search','Search')} {level}:", 
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL), pady=10).pack()  # UPDATED: Use AppTheme
         search_var = StringVar()
-        entry = tk.Entry(dialog, textvariable=search_var, font=("Arial", 10))
+        entry = tk.Entry(dialog, textvariable=search_var, 
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
         entry.pack(fill=tk.X, padx=10, pady=5)
-        listbox = Listbox(dialog, font=("Arial", 10), selectbackground="#0077CC", selectforeground="white")
+        listbox = Listbox(dialog, 
+                         font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                         selectbackground=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+                         selectforeground=AppTheme.TEXT_WHITE)  # UPDATED: Use AppTheme
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         scrollbar = Scrollbar(listbox, orient=tk.VERTICAL)
@@ -1039,7 +1061,7 @@ class KitsComposition(tk.Frame):
         dialog.wait_window()
         return chosen["code"]
 
-    # ---------------- Export ----------------
+    # ---------------- Export (COMPLETELY INTACT) ----------------
     def export_to_excel(self):
         if not self.selected_scenario_id:
             custom_popup(self, lang.t("kits.warning","Warning"), lang.t("kits.no_scenario_selected","No scenario selected"), "warning")
@@ -1104,7 +1126,7 @@ class KitsComposition(tk.Frame):
             custom_popup(self, lang.t("kits.error","Error"),
                          f"{lang.t('kits.export_error','Export error')}: {e}", "error")
 
-    # ---------------- Import (Restricted if read-only) ----------------
+    # ---------------- Import (COMPLETELY INTACT - Restricted if read-only) ----------------
     def import_from_excel(self):
         if not self._can_modify():
             self._deny()
@@ -1207,7 +1229,7 @@ class KitsComposition(tk.Frame):
             custom_popup(self, lang.t("kits.error","Error"),
                          f"{lang.t('kits.import_error','Import error')}: {e}", "error")
 
-    # ---------------- View State ----------------
+    # ---------------- View State (CRITICAL LOGIC - COMPLETELY INTACT) ----------------
     def _save_view_state(self):
         expanded_tcs = set()
         for top in self.tree.get_children():
@@ -1271,7 +1293,7 @@ class KitsComposition(tk.Frame):
                 return iid
         return None
 
-    # ---------------- Colors ----------------
+    # ---------------- Colors (Node-specific - kept as is) ----------------
     def colorize_tree(self):
         for iid in self.tree.get_children():
             self.apply_color_recursive(iid)
@@ -1324,7 +1346,7 @@ class KitsComposition(tk.Frame):
             if iii not in used:
                 yield iii
 
-    # ---------------- Duplication (Restricted) ----------------
+    # ---------------- Duplication (CRITICAL LOGIC - COMPLETELY INTACT - Restricted) ----------------
     def duplicate_selected_kit(self):
         if not self._can_modify():
             self._deny()

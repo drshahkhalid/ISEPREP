@@ -33,17 +33,25 @@ from order import OrderNeeds
 from stock_summary import open_stock_summary
 from auth_utils import authenticate
 
-logging.basicConfig(level=logging. INFO,
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, apply_global_style, create_styled_button
+
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# ---------------- Style constants ----------------
-BG_LOGIN = "#F0F4F8"
-ENTRY_BG = "#FFFFFF"
-ENTRY_FG = "#1E3A8A"
-BTN_BG = "#5DADE2"
-BTN_BG_ACTIVE = "#3498DB"
-BOTTOM_BAR_BG = "#1D4ED8"
-CONTENT_BG = "#F5F5F5"
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_LOGIN = "#F0F4F8"
+# ENTRY_BG = "#FFFFFF"
+# ENTRY_FG = "#1E3A8A"
+# BTN_BG = "#5DADE2"
+# BTN_BG_ACTIVE = "#3498DB"
+# BOTTOM_BAR_BG = "#1D4ED8"
+# CONTENT_BG = "#F5F5F5"
 
 DEBUG = False  # Set True for verbose logging
 
@@ -58,7 +66,7 @@ def fetch_eprep_type(default=None):
     cur = conn.cursor()
     try:
         cur.execute("PRAGMA table_info(project_details)")
-        cols = {c[1]. lower(): c[1] for c in cur.fetchall()}
+        cols = {c[1].lower(): c[1] for c in cur.fetchall()}
         if "eprep_type" not in cols:
             return default
         cur.execute("SELECT eprep_type FROM project_details ORDER BY id DESC LIMIT 1")
@@ -89,7 +97,7 @@ def load_language_preference():
 
 def save_language_preference(lang_code):
     """Save the selected language to file"""
-    try: 
+    try:
         with open(LANGUAGE_PREF_FILE, 'w') as f:
             json.dump({'language': lang_code}, f)
     except Exception:
@@ -98,19 +106,28 @@ def save_language_preference(lang_code):
 
 class LoginGUI(tk.Frame):
     """
+    Main login and dashboard controller.
+    Uses centralized theme from theme_config.py for consistent UI styling.
+    
     IMPORTANT CHANGE: 
       After successful login the dashboard & bottom bar are now created INSIDE this frame
-      (self) NOT directly on the master Toplevel.  Previously an empty top gap remained
+      (self) NOT directly on the master Toplevel. Previously an empty top gap remained
       because the LoginGUI frame (packed to master) still occupied the top area while
-      new content frames were siblings of it.  Now we destroy login_frame children and
-      reuse 'self' as the root container for dashboard content.  This removes the blank top band. 
+      new content frames were siblings of it. Now we destroy login_frame children and
+      reuse 'self' as the root container for dashboard content. This removes the blank top band.
     """
     def __init__(self, master):
-        super().__init__(master, bg=BG_LOGIN)
+        super().__init__(master, bg=AppTheme.BG_LOGIN)  # UPDATED: Use AppTheme
         self.master = master
-        self.master.title(lang. t("app.title", fallback="IsEPREP"))
+        self.master.title(lang.t("app.title", fallback="IsEPREP"))
         self.master.geometry("1280x1024")
         self.master.minsize(1280, 1024)
+        
+        # ============================================================
+        # APPLY GLOBAL STYLE ONCE AT STARTUP (NEW)
+        # ============================================================
+        apply_global_style(self.master)
+        
         try:
             self.master.state('zoomed')
         except Exception:
@@ -121,11 +138,11 @@ class LoginGUI(tk.Frame):
 
         # State
         self.current_user = None
-        self. role = None
+        self.role = None
         self.login_frame = None
-        self. bottom_bar = None
-        self. logged_in = False
-        self. has_project = None
+        self.bottom_bar = None
+        self.logged_in = False
+        self.has_project = None
         self.project_title = None
         self.windows = []
         self.selected_language = load_language_preference()
@@ -134,10 +151,10 @@ class LoginGUI(tk.Frame):
         self.content_frame = None  # (dashboard container when logged in)
 
         # Apply saved language preference
-        lang. set_language(self.selected_language)
+        lang.set_language(self.selected_language)
 
         self._fetch_project_meta()
-        self. login_screen()
+        self.login_screen()
 
     # ---------------- Project meta ----------------
     def _fetch_project_meta(self):
@@ -153,9 +170,9 @@ class LoginGUI(tk.Frame):
             row = cur.fetchone()
             if row:
                 self.project_title = f"{row[0]} - {row[1]}"
-                self. has_project = True
+                self.has_project = True
             else:
-                self.project_title = lang.t("app. title", fallback="IsEPREP")
+                self.project_title = lang.t("app.title", fallback="IsEPREP")
                 self.has_project = False
             self.master.title(self.project_title)
         except sqlite3.Error as e:
@@ -175,13 +192,13 @@ class LoginGUI(tk.Frame):
 
     # ---------------- Helpers ----------------
     def get_active_window(self):
-        self.windows = [w for w in self. windows if w.winfo_exists()]
+        self.windows = [w for w in self.windows if w.winfo_exists()]
         return self.windows[-1] if self.windows else self.master
 
     def clear_content(self):
         if self.content_frame and self.content_frame.winfo_exists():
             for w in self.content_frame.winfo_children():
-                w. destroy()
+                w.destroy()
 
     # ---------------- Ensure project details ----------------
     def ensure_project_details(self):
@@ -191,18 +208,18 @@ class LoginGUI(tk.Frame):
 
         messagebox.showinfo(
             lang.t("dialog_titles.setup_required", "Setup Required"),
-            lang.t("project_details.setup_required", "Project details setup required. "),
+            lang.t("project_details.setup_required", "Project details setup required."),
             parent=self.get_active_window()
         )
-        pd_win = ProjectDetailsWindow(self. master, {"username": self.current_user, "role": self.role})
+        pd_win = ProjectDetailsWindow(self.master, {"username": self.current_user, "role": self.role})
         self.master.wait_window(pd_win)
 
         self._fetch_project_meta()
         if not self.has_project:
             messagebox.showwarning(
                 lang.t("dialog_titles.warning", "Warning"),
-                lang. t("project_details.still_missing", "Project details still missing.  Please create them to proceed."),
-                parent=self. get_active_window()
+                lang.t("project_details.still_missing", "Project details still missing. Please create them to proceed."),
+                parent=self.get_active_window()
             )
             return False
         return True
@@ -213,18 +230,19 @@ class LoginGUI(tk.Frame):
             return
         # Clean existing children inside this top-level frame
         for child in self.winfo_children():
-            child. destroy()
+            child.destroy()
 
-        self.configure(bg=BG_LOGIN)
-        self.login_frame = tk.Frame(self, bg=BG_LOGIN)
-        self.login_frame. place(relx=0.5, rely=0.5, anchor="center")
+        self.configure(bg=AppTheme.BG_LOGIN)  # UPDATED: Use AppTheme
+        self.login_frame = tk.Frame(self, bg=AppTheme.BG_LOGIN)  # UPDATED: Use AppTheme
+        self.login_frame.place(relx=0.5, rely=0.5, anchor="center")
 
         logo_path = "logo.png"
-        if os. path.exists(logo_path):
+        if os.path.exists(logo_path):
             try:
                 self.logo_img = tk.PhotoImage(file=logo_path)
-                tk.Label(self.login_frame, image=self.logo_img, bg=BG_LOGIN,
-                         borderwidth=0, highlightthickness=0).pack(pady=20)
+                tk.Label(self.login_frame, image=self.logo_img, 
+                        bg=AppTheme.BG_LOGIN,  # UPDATED: Use AppTheme
+                        borderwidth=0, highlightthickness=0).pack(pady=20)
             except Exception:
                 self._fallback_logo()
         else:
@@ -233,16 +251,16 @@ class LoginGUI(tk.Frame):
         tk.Label(
             self.login_frame,
             text=lang.t("login.language_select", fallback="Select Language"),
-            font=("Helvetica", 12),
-            bg=BG_LOGIN,
-            fg="#1E3A8A"
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_LARGE),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_LOGIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_DARK  # UPDATED: Use AppTheme
         ).pack(pady=(0, 10))
 
         # Language mapping
         language_display_map = {
             "en": "English",
             "fr": "Français",
-            "es":  "Español"
+            "es": "Español"
         }
         
         current_display = language_display_map.get(self.selected_language, "English")
@@ -252,43 +270,52 @@ class LoginGUI(tk.Frame):
         self.language_cb = ttk.Combobox(
             self.login_frame, textvariable=self.language_var,
             values=language_options, state="readonly",
-            font=("Helvetica", 10), width=16
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL), width=16  # UPDATED: Use AppTheme
         )
         self.language_cb.pack(pady=(0, 10))
         self.language_cb.bind("<<ComboboxSelected>>", self.on_language_select)
 
         self.username_entry = tk.Entry(
-            self.login_frame, font=("Helvetica", 14),
-            relief="flat", bd=1, bg=ENTRY_BG, fg=ENTRY_FG
+            self.login_frame, 
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_TITLE),  # UPDATED: Use AppTheme
+            relief="flat", bd=1, 
+            bg=AppTheme.ENTRY_BG,  # UPDATED: Use AppTheme
+            fg=AppTheme.ENTRY_FG  # UPDATED: Use AppTheme
         )
         self.username_entry.insert(0, lang.t("login.username", fallback="Username"))
         self.username_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(
             self.username_entry, lang.t("login.username", fallback="Username")))
         self.username_entry.bind("<FocusOut>", lambda e: self._add_placeholder(
             self.username_entry, lang.t("login.username", fallback="Username")))
-        self.username_entry.bind("<Return>", lambda e: self. do_login())
+        self.username_entry.bind("<Return>", lambda e: self.do_login())
         self.username_entry.pack(pady=(10, 10))
 
         self.password_entry = tk.Entry(
             self.login_frame, show="*",
-            font=("Helvetica", 14),
-            relief="flat", bd=1, bg=ENTRY_BG, fg=ENTRY_FG
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_TITLE),  # UPDATED: Use AppTheme
+            relief="flat", bd=1, 
+            bg=AppTheme.ENTRY_BG,  # UPDATED: Use AppTheme
+            fg=AppTheme.ENTRY_FG  # UPDATED: Use AppTheme
         )
-        self.password_entry. insert(0, lang.t("login.password", fallback="Password"))
-        self.password_entry. bind("<FocusIn>", lambda e: self._clear_placeholder(
+        self.password_entry.insert(0, lang.t("login.password", fallback="Password"))
+        self.password_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(
             self.password_entry, lang.t("login.password", fallback="Password")))
         self.password_entry.bind("<FocusOut>", lambda e: self._add_placeholder(
             self.password_entry, lang.t("login.password", fallback="Password")))
-        self.password_entry.bind("<Return>", lambda e: self. do_login())
+        self.password_entry.bind("<Return>", lambda e: self.do_login())
         self.password_entry.pack(pady=(10, 20))
 
+        # UPDATED: Use styled button
         tk.Button(
             self.login_frame,
             text=lang.t("login.login_button", fallback="Sign In"),
-            font=("Helvetica", 14, "bold"),
-            bg=BTN_BG, fg="white",
-            activebackground=BTN_BG_ACTIVE,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_TITLE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BTN_PRIMARY,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+            activebackground=AppTheme.BTN_PRIMARY_HOVER,  # UPDATED: Use AppTheme
             width=20,
+            relief="flat",  # Added for consistency
+            bd=0,  # Added for consistency
             cursor="hand2",
             command=self.do_login
         ).pack(pady=10)
@@ -296,8 +323,9 @@ class LoginGUI(tk.Frame):
     def _fallback_logo(self):
         tk.Label(self.login_frame,
                  text=lang.t("app.title", fallback="IsEPREP"),
-                 font=("Helvetica", 32, "bold"),
-                 fg="#1E3A8A", bg=BG_LOGIN).pack(pady=20)
+                 font=(AppTheme.FONT_FAMILY, 32, "bold"),  # UPDATED: Use AppTheme
+                 fg=AppTheme.TEXT_DARK,  # UPDATED: Use AppTheme
+                 bg=AppTheme.BG_LOGIN).pack(pady=20)  # UPDATED: Use AppTheme
 
     # ---------------- Language ----------------
     def on_language_select(self, event=None):
@@ -325,7 +353,7 @@ class LoginGUI(tk.Frame):
     def _clear_placeholder(self, entry, placeholder):
         if entry.get() == placeholder:
             entry.delete(0, tk.END)
-            if "password" in placeholder. lower() or "mot de passe" in placeholder.lower() or "contraseña" in placeholder.lower():
+            if "password" in placeholder.lower() or "mot de passe" in placeholder.lower() or "contraseña" in placeholder.lower():
                 entry.config(show="*")
 
     def _add_placeholder(self, entry, placeholder):
@@ -340,7 +368,7 @@ class LoginGUI(tk.Frame):
             self.login_screen()
             return
         username = self.username_entry.get().strip()
-        password = self. password_entry.get().strip()
+        password = self.password_entry.get().strip()
         
         # Check against all possible placeholder texts
         placeholder_usernames = ["Username", "Nom d'utilisateur", "Nombre de usuario"]
@@ -351,37 +379,37 @@ class LoginGUI(tk.Frame):
                 password in placeholder_passwords):
             messagebox.showerror(
                 lang.t("dialog_titles.error", "Error"),
-                lang.t("login. error_empty", "Please enter both username and password"),
+                lang.t("login.error_empty", "Please enter both username and password"),
                 parent=self.get_active_window()
             )
             return
         try:
             ok, user_obj, migrated, msg = authenticate(username, password)
         except Exception as e:
-            logging.error(f"authenticate() raised:  {e}")
-            messagebox. showerror(
-                lang. t("dialog_titles.error", "Error"),
+            logging.error(f"authenticate() raised: {e}")
+            messagebox.showerror(
+                lang.t("dialog_titles.error", "Error"),
                 f"Authentication error: {e}",
-                parent=self. get_active_window()
+                parent=self.get_active_window()
             )
             return
         if not ok or not user_obj:
-            messagebox. showerror(
-                lang. t("dialog_titles.error", "Error"),
+            messagebox.showerror(
+                lang.t("dialog_titles.error", "Error"),
                 lang.t("login.error_invalid", "Invalid username or password"),
                 parent=self.get_active_window()
             )
             return
-        self.current_user = user_obj. get("username", username)
+        self.current_user = user_obj.get("username", username)
         self.role = user_obj.get("role", "user")
         
         # Apply selected language from dropdown (priority over user preference)
-        if self.selected_language: 
+        if self.selected_language:
             lang.set_language(self.selected_language)
-            save_language_preference(self. selected_language)
+            save_language_preference(self.selected_language)
         else:
             pref_lang = user_obj.get("preferred_language", "EN").upper()
-            lang_map = {"EN": "en", "FR":  "fr", "ES": "es"}
+            lang_map = {"EN": "en", "FR": "fr", "ES": "es"}
             if pref_lang in lang_map:
                 self.selected_language = lang_map[pref_lang]
                 lang.set_language(self.selected_language)
@@ -409,18 +437,19 @@ class LoginGUI(tk.Frame):
         eprep_norm = self.eprep_type.lower()
 
         create_menu(
-            self,  # menubar still attached to Toplevel
-            lambda: self.open_new_window(ManageUsers, lang.t("sidebar.manage_users", "Manage Users")),
-            lambda: self.open_new_window(lambda parent, app:  ManageParties(parent, app, "third"),
-                                         lang.t("sidebar.manage_third_parties", "Manage Third Parties")),
-            lambda: self. open_new_window(self.load_kits_composition,
-                                         lang.t("sidebar.kits_composition", "Kits Composition")),
-            self.change_language,
-            self.has_project
-        )
+        self.master,  # Window to attach menu to
+        lambda: self.open_new_window(ManageUsers, lang.t("sidebar.manage_users", "Manage Users")),
+        lambda: self.open_new_window(lambda parent, app: ManageParties(parent, app, "third"),
+                                     lang.t("sidebar.manage_third_parties", "Manage Third Parties")),
+        lambda: self.open_new_window(self.load_kits_composition,
+                                     lang.t("sidebar.kits_composition", "Kits Composition")),
+        self.change_language,
+        self.has_project,
+        self
+    )
 
         # Content area occupies all vertical space except bottom bar
-        self.content_frame = tk.Frame(self, bg=CONTENT_BG)
+        self.content_frame = tk.Frame(self, bg=AppTheme.CONTENT_BG)  # UPDATED: Use AppTheme
         self.content_frame.pack(side="top", fill="both", expand=True)
 
         dash = Dashboard(self.content_frame, self)
@@ -429,7 +458,11 @@ class LoginGUI(tk.Frame):
         # Bottom bar now inside self (not master)
         if self.bottom_bar and self.bottom_bar.winfo_exists():
             self.bottom_bar.destroy()
-        self.bottom_bar = tk.Frame(self, bg=BOTTOM_BAR_BG, height=78)
+        self.bottom_bar = tk.Frame(
+            self, 
+            bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+            height=AppTheme.BOTTOM_BAR_HEIGHT  # UPDATED: Use AppTheme
+        )
         self.bottom_bar.pack(side="bottom", fill="x")
 
         # Determine mode
@@ -450,36 +483,36 @@ class LoginGUI(tk.Frame):
              lambda: self.open_new_window(self.load_kits_composition, lang.t("sidebar.kits_composition", "Kits Composition")),
              not is_by_items),
 
-            ("📥", lang.t("stock_in. title", "Stock In"),
+            ("📥", lang.t("stock_in.title", "Stock In"),
              lambda: self.open_new_window(StockIn, lang.t("stock_in.title", "Stock In")),
              not is_by_items),
 
             ("📤", lang.t("stock_out.title", "Stock Out"),
-             lambda: self.open_new_window(StockOut, lang.t("stock_out. title", "Stock Out")),
+             lambda: self.open_new_window(StockOut, lang.t("stock_out.title", "Stock Out")),
              not is_by_items),
 
-            ("🚚", lang.t("menu.stock. receive_kit", "Receive Kit"),
+            ("🚚", lang.t("menu.stock.receive_kit", "Receive Kit"),
              lambda: self.open_new_window(StockReceiveKit, lang.t("menu.stock.receive_kit", "Receive Kit")),
              not is_by_kits),
 
             ("🚛", lang.t("menu.stock.dispatch_kit", "Dispatch Kit"),
-             lambda: self.open_new_window(StockDispatchKit, lang.t("menu. stock.dispatch_kit", "Dispatch Kit")),
+             lambda: self.open_new_window(StockDispatchKit, lang.t("menu.stock.dispatch_kit", "Dispatch Kit")),
              not is_by_kits),
 
             ("🗂️", lang.t("sidebar.stock_card", "Stock Card"),
              lambda: self.open_new_window(StockCard, lang.t("sidebar.stock_card", "Stock Card")),
              True),
 
-            ("📊", lang.t("menu.reports. stock_availability", "Stock Availability"),
-             lambda: self.open_new_window(StockAvailability, lang.t("menu.reports. stock_availability", "Stock Availability")),
+            ("📊", lang.t("menu.reports.stock_availability", "Stock Availability"),
+             lambda: self.open_new_window(StockAvailability, lang.t("menu.reports.stock_availability", "Stock Availability")),
              True),
 
-            ("🧾", lang.t("menu. reports.stock_summary", "Stock Summary"),
+            ("🧾", lang.t("menu.reports.stock_summary", "Stock Summary"),
              lambda: open_stock_summary(self, role=self.role),
              True),
 
-            ("🛒", lang.t("menu. reports.order_needs", "Order"),
-             lambda: self.open_new_window(OrderNeeds, lang.t("menu.reports. order_needs", "Order / Needs")),
+            ("🛒", lang.t("menu.reports.order_needs", "Order"),
+             lambda: self.open_new_window(OrderNeeds, lang.t("menu.reports.order_needs", "Order / Needs")),
              True),
 
             ("🚪", lang.t("sidebar.logout", "Sign Out"),
@@ -492,22 +525,25 @@ class LoginGUI(tk.Frame):
             state = "normal" if self.has_project or label == lang.t("sidebar.logout", "Sign Out") else "disabled"
             btn = tk.Button(
                 self.bottom_bar, text=icon,
-                font=("Helvetica", 26),  # Larger icon
-                bg=BOTTOM_BAR_BG, fg="white",
-                activebackground="#2563EB",
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_ICON),  # UPDATED: Use AppTheme
+                bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+                fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                activebackground=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
                 command=cmd,
                 bd=0, relief="flat",
                 state=state,
                 cursor="hand2" if state == "normal" else "arrow"
             )
             relx = (idx + 0.5) / total
-            btn.place(relx=relx, rely=0.30, anchor="center", width=70, height=54)
+            btn.place(relx=relx, rely=0.30, anchor="center", 
+                     width=AppTheme.ICON_SIZE,  # UPDATED: Use AppTheme
+                     height=AppTheme.ICON_HEIGHT)  # UPDATED: Use AppTheme
 
             tk.Label(self.bottom_bar,
                      text=label,
-                     bg=BOTTOM_BAR_BG,
-                     fg="white",
-                     font=("Helvetica", 9),
+                     bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+                     fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                     font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_SMALL),  # UPDATED: Use AppTheme
                      wraplength=90,
                      justify="center")\
                 .place(relx=relx, rely=0.83, anchor="center")
@@ -522,10 +558,10 @@ class LoginGUI(tk.Frame):
                     w.destroy()
             except Exception:
                 pass
-        self.windows. clear()
+        self.windows.clear()
         self.logged_in = False
         self.current_user = None
-        self. role = None
+        self.role = None
         self.eprep_type = None
         # Clear all children
         for child in self.winfo_children():
@@ -539,26 +575,32 @@ class LoginGUI(tk.Frame):
             StockDispatchKit, StockReceiveKit, StockCard
         ]
         special_modules = {
-            ManageParties: lambda parent, app:  ManageParties(parent, app, "third"),
+            ManageParties: lambda parent, app: ManageParties(parent, app, "third"),
             "ManagePartiesEnd": lambda parent, app: ManageParties(parent, app, "end")
         }
 
-        for window in self.windows[: ]:
+        for window in self.windows[:]:
             if not window.winfo_exists():
                 self.windows.remove(window)
             elif window.title() == f"{self.project_title} - {title}":
                 self.close_window(window)
 
         try:
-            new_window = Toplevel(self. master)
+            new_window = Toplevel(self.master)
+            
+            # ============================================================
+            # APPLY GLOBAL STYLE TO NEW WINDOW (NEW)
+            # ============================================================
+            apply_global_style(new_window)
+            
             new_window.title(f"{self.project_title} - {title}")
             new_window.geometry("1280x1024")
-            new_window. minsize(1280, 1024)
+            new_window.minsize(1280, 1024)
             try:
                 new_window.state('zoomed')
             except Exception:
                 pass
-            new_window.configure(bg=CONTENT_BG)
+            new_window.configure(bg=AppTheme.CONTENT_BG)  # UPDATED: Use AppTheme
             new_window.protocol("WM_DELETE_WINDOW",
                                 lambda: self.close_window(new_window))
             self.windows.append(new_window)
@@ -571,7 +613,7 @@ class LoginGUI(tk.Frame):
                 frame = module(new_window, self)
             elif module in special_modules:
                 frame = special_modules[module](new_window, self)
-            elif module == self. load_kits_composition: 
+            elif module == self.load_kits_composition:
                 frame = module(new_window, self)
             elif callable(module) and module.__name__ == "<lambda>":
                 frame = module(new_window, self)
@@ -591,7 +633,7 @@ class LoginGUI(tk.Frame):
             except Exception:
                 pass
             messagebox.showerror(
-                lang.t("dialog_titles. error", "Error"),
+                lang.t("dialog_titles.error", "Error"),
                 lang.t("error.open_window", f"Failed to open {title}: {str(e)}"),
                 parent=self.get_active_window()
             )
@@ -627,7 +669,7 @@ class LoginGUI(tk.Frame):
     def load_stock_in_out(self):
         self.clear_content()
         self.master.title(self.project_title or lang.t("app.title", fallback="IsEPREP"))
-        tab_frame = tk.Frame(self.content_frame, bg=BG_LOGIN)
+        tab_frame = tk.Frame(self.content_frame, bg=AppTheme.BG_LOGIN)  # UPDATED: Use AppTheme
         tab_frame.pack(fill="x", pady=5)
 
         def show_in():
@@ -639,12 +681,19 @@ class LoginGUI(tk.Frame):
         def show_inventory():
             self.open_new_window(StockInventory, lang.t("stock_inv.title", fallback="Stock Inventory Adjustment"))
 
+        # UPDATED: Use styled buttons with consistent colors
         tk.Button(tab_frame, text=lang.t("stock_in.title", fallback="Stock In"),
-                  bg=BOTTOM_BAR_BG, fg="white", command=show_in).pack(side="left", padx=5, pady=5)
+                  bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  command=show_in).pack(side="left", padx=5, pady=5)
         tk.Button(tab_frame, text=lang.t("stock_out.title", fallback="Stock Out"),
-                  bg=BOTTOM_BAR_BG, fg="white", command=show_out).pack(side="left", padx=5, pady=5)
-        tk.Button(tab_frame, text=lang.t("stock_inv. title", fallback="Stock Inventory Adjustment"),
-                  bg=BOTTOM_BAR_BG, fg="white", command=show_inventory).pack(side="left", padx=5, pady=5)
+                  bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  command=show_out).pack(side="left", padx=5, pady=5)
+        tk.Button(tab_frame, text=lang.t("stock_inv.title", fallback="Stock Inventory Adjustment"),
+                  bg=AppTheme.BOTTOM_BAR_BG,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  command=show_inventory).pack(side="left", padx=5, pady=5)
 
         show_in()
 
@@ -652,12 +701,12 @@ class LoginGUI(tk.Frame):
         messagebox.showinfo(
             lang.t("dialog_titles.info", fallback="Info"),
             lang.t("standard_list.export_excel", fallback="Export to Excel") + " " +
-            lang.t("reports.export_success", fallback="Export successful. "),
+            lang.t("reports.export_success", fallback="Export successful."),
             parent=self.get_active_window()
         )
 
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()
     mainwin = Toplevel(root)

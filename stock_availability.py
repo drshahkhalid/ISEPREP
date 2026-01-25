@@ -44,19 +44,26 @@ from language_manager import lang
 from popup_utils import custom_popup
 from manage_items import get_item_description, detect_type
 
-# ---------------- Theme Constants ----------------
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_EXPORT     = "#2980B9"
-BTN_REFRESH    = "#2563EB"
-BTN_CLEAR      = "#7F8C8D"
-BTN_TOGGLE     = "#8E44AD"
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
 
-EXPIRED_LIGHT_COLOR = "#FFF5F5"  # very light red
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_EXPORT     = "#2980B9"
+# BTN_REFRESH    = "#2563EB"
+# BTN_CLEAR      = "#7F8C8D"
+# BTN_TOGGLE     = "#8E44AD"
+# EXPIRED_LIGHT_COLOR = "#FFF5F5"  # Kept as it's already in AppTheme as EXPIRED_COLOR
 
 # ---------------- Helpers ----------------
 def add_months(year: int, month: int, delta: int):
@@ -302,7 +309,7 @@ class StockAvailabilityCalculator:
             except Exception:
                 pass
 
-# ---------------- UI ----------------
+# ---------------- UI (UPDATED: All color references use AppTheme) ----------------
 class StockAvailability(tk.Frame):
     SIMPLE_COLUMNS = ["code","description","quantity","expiry_date","amc","comments"]
     DETAILED_EXTRA = ["scenario","kit_number","module_number","management_mode",
@@ -326,7 +333,7 @@ class StockAvailability(tk.Frame):
     }
 
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.tree = None
         self.data_rows = []
@@ -337,92 +344,102 @@ class StockAvailability(tk.Frame):
     def t(self, key, fallback=None, **kwargs):
         return lang.t(f"stock_availability.{key}", fallback=fallback if fallback else key, **kwargs)
 
-    # ---------- UI Build ----------
+    # ---------- UI Build (UPDATED: All color references use AppTheme) ----------
     def _build_ui(self):
         tk.Label(
             self,
             text=self.t("title","Stock Availability"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w"
         ).pack(fill="x", padx=12, pady=(12, 4))
 
-        filt = tk.Frame(self, bg=BG_MAIN)
+        filt = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         filt.pack(fill="x", padx=12, pady=(0,10))
 
         # Row 1
-        r1 = tk.Frame(filt, bg=BG_MAIN)
+        r1 = tk.Frame(filt, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         r1.pack(fill="x", pady=2)
 
-        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=AppTheme.BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.mgmt_mode_var = tk.StringVar(value="All")
         ttk.Combobox(r1, textvariable=self.mgmt_mode_var, state="readonly", width=14,
                      values=["All","on-shelf","in-box"]).grid(row=0, column=1, padx=(0,14))
 
-        tk.Label(r1, text=self.t("scenario","Scenario"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("scenario","Scenario"), bg=AppTheme.BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.scenario_var = tk.StringVar(value="All")
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var, state="readonly", width=20)
         self.scenario_cb.grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r1, text=self.t("kit_number","Kit"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("kit_number","Kit"), bg=AppTheme.BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.kit_filter_var = tk.StringVar(value="All")
         self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_filter_var, state="readonly", width=16, values=["All"])
         self.kit_cb.grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r1, text=self.t("module_number","Module"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("module_number","Module"), bg=AppTheme.BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.module_filter_var = tk.StringVar(value="All")
         self.module_cb = ttk.Combobox(r1, textvariable=self.module_filter_var, state="readonly", width=16, values=["All"])
         self.module_cb.grid(row=0, column=7, padx=(0,14))
 
         # Row 2
-        r2 = tk.Frame(filt, bg=BG_MAIN)
+        r2 = tk.Frame(filt, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         r2.pack(fill="x", pady=2)
 
-        tk.Label(r2, text=self.t("item_search","Item Search"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("item_search","Item Search"), bg=AppTheme.BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.item_search_var = tk.StringVar()
         tk.Entry(r2, textvariable=self.item_search_var, width=22).grid(row=0, column=1, padx=(0,14))
 
-        tk.Label(r2, text=self.t("type","Type"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("type","Type"), bg=AppTheme.BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.type_var = tk.StringVar(value="All")
         ttk.Combobox(r2, textvariable=self.type_var, state="readonly", width=12,
                      values=["All","Kit","Module","Item"]).grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=AppTheme.BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.expiry_period_var = tk.StringVar(value="12")
         tk.Entry(r2, textvariable=self.expiry_period_var, width=6,
                  validate="key",
                  validatecommand=(self.register(self._val_1_99), "%P")).grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r2, text=self.t("amc_months","AMC Months"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("amc_months","AMC Months"), bg=AppTheme.BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.amc_months_var = tk.StringVar(value="6")
         tk.Entry(r2, textvariable=self.amc_months_var, width=6,
                  validate="key",
                  validatecommand=(self.register(self._val_1_99), "%P")).grid(row=0, column=7, padx=(0,14))
 
-        # Buttons
-        btn_row = tk.Frame(filt, bg=BG_MAIN)
+        # Buttons (UPDATED: All button colors use AppTheme)
+        btn_row = tk.Frame(filt, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_row.pack(fill="x", pady=(6,4))
         tk.Button(btn_row, text=self.t("refresh","Refresh"),
-                  bg=BTN_REFRESH, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_REFRESH,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.refresh).pack(side="left", padx=(0,6))
         tk.Button(btn_row, text=self.t("clear","Clear"),
-                  bg=BTN_CLEAR, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.clear_filters).pack(side="left", padx=(0,6))
         self.toggle_btn = tk.Button(btn_row, text=self.t("toggle_detailed","Detailed"),
-                                    bg=BTN_TOGGLE, fg="#FFFFFF", relief="flat",
+                                    bg=AppTheme.BTN_TOGGLE,  # UPDATED: Use AppTheme
+                                    fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                                    relief="flat",
                                     padx=14, pady=6, command=self.toggle_mode)
         self.toggle_btn.pack(side="left", padx=(0,6))
         tk.Button(btn_row, text=self.t("export","Export"),
-                  bg=BTN_EXPORT, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_EXPORT,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.export_excel).pack(side="left", padx=(0,6))
 
         self.status_var = tk.StringVar(value=self.t("ready","Ready"))
         tk.Label(self, textvariable=self.status_var, anchor="w",
-                 bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken").pack(fill="x", padx=12, pady=(0,8))
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 relief="sunken").pack(fill="x", padx=12, pady=(0,8))
 
-        # Tree
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        # Tree (UPDATED: Colors use AppTheme)
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0,12))
         
         # Create frame for horizontal scrollbar at bottom
@@ -445,24 +462,24 @@ class StockAvailability(tk.Frame):
         self.tree.configure(yscrollcommand=vsb.set)
         hsb.configure(command=self.tree.xview)
 
+        # Style configuration (UPDATED: Removed theme_use, using AppTheme)
         style = ttk.Style()
-        try: style.theme_use("clam")
-        except Exception: pass
+        # REMOVED: style.theme_use("clam") - already applied globally
         style.configure("Treeview",
-                        background=BG_PANEL,
-                        fieldbackground=BG_PANEL,
-                        foreground=COLOR_PRIMARY,
+                        background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                         rowheight=24,
-                        font=("Helvetica",10))
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
         style.configure("Treeview.Heading",
                         background="#E5E8EB",
-                        foreground=COLOR_PRIMARY,
-                        font=("Helvetica",11,"bold"))
-        self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
-        self.tree.tag_configure("kitrow", background="#228B22", foreground="#FFFFFF")
-        self.tree.tag_configure("modrow", background="#ADD8E6")
-        self.tree.tag_configure("expired_light", background=EXPIRED_LIGHT_COLOR)
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"))  # UPDATED: Use AppTheme
+        self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("kitrow", background=AppTheme.KIT_COLOR, foreground=AppTheme.TEXT_WHITE)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("modrow", background=AppTheme.MODULE_COLOR)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("expired_light", background=AppTheme.EXPIRED_COLOR)  # UPDATED: Use AppTheme
 
     # ---------- Validation ----------
     def _val_1_99(self, P):

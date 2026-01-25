@@ -22,7 +22,6 @@ Carry‑over (v1.0):
 
 """
 
-
 import tkinter as tk
 from tkinter import ttk, filedialog
 import sqlite3
@@ -46,20 +45,31 @@ from manage_items import get_item_description, detect_type
 from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno
 
-# ---------------- Theme ----------------
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_EXPORT     = "#2980B9"
-BTN_REFRESH    = "#2563EB"
-BTN_CLEAR      = "#7F8C8D"
-BTN_TOGGLE     = "#8E44AD"
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
 
-KIT_FILL_COLOR    = "228B22"
-MODULE_FILL_COLOR = "ADD8E6"
+# ============================================================
+# REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_EXPORT     = "#2980B9"
+# BTN_REFRESH    = "#2563EB"
+# BTN_CLEAR      = "#7F8C8D"
+# BTN_TOGGLE     = "#8E44AD"
+
+# ============================================================
+# KEPT VISUALIZATION-SPECIFIC COLORS (Excel fill specific)
+# ============================================================
+KIT_FILL_COLOR    = "228B22"    # Excel fill color (no #)
+MODULE_FILL_COLOR = "ADD8E6"    # Excel fill color (no #)
 
 OUT_TYPES_GIVEN = {"Loan","Return of Borrowing"}
 IN_TYPES_RECEIVED = {"In Borrowing","In Return of Loan"}
@@ -284,7 +294,7 @@ def aggregate_loans(filters):
     cur.close(); conn.close()
     return result
 
-# ---------------- UI Class ----------------
+# ---------------- UI Class (UPDATED: All color references use AppTheme) ----------------
 class Loans(tk.Frame):
     SIMPLE_COLS = ["code","description","qty_given","qty_received","balance","status"]
     DETAIL_COLS = [
@@ -294,7 +304,7 @@ class Loans(tk.Frame):
     ]
 
     def __init__(self, parent, app, *args, **kwargs):
-        super().__init__(parent, bg=BG_MAIN, *args, **kwargs)
+        super().__init__(parent, bg=AppTheme.BG_MAIN, *args, **kwargs)  # UPDATED: Use AppTheme
         self.app = app
         self.rows = []
         self.simple_mode = False
@@ -326,7 +336,6 @@ class Loans(tk.Frame):
         all_lbl = self._all_label()
         return "All" if (val is None or val == "" or val == all_lbl) else val
     
-
     def _norm_type(self, val):
         # map translated labels back to canonical
         if val in (None, "", lang.t("loans.all","All")):
@@ -339,55 +348,64 @@ class Loans(tk.Frame):
             return "Item"
         return val    
 
-    # ---------- UI ----------
+    # ---------- UI (UPDATED: All color references use AppTheme) ----------
     def _build_ui(self):
-        header = tk.Frame(self, bg=BG_MAIN)
+        header = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         header.pack(fill="x", padx=12, pady=(12,6))
         tk.Label(header, text=lang.t("menu.reports.loans","Loans"),
-                 font=("Helvetica",20,"bold"),
-                 bg=BG_MAIN, fg=COLOR_PRIMARY).pack(side="left")
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY).pack(side="left")  # UPDATED: Use AppTheme
         self.toggle_btn = tk.Button(header,
                                     text=lang.t("loans.detailed","Detailed"),
-                                    bg=BTN_TOGGLE, fg="#FFFFFF", relief="flat",
+                                    bg=AppTheme.BTN_TOGGLE,  # UPDATED: Use AppTheme
+                                    fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                                    relief="flat",
                                     padx=14, pady=6, command=self.toggle_mode)
         self.toggle_btn.pack(side="right", padx=(6,0))
         tk.Button(header, text=lang.t("generic.export","Export"),
-                  bg=BTN_EXPORT, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_EXPORT,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.export_excel)\
             .pack(side="right", padx=(6,0))
         tk.Button(header, text=lang.t("generic.clear","Clear"),
-                  bg=BTN_CLEAR, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.clear_filters)\
             .pack(side="right", padx=(6,0))
         tk.Button(header, text=lang.t("generic.refresh","Refresh"),
-                  bg=BTN_REFRESH, fg="#FFFFFF", relief="flat",
+                  bg=AppTheme.BTN_REFRESH,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  relief="flat",
                   padx=14, pady=6, command=self.refresh)\
             .pack(side="right", padx=(6,0))
 
-        filters = tk.Frame(self, bg=BG_MAIN)
+        filters = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         filters.pack(fill="x", padx=12, pady=(0,8))
 
         all_lbl = self._all_label()
 
         # Row 1
-        r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
-        tk.Label(r1, text=lang.t("generic.scenario","Scenario"), bg=BG_MAIN)\
-            .grid(row=0, column=0, sticky="w", padx=(0,4))
+        r1 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r1.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r1, text=lang.t("generic.scenario","Scenario"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var, state="readonly", width=20)
         self.scenario_cb.grid(row=0, column=1, padx=(0,12))
 
-        tk.Label(r1, text=lang.t("generic.kit_number","Kit Number"), bg=BG_MAIN)\
-            .grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r1, text=lang.t("generic.kit_number","Kit Number"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_var, state="readonly", width=16)
         self.kit_cb.grid(row=0, column=3, padx=(0,12))
 
-        tk.Label(r1, text=lang.t("generic.module_number","Module Number"), bg=BG_MAIN)\
-            .grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r1, text=lang.t("generic.module_number","Module Number"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.module_cb = ttk.Combobox(r1, textvariable=self.module_var, state="readonly", width=16)
         self.module_cb.grid(row=0, column=5, padx=(0,12))
 
-        tk.Label(r1, text=lang.t("generic.type","Type"), bg=BG_MAIN)\
-            .grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r1, text=lang.t("generic.type","Type"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         type_all_lbl   = lang.t("loans.all","All")
         type_kit_lbl   = lang.t("generic.type_kit","Kit")
         type_mod_lbl   = lang.t("generic.type_module","Module")
@@ -401,45 +419,47 @@ class Loans(tk.Frame):
         )
         self.type_cb.grid(row=0, column=7, padx=(0,12))
 
-        tk.Label(r1, text=lang.t("loans.third_party","Third Party"), bg=BG_MAIN)\
-            .grid(row=0, column=8, sticky="w", padx=(0,4))
+        tk.Label(r1, text=lang.t("loans.third_party","Third Party"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=8, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.third_party_cb = ttk.Combobox(r1, textvariable=self.third_party_var,
                                            state="readonly", width=18)
         self.third_party_cb.grid(row=0, column=9, padx=(0,4))
 
         # Row 2
-        r2 = tk.Frame(filters, bg=BG_MAIN); r2.pack(fill="x", pady=2)
-        tk.Label(r2, text=lang.t("loans.item_search","Item Search"), bg=BG_MAIN)\
-            .grid(row=0, column=0, sticky="w", padx=(0,4))
+        r2 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r2.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r2, text=lang.t("loans.item_search","Item Search"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.item_entry = tk.Entry(r2, textvariable=self.item_search_var, width=22)
         self.item_entry.grid(row=0, column=1, padx=(0,12))
         self.item_entry.bind("<Return>", lambda e: self.refresh())
         self.item_entry.bind("<Escape>", lambda e: self._clear_field(self.item_search_var))
 
-        tk.Label(r2, text=lang.t("generic.document_number","Document Number"), bg=BG_MAIN)\
-            .grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r2, text=lang.t("generic.document_number","Document Number"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.doc_entry = tk.Entry(r2, textvariable=self.doc_var, width=22)
         self.doc_entry.grid(row=0, column=3, padx=(0,12))
         self.doc_entry.bind("<Return>", lambda e: self.refresh())
         self.doc_entry.bind("<Escape>", lambda e: self._clear_field(self.doc_var))
 
-        tk.Label(r2, text=lang.t("generic.from_date","From Date"), bg=BG_MAIN)\
-            .grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r2, text=lang.t("generic.from_date","From Date"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.from_entry = self._date_widget(r2, self.from_var)
         self.from_entry.grid(row=0, column=5, padx=(0,12))
 
-        tk.Label(r2, text=lang.t("generic.to_date","To Date"), bg=BG_MAIN)\
-            .grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r2, text=lang.t("generic.to_date","To Date"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.to_entry = self._date_widget(r2, self.to_var)
         self.to_entry.grid(row=0, column=7, padx=(0,12))
 
-        # Status
+        # Status (UPDATED: Colors use AppTheme)
         tk.Label(self, textvariable=self.status_var, anchor="w",
-                 bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken")\
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 relief="sunken")\
             .pack(fill="x", padx=12, pady=(0,8))
 
-        # Table
-        table_frame = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        # Table (UPDATED: Colors use AppTheme)
+        table_frame = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         table_frame.pack(fill="both", expand=True, padx=12, pady=(0,12))
 
         self.tree = ttk.Treeview(table_frame, columns=(), show="headings", height=20)
@@ -452,21 +472,22 @@ class Loans(tk.Frame):
 
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
+        # Style configuration (UPDATED: Removed theme_use, using AppTheme)
         style = ttk.Style()
-        try: style.theme_use("clam")
-        except: pass
+        # REMOVED: style.theme_use("clam") - already applied globally
         style.configure("Treeview",
-                        background=BG_PANEL,
-                        fieldbackground=BG_PANEL,
-                        foreground=COLOR_PRIMARY,
+                        background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                         rowheight=24,
-                        font=("Helvetica",10))
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
         style.configure("Treeview.Heading",
-                        background="#E5E8EB", foreground=COLOR_PRIMARY,
-                        font=("Helvetica",11,"bold"))
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
-        self.tree.tag_configure("kitrow", background="#228B22", foreground="#FFFFFF")
-        self.tree.tag_configure("modrow", background="#ADD8E6")
+                        background="#E5E8EB",
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"))  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("kitrow", background=AppTheme.KIT_COLOR, foreground=AppTheme.TEXT_WHITE)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("modrow", background=AppTheme.MODULE_COLOR)  # UPDATED: Use AppTheme
 
         # Context menu / key
         self.tree.bind("<Button-3>", self._show_context_menu)
@@ -485,7 +506,9 @@ class Loans(tk.Frame):
             w = DateEntry(parent, textvariable=var, width=12,
                           date_pattern="yyyy-mm-dd",
                           showweeknumbers=False,
-                          background="#2563EB", foreground="white", borderwidth=1)
+                          background=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+                          foreground=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                          borderwidth=1)
             w.bind("<Return>", lambda e: self.refresh())
             w.bind("<Escape>", lambda e: self._clear_field(var))
             return w

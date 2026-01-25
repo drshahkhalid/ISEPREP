@@ -76,9 +76,18 @@ def fetch_eprep_type(default=None):
             pass
 
 
-def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, has_project):
+def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, has_project, app=None):
     """
     Menubar with symbol-based role gating plus dynamic hiding based on project_details.eprep_type.
+
+    Args:
+        parent: The Toplevel window to attach the menu to
+        user_mgmt_cmd: Command for user management
+        parties_cmd: Command for parties management
+        kits_cmd: Command for kits composition
+        change_language: Language change callback
+        has_project: Boolean indicating if project exists
+        app: The LoginGUI instance (REQUIRED for open_new_window calls)
 
     eprep_type logic:
       If eprep_type == 'By Kits':
@@ -98,7 +107,12 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
       - Project Details: allowed symbols {"@", "&", "("}
       - User Management: allowed symbols {"@", "&"}
     """
-    raw_role = getattr(parent, "role", "") or ""
+    # CRITICAL FIX: Use app parameter if provided, otherwise fall back to parent
+    if app is None:
+        app = parent
+    
+    # Get role from app (LoginGUI instance)
+    raw_role = getattr(app, "role", "") or ""
     role_canonical = decode_role(raw_role)
     role_symbol = encode_role(role_canonical)
 
@@ -129,7 +143,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
         file_menu.add_command(
             label=lang.t("menu.file.project_details", fallback="Project Details"),
             command=lambda: ProjectDetailsWindow(
-                window, {"username": parent.current_user, "role": role_canonical}
+                window, {"username": app.current_user, "role": role_canonical}
             )
         )
     file_menu.add_separator()
@@ -151,13 +165,13 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
         )
     manage_menu.add_command(
         label=lang.t("menu.manage.scenarios", fallback="Scenario Management"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             Scenarios, lang.t("sidebar.scenarios", "Scenarios")
         )
     )
     manage_menu.add_command(
         label=lang.t("menu.manage.items", fallback="Item Management"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             ManageItems, lang.t("sidebar.manage_items", "Manage Items")
         )
     )
@@ -167,19 +181,19 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     )
     manage_menu.add_command(
         label=lang.t("menu.manage.end_users", fallback="End User Management"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             ManageEndUsers, lang.t("sidebar.manage_end_users", "Manage End Users")
         )
     )
     manage_menu.add_command(
         label=lang.t("menu.manage.item_families", fallback="Item Family Management"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             ManageItemFamilies, lang.t("sidebar.manage_item_families", "Manage Item Families")
         )
     )
     manage_menu.add_command(
         label=lang.t("menu.manage.standard_list", fallback="Standard Item List"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             StandardList, lang.t("sidebar.standard_list", "Standard List")
         )
     )
@@ -196,13 +210,13 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     reports_menu = tk.Menu(menubar, tearoff=0)
     reports_menu.add_command(
         label=lang.t("menu.reports.stock_statement", fallback="Stock Statement"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             Reports, lang.t("menu.reports.stock_statement", "Stock Statement")
         )
     )
     reports_menu.add_command(
         label=lang.t("menu.reports.stock_summary", fallback="Stock Summary"),
-        command=lambda: open_stock_summary(parent, role=role_canonical)
+        command=lambda: open_stock_summary(app, role=role_canonical)  # FIXED: Use app
     )
     reports_menu.add_separator()
     report_defs = [
@@ -217,7 +231,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     for key, cls, fallback in report_defs:
         reports_menu.add_command(
             label=lang.t(key, fallback=fallback),
-            command=lambda c=cls, k=key, fb=fallback: parent.open_new_window(
+            command=lambda c=cls, k=key, fb=fallback: app.open_new_window(  # FIXED: Use app
                 c, lang.t(k, fb)
             )
         )
@@ -230,13 +244,13 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     tools_menu = tk.Menu(menubar, tearoff=0)
     tools_menu.add_command(
         label=lang.t("menu.tools.stock_transactions", fallback="Stock Transactions"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             StockTransactions, lang.t("sidebar.stock_movements", "Stock Movements")
         )
     )
     tools_menu.add_command(
         label=lang.t("menu.tools.stock_card", fallback="Stock Card"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app instead of parent
             StockCard, lang.t("sidebar.stock_card", "Stock Card")
         )
     )
@@ -286,12 +300,12 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     # Group 1: Stock In / Out
     add_cmd(show_stock_in,
             label=lang.t("menu.stock.stock_in", fallback="Stock In"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockIn, lang.t("stock_in.title", "Stock In")
             ))
     add_cmd(show_stock_out,
             label=lang.t("menu.stock.stock_out", fallback="Stock Out"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockOut, lang.t("stock_out.title", "Stock Out")
             ))
     # Separator if next group will appear
@@ -303,7 +317,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     if show_generate_new:
         stock_menu.add_command(
             label=lang.t("menu.stock.in_to_kit", fallback="Generate New Kit/Module from item's stock"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockInKit, lang.t("in_kit.title", "Generate New Kit/Module from item's stock")
             )
         )
@@ -311,7 +325,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     if show_break:
         stock_menu.add_command(
             label=lang.t("menu.stock.out_from_kit", fallback="Break Kit/Module to item's stock"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockOutKit, lang.t("menu.stock.out_from_kit", "Break Kit/Module to item's stock")
             )
         )
@@ -325,7 +339,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     if show_receive_kit:
         stock_menu.add_command(
             label=lang.t("menu.stock.receive_kit", fallback="Receive Kit"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockReceiveKit, lang.t("menu.stock.receive_kit", "Receive Kit")
             )
         )
@@ -333,7 +347,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     if show_dispatch_kit:
         stock_menu.add_command(
             label=lang.t("menu.stock.dispatch_kit", fallback="Dispatch Kit"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 StockDispatchKit, lang.t("menu.stock.dispatch_kit", "Dispatch Kit")
             )
         )
@@ -345,14 +359,14 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
 
     stock_menu.add_command(
         label=lang.t("menu.stock.stock_inventory", fallback="Stock Inventory"),
-        command=lambda: parent.open_new_window(
+        command=lambda: app.open_new_window(  # FIXED: Use app
             StockInventory, lang.t("stock_inv.title", "Stock Inventory Adjustment")
         )
     )
     if show_inventory_kits_modules:
         stock_menu.add_command(
             label=lang.t("menu.stock.inventory_kit", fallback="Inventory Kits/Modules"),
-            command=lambda: parent.open_new_window(
+            command=lambda: app.open_new_window(  # FIXED: Use app
                 InventoryKit, lang.t("menu.stock.inventory_kit", "Inventory Kits/Modules")
             )
         )
@@ -383,7 +397,7 @@ def create_menu(parent, user_mgmt_cmd, parties_cmd, kits_cmd, change_language, h
     info_menu = tk.Menu(menubar, tearoff=0)
     info_menu.add_command(
         label=lang.t("menu.file.info", fallback="Info"),
-        command=lambda: parent.open_new_window(AppInfo, lang.t("menu.file.info", "Info"))
+        command=lambda: app.open_new_window(AppInfo, lang.t("menu.file.info", "Info"))  # FIXED: Use app
     )
     menubar.add_cascade(
         label=lang.t("menu.info.menu", fallback="Info"),

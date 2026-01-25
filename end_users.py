@@ -6,24 +6,30 @@ from db import connect_db
 from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno
 
-logging.basicConfig(level=logging. INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ============================================================
-# THEME
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
 # ============================================================
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_ADD        = "#27AE60"
-BTN_EDIT       = "#2980B9"
-BTN_DELETE     = "#C0392B"
-BTN_DISABLED   = "#94A3B8"
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_ADD        = "#27AE60"
+# BTN_EDIT       = "#2980B9"
+# BTN_DELETE     = "#C0392B"
+# BTN_DISABLED   = "#94A3B8"
 
-# Canonical roles allowed to modify.  Supervisor must NOT be able to edit.
+# Canonical roles allowed to modify. Supervisor must NOT be able to edit.
 ALLOWED_CANONICAL_ROLES = {"admin", "manager"}
 BLOCKED_ROLES_OR_SYMBOLS = {"supervisor", "$"}
 
@@ -38,7 +44,7 @@ USER_TYPE_OPTIONS_CANONICAL = [
 ]
 
 
-def _center_toplevel(win:  tk.Toplevel, parent: tk.Widget = None):
+def _center_toplevel(win: tk.Toplevel, parent: tk.Widget = None):
     win.update_idletasks()
     if parent and parent.winfo_exists():
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
@@ -63,7 +69,7 @@ class ManageEndUsers(tk.Frame):
       - Translatable user type dropdown (English in DB, translated in UI)
     """
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = getattr(app, "role", "supervisor")
         self.tree = None
@@ -84,7 +90,7 @@ class ManageEndUsers(tk.Frame):
     def _show_restricted(self):
         custom_popup(
             self,
-            lang.t("dialog_titles. restricted", "Restricted"),
+            lang.t("dialog_titles.restricted", "Restricted"),
             self.t("access_denied", fallback="You don't have permission to manage end users."),
             "warning"
         )
@@ -97,7 +103,7 @@ class ManageEndUsers(tk.Frame):
         """Return canonical_english -> translated_display mapping."""
         section = lang.get_section("end_users.user_types")
         if not section or not isinstance(section, dict):
-            # Fallback:  return identity mapping
+            # Fallback: return identity mapping
             return {utype: utype for utype in USER_TYPE_OPTIONS_CANONICAL}
         mapping = {}
         for canonical in USER_TYPE_OPTIONS_CANONICAL:
@@ -113,7 +119,7 @@ class ManageEndUsers(tk.Frame):
             reverse[display.strip().lower()] = canonical
         return reverse
 
-    def _user_type_to_display(self, canonical:  str) -> str:
+    def _user_type_to_display(self, canonical: str) -> str:
         """Convert canonical English user type to translated display."""
         return self._get_user_type_map().get(canonical, canonical)
 
@@ -126,53 +132,52 @@ class ManageEndUsers(tk.Frame):
         """Return list of translated user type options for dropdown."""
         return [self._user_type_to_display(ut) for ut in USER_TYPE_OPTIONS_CANONICAL]
 
-    # ---------------- Styles ----------------
+    # ---------------- Styles (UPDATED: Removed theme_use, using AppTheme) ----------------
     def _configure_styles(self):
+        # Global theme already applied by login_gui
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception: 
-            pass
+        # REMOVED: style.theme_use("clam") - already applied globally
+        
         style.configure(
-            "EndUsers. Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            font=("Helvetica", 10),
-            bordercolor=COLOR_BORDER,
+            "EndUsers.Treeview",
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat"
         )
         style.map("EndUsers.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
         style.configure(
             "EndUsers.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat",
-            bordercolor=COLOR_BORDER
+            bordercolor=AppTheme.COLOR_BORDER  # UPDATED: Use AppTheme
         )
 
-    # ---------------- UI ----------------
+    # ---------------- UI (UPDATED: All color references use AppTheme) ----------------
     def _build_ui(self):
         tk.Label(
             self,
             text=self.t("title", fallback="Manage End Users"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(12, 8))
 
         # Tree container
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         display_columns = ["Name", "User Type"]
-        self.tree = ttk. Treeview(
+        self.tree = ttk.Treeview(
             outer,
             columns=display_columns,
             show="headings",
@@ -180,7 +185,7 @@ class ManageEndUsers(tk.Frame):
             style="EndUsers.Treeview"
         )
         self.tree.heading("Name", text=self.t("column.name", fallback="Name"))
-        self.tree.heading("User Type", text=self.t("column. user_type", fallback="User Type"))
+        self.tree.heading("User Type", text=self.t("column.user_type", fallback="User Type"))
         self.tree.column("Name", width=260, anchor="w")
         self.tree.column("User Type", width=200, anchor="w")
         self.tree.pack(side="left", fill="both", expand=True)
@@ -189,8 +194,8 @@ class ManageEndUsers(tk.Frame):
         vsb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=vsb.set)
 
-        # Buttons
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        # Buttons (UPDATED: All button colors use AppTheme)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
         can_modify = self._can_modify()
 
@@ -199,22 +204,22 @@ class ManageEndUsers(tk.Frame):
                 btn_frame,
                 text=self.t(label_key, fallback=fallback),
                 command=cmd if can_modify else self._show_restricted,
-                bg=color if can_modify else BTN_DISABLED,
-                fg="#FFFFFF",
-                activebackground=color if can_modify else BTN_DISABLED,
+                bg=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+                fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                activebackground=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
                 relief="flat",
                 padx=14, pady=6,
-                font=("Helvetica", 10, "bold"),
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
                 state="normal"
             )
 
-        self.btn_add = mk_btn("add_button", "Add End User", self. add_end_user, BTN_ADD)
+        self.btn_add = mk_btn("add_button", "Add End User", self.add_end_user, AppTheme.BTN_SUCCESS)  # UPDATED: Use AppTheme
         self.btn_add.pack(side="left", padx=4)
 
-        self.btn_edit = mk_btn("edit_button", "Edit End User", self.edit_end_user, BTN_EDIT)
+        self.btn_edit = mk_btn("edit_button", "Edit End User", self.edit_end_user, AppTheme.BTN_WARNING)  # UPDATED: Use AppTheme
         self.btn_edit.pack(side="left", padx=4)
 
-        self.btn_delete = mk_btn("delete_button", "Delete End User", self.delete_end_user, BTN_DELETE)
+        self.btn_delete = mk_btn("delete_button", "Delete End User", self.delete_end_user, AppTheme.BTN_DANGER)  # UPDATED: Use AppTheme
         self.btn_delete.pack(side="left", padx=4)
 
         if not can_modify:
@@ -228,10 +233,10 @@ class ManageEndUsers(tk.Frame):
         # Status bar
         tk.Label(
             self,
-            textvariable=self. status_var,
+            textvariable=self.status_var,
             anchor="w",
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             relief="sunken"
         ).pack(fill="x", padx=12, pady=(0, 10))
 
@@ -243,15 +248,15 @@ class ManageEndUsers(tk.Frame):
         cur = conn.cursor()
         try:
             cur.execute("PRAGMA table_info(end_users)")
-            cols = [r[1]. lower() for r in cur.fetchall()]
+            cols = [r[1].lower() for r in cur.fetchall()]
             self.id_column_available = "end_user_id" in cols
         except sqlite3.Error:
-            self. id_column_available = False
+            self.id_column_available = False
         finally:
             cur.close()
             conn.close()
 
-    # ---------------- Data Loading ----------------
+    # ---------------- Data Loading (UPDATED: Row colors use AppTheme) ----------------
     def load_end_users(self):
         for r in self.tree.get_children():
             self.tree.delete(r)
@@ -304,10 +309,10 @@ class ManageEndUsers(tk.Frame):
             conn.close()
 
     def _tag_rows(self):
-        self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+        self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
 
-    # ---------------- Add ----------------
+    # ---------------- Add (UPDATED: All color references use AppTheme) ----------------
     def add_end_user(self):
         if not self._can_modify():
             self._show_restricted()
@@ -315,17 +320,22 @@ class ManageEndUsers(tk.Frame):
 
         form = tk.Toplevel(self)
         form.title(self.t("add_title", fallback="Add End User"))
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("420x380")
         form.transient(self)
         form.grab_set()
 
         def lbl(text):
-            return tk.Label(form, text=text, bg=BG_MAIN, fg=COLOR_PRIMARY,
-                            font=("Helvetica", 10), anchor="w")
+            return tk.Label(form, text=text, 
+                          bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                          fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                          font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                          anchor="w")
 
         lbl(self.t("name", fallback="Name") + " *").pack(fill="x", padx=18, pady=(18, 2))
-        name_entry = tk.Entry(form, font=("Helvetica", 11), relief="solid", bd=1)
+        name_entry = tk.Entry(form, 
+                             font=(AppTheme.FONT_FAMILY, 11),  # UPDATED: Use AppTheme
+                             relief="solid", bd=1)
         name_entry.pack(fill="x", padx=18, pady=(0, 8))
 
         lbl(self.t("user_type", fallback="User Type") + " *").pack(fill="x", padx=18, pady=(0, 2))
@@ -346,7 +356,7 @@ class ManageEndUsers(tk.Frame):
             if not name or not utype_canonical:
                 custom_popup(form,
                              lang.t("dialog_titles.error", "Error"),
-                             self.t("required_fields", fallback="Name and User Type are required. "),
+                             self.t("required_fields", fallback="Name and User Type are required."),
                              "error")
                 return
             conn = connect_db()
@@ -364,7 +374,7 @@ class ManageEndUsers(tk.Frame):
                 conn.commit()
                 custom_popup(self,
                              lang.t("dialog_titles.success", "Success"),
-                             self.t("add_success", fallback="End user added successfully. "),
+                             self.t("add_success", fallback="End user added successfully."),
                              "info")
                 form.destroy()
                 self.load_end_users()
@@ -381,9 +391,9 @@ class ManageEndUsers(tk.Frame):
         tk.Button(form,
                   text=self.t("save_button", fallback="Save"),
                   command=save,
-                  bg=BTN_ADD,
-                  fg="#FFFFFF",
-                  font=("Helvetica", 11, "bold"),
+                  bg=AppTheme.BTN_SUCCESS,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  font=(AppTheme.FONT_FAMILY, 11, "bold"),  # UPDATED: Use AppTheme
                   relief="flat",
                   padx=14, pady=8,
                   activebackground="#1E874B").pack(fill="x", padx=18, pady=(8, 18))
@@ -391,7 +401,7 @@ class ManageEndUsers(tk.Frame):
         form.after(50, lambda: _center_toplevel(form, self))
         name_entry.focus()
 
-    # ---------------- Edit ----------------
+    # ---------------- Edit (UPDATED: All color references use AppTheme) ----------------
     def edit_end_user(self):
         if not self._can_modify():
             self._show_restricted()
@@ -399,7 +409,7 @@ class ManageEndUsers(tk.Frame):
         sel = self.tree.selection()
         if not sel:
             custom_popup(self,
-                         lang.t("dialog_titles. error", "Error"),
+                         lang.t("dialog_titles.error", "Error"),
                          self.t("select_record", fallback="Select an end user to edit"),
                          "error")
             return
@@ -410,7 +420,7 @@ class ManageEndUsers(tk.Frame):
         old_type_display = values[1]  # This is translated display text
 
         end_user_id = None
-        if self.id_column_available and iid. startswith("end_"):
+        if self.id_column_available and iid.startswith("end_"):
             try:
                 end_user_id = int(iid.split("_", 1)[1])
             except Exception:
@@ -418,17 +428,22 @@ class ManageEndUsers(tk.Frame):
 
         form = tk.Toplevel(self)
         form.title(self.t("edit_title", fallback="Edit End User"))
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("420x380")
         form.transient(self)
         form.grab_set()
 
         def lbl(text):
-            return tk.Label(form, text=text, bg=BG_MAIN, fg=COLOR_PRIMARY,
-                            font=("Helvetica", 10), anchor="w")
+            return tk.Label(form, text=text, 
+                          bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                          fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                          font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                          anchor="w")
 
         lbl(self.t("name", fallback="Name") + " *").pack(fill="x", padx=18, pady=(18, 2))
-        name_entry = tk.Entry(form, font=("Helvetica", 11), relief="solid", bd=1)
+        name_entry = tk.Entry(form, 
+                             font=(AppTheme.FONT_FAMILY, 11),  # UPDATED: Use AppTheme
+                             relief="solid", bd=1)
         name_entry.insert(0, old_name)
         name_entry.pack(fill="x", padx=18, pady=(0, 8))
 
@@ -440,14 +455,14 @@ class ManageEndUsers(tk.Frame):
         
         # Set the current value (already translated)
         if old_type_display in translated_options:
-            ut_cb. set(old_type_display)
+            ut_cb.set(old_type_display)
         else:
             ut_cb.set(translated_options[0])
         ut_cb.pack(fill="x", padx=18, pady=(0, 12))
 
         def save():
             new_name = name_entry.get().strip()
-            utype_display = ut_var. get().strip()
+            utype_display = ut_var.get().strip()
             # Convert back to canonical English
             utype_canonical = self._user_type_to_canonical(utype_display)
             
@@ -493,9 +508,9 @@ class ManageEndUsers(tk.Frame):
         tk.Button(form,
                   text=self.t("save_button", fallback="Save"),
                   command=save,
-                  bg=BTN_EDIT,
-                  fg="#FFFFFF",
-                  font=("Helvetica", 11, "bold"),
+                  bg=AppTheme.BTN_WARNING,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                  font=(AppTheme.FONT_FAMILY, 11, "bold"),  # UPDATED: Use AppTheme
                   relief="flat",
                   padx=14, pady=8,
                   activebackground="#1F5D82").pack(fill="x", padx=18, pady=(8, 18))
@@ -508,7 +523,7 @@ class ManageEndUsers(tk.Frame):
         if not self._can_modify():
             self._show_restricted()
             return
-        sel = self. tree.selection()
+        sel = self.tree.selection()
         if not sel:
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
@@ -516,7 +531,7 @@ class ManageEndUsers(tk.Frame):
                          "error")
             return
         iid = sel[0]
-        values = self.tree. item(iid)["values"]
+        values = self.tree.item(iid)["values"]
         name = values[0]
         end_user_id = None
         if self.id_column_available and iid.startswith("end_"):
@@ -536,7 +551,7 @@ class ManageEndUsers(tk.Frame):
         conn = connect_db()
         if conn is None:
             custom_popup(self,
-                         lang.t("dialog_titles. error", "Error"),
+                         lang.t("dialog_titles.error", "Error"),
                          self.t("db_error", fallback="Database connection failed"),
                          "error")
             return
@@ -556,7 +571,7 @@ class ManageEndUsers(tk.Frame):
             conn.rollback()
             custom_popup(self,
                          lang.t("dialog_titles.error", "Error"),
-                         self.t("db_error", fallback="Database error:  {err}").format(err=str(e)),
+                         self.t("db_error", fallback="Database error: {err}").format(err=str(e)),
                          "error")
         finally:
             cur.close()
@@ -571,7 +586,7 @@ class ManageEndUsers(tk.Frame):
 if __name__ == "__main__":
     root = tk.Tk()
     class DummyApp:
-        role = "admin"  # Try:  "admin", "manager", "$", "supervisor"
+        role = "admin"  # Try: "admin", "manager", "$", "supervisor"
         project_title = "IsEPREP"
     app = DummyApp()
     root.title("Manage End Users - Test")

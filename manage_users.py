@@ -9,6 +9,11 @@ from db import connect_db
 from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
+
 # New: role symbol mapping (can also be imported from role_map if you prefer)
 ROLE_TO_SYMBOL = {
     "admin": "@",
@@ -19,20 +24,21 @@ ROLE_TO_SYMBOL = {
 }
 SYMBOL_TO_ROLE = {v: k for k, v in ROLE_TO_SYMBOL.items()}
 
-# ------------------------------------------------------------
-# Theming
-# ------------------------------------------------------------
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_ADD        = "#27AE60"
-BTN_EDIT       = "#2980B9"
-BTN_DELETE     = "#C0392B"
-BTN_DISABLED   = "#94A3B8"
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_ADD        = "#27AE60"
+# BTN_EDIT       = "#2980B9"
+# BTN_DELETE     = "#C0392B"
+# BTN_DISABLED   = "#94A3B8"
 
 ROLES_ALLOWED   = ["admin", "hq", "coordinator", "manager", "supervisor"]
 
@@ -99,7 +105,7 @@ class ManageUsers(tk.Frame):
       - Editing: blank password -> keeps existing hash
     """
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = self._decode_role(getattr(app, "role", "supervisor"))
         self.tree = None
@@ -184,58 +190,57 @@ class ManageUsers(tk.Frame):
             conn.close()
 
     # --------------------------------------------------------
-    # Styles
+    # Styles (UPDATED: Removed theme_use call, using AppTheme colors)
     # --------------------------------------------------------
     def _configure_styles(self):
+        # Global theme already applied by login_gui
+        # Just configure module-specific styles here
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        # REMOVED: style.theme_use("clam") - already applied globally
 
         style.configure(
             "Users.Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            font=("Helvetica", 10),
-            bordercolor=COLOR_BORDER,
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat"
         )
         style.map("Users.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
 
         style.configure(
             "Users.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat",
-            bordercolor=COLOR_BORDER
+            bordercolor=AppTheme.COLOR_BORDER  # UPDATED: Use AppTheme
         )
         style.layout("Users.Treeview", [
             ("Users.Treeview.treearea", {"sticky": "nswe"})
         ])
-        style.configure("Users.TEntry", font=("Helvetica", 10))
-        style.configure("Users.TCombobox", font=("Helvetica", 10))
+        style.configure("Users.TEntry", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
+        style.configure("Users.TCombobox", font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
 
     # --------------------------------------------------------
-    # UI
+    # UI (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------
     def _build_ui(self):
         tk.Label(
             self,
             text=self.t("title", "Manage Users"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(12, 8))
 
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
         # Added symbol column
@@ -264,7 +269,7 @@ class ManageUsers(tk.Frame):
         sb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=sb.set)
 
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
 
         can_modify = self.role in ["admin", "manager", "hq", "coordinator"]
@@ -272,12 +277,12 @@ class ManageUsers(tk.Frame):
         self.btn_add = tk.Button(
             btn_frame,
             text=self.t("add_button", "Add User"),
-            bg=BTN_ADD if can_modify else BTN_DISABLED,
-            fg="#FFFFFF",
+            bg=AppTheme.BTN_SUCCESS if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#1E874B",
             relief="flat",
             padx=12, pady=6,
-            font=("Helvetica", 10, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
             command=self.add_user if can_modify else None
         )
         self.btn_add.pack(side="left", padx=4)
@@ -285,12 +290,12 @@ class ManageUsers(tk.Frame):
         self.btn_edit = tk.Button(
             btn_frame,
             text=self.t("edit_button", "Edit User"),
-            bg=BTN_EDIT if can_modify else BTN_DISABLED,
-            fg="#FFFFFF",
+            bg=AppTheme.BTN_WARNING if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#1F5D82",
             relief="flat",
             padx=12, pady=6,
-            font=("Helvetica", 10, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
             command=self.edit_user if can_modify else None
         )
         self.btn_edit.pack(side="left", padx=4)
@@ -298,12 +303,12 @@ class ManageUsers(tk.Frame):
         self.btn_delete = tk.Button(
             btn_frame,
             text=self.t("delete_button", "Delete User"),
-            bg=BTN_DELETE if can_modify else BTN_DISABLED,
-            fg="#FFFFFF",
+            bg=AppTheme.BTN_DANGER if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#962D22",
             relief="flat",
             padx=12, pady=6,
-            font=("Helvetica", 10, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
             command=self.delete_user if can_modify else None
         )
         self.btn_delete.pack(side="left", padx=4)
@@ -321,13 +326,13 @@ class ManageUsers(tk.Frame):
             self,
             textvariable=self.status_var,
             anchor="w",
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             relief="sunken"
         ).pack(fill="x", padx=12, pady=(0, 10))
 
     # --------------------------------------------------------
-    # Load users
+    # Load users (UPDATED: Row colors use AppTheme)
     # --------------------------------------------------------
     def load_users(self):
         for r in self.tree.get_children():
@@ -356,8 +361,8 @@ class ManageUsers(tk.Frame):
                     values=(row["user_id"], row["username"], sym, role_canon, plang_disp),
                     tags=(tag,)
                 )
-            self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-            self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+            self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+            self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
             self.status_var.set(self.t("loaded", "Loaded users: ") + str(len(rows)))
         except sqlite3.Error as e:
             custom_popup(self, lang.t("dialog_titles.error", "Error"),
@@ -435,11 +440,11 @@ class ManageUsers(tk.Frame):
             conn.close()
 
     # --------------------------------------------------------
-    # User form (add/edit)
+    # User form (add/edit) (UPDATED: All color references use AppTheme)
     # --------------------------------------------------------
     def _open_user_form(self, edit=False, user_id=None):
         form = tk.Toplevel(self)
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.title(
             self.t("edit_title", "Edit User") if edit
             else self.t("add_title", "Add User")
@@ -449,8 +454,11 @@ class ManageUsers(tk.Frame):
         form.grab_set()
 
         def lbl(text):
-            return tk.Label(form, text=text, bg=BG_MAIN, fg=COLOR_PRIMARY,
-                            font=("Helvetica", 10), anchor="w", justify="left")
+            return tk.Label(form, text=text, 
+                          bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                          fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                          font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+                          anchor="w", justify="left")
 
         lbl(self.t("username", "Username")).pack(fill="x", padx=18, pady=(18, 2))
         username_entry = ttk.Entry(form, style="Users.TEntry")
@@ -462,7 +470,11 @@ class ManageUsers(tk.Frame):
         tk.Label(
             form,
             text=self.t("password_hint_edit", "Leave blank to keep current password") if edit else "",
-            bg=BG_MAIN, fg="#6B7280", anchor="w", justify="left", font=("Helvetica", 8, "italic")
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg="#6B7280", 
+            anchor="w", 
+            justify="left", 
+            font=(AppTheme.FONT_FAMILY, 8, "italic")  # UPDATED: Use AppTheme
         ).pack(fill="x", padx=18, pady=(0, 6))
 
         lbl(self.t("role", "Role")).pack(fill="x", padx=18, pady=(0, 2))
@@ -612,13 +624,13 @@ class ManageUsers(tk.Frame):
         save_btn = tk.Button(
             form,
             text=self.t("save_button", "Save"),
-            bg=COLOR_ACCENT,
-            fg="#FFFFFF",
+            bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#1D4ED8",
             relief="flat",
             padx=12,
             pady=6,
-            font=("Helvetica", 10, "bold"),
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
             command=save
         )
         save_btn.pack(fill="x", padx=18, pady=(4, 12))

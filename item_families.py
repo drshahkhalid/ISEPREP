@@ -6,20 +6,25 @@ from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 
 # ============================================================
-# THEME (consistent with other management screens)
+# IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
+from theme_config import AppTheme, configure_tree_tags
 
-BTN_ADD        = "#27AE60"
-BTN_EDIT       = "#2980B9"
-BTN_DELETE     = "#C0392B"
-BTN_DISABLED   = "#94A3B8"
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_ADD        = "#27AE60"
+# BTN_EDIT       = "#2980B9"
+# BTN_DELETE     = "#C0392B"
+# BTN_DISABLED   = "#94A3B8"
 
 ALLOWED_ROLES  = ["admin", "manager"]
 
@@ -129,7 +134,7 @@ class ManageItemFamilies(tk.Frame):
     Uses custom_popup / custom_askyesno and consistent colors.
     """
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.role = getattr(app, "role", "supervisor")
         self.item_family_manager = ItemFamilyManager()
@@ -144,49 +149,48 @@ class ManageItemFamilies(tk.Frame):
     def t(self, key, **kwargs):
         return lang.t(f"item_families.{key}", **kwargs)
 
-    # Styles
+    # Styles (UPDATED: Removed theme_use, using AppTheme)
     def _configure_styles(self):
+        # Global theme already applied by login_gui
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        # REMOVED: style.theme_use("clam") - already applied globally
+        
         style.configure(
             "IF.Treeview",
-            background=BG_PANEL,
-            fieldbackground=BG_PANEL,
-            foreground=COLOR_PRIMARY,
-            rowheight=26,
-            font=("Helvetica", 10),
-            bordercolor=COLOR_BORDER,
+            background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            rowheight=AppTheme.TREE_ROW_HEIGHT,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
+            bordercolor=AppTheme.COLOR_BORDER,  # UPDATED: Use AppTheme
             relief="flat"
         )
         style.map("IF.Treeview",
-                  background=[("selected", COLOR_ACCENT)],
-                  foreground=[("selected", "#FFFFFF")])
+                  background=[("selected", AppTheme.COLOR_ACCENT)],  # UPDATED: Use AppTheme
+                  foreground=[("selected", AppTheme.TEXT_WHITE)])  # UPDATED: Use AppTheme
         style.configure(
             "IF.Treeview.Heading",
             background="#E5E8EB",
-            foreground=COLOR_PRIMARY,
-            font=("Helvetica", 11, "bold"),
+            foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"),  # UPDATED: Use AppTheme
             relief="flat",
-            bordercolor=COLOR_BORDER
+            bordercolor=AppTheme.COLOR_BORDER  # UPDATED: Use AppTheme
         )
 
-    # UI Layout
+    # UI Layout (UPDATED: All color references use AppTheme)
     def _build_ui(self):
         tk.Label(
             self,
             text=self.t("title", fallback="Manage Item Families"),
-            font=("Helvetica", 20, "bold"),
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             anchor="w",
             justify="left"
         ).pack(fill="x", padx=12, pady=(12, 8))
 
         # Table frame
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         columns = ("family_type", "item_family", "remarks")
@@ -213,8 +217,8 @@ class ManageItemFamilies(tk.Frame):
         vsb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=vsb.set)
 
-        # Buttons
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
+        # Buttons (UPDATED: All button colors use AppTheme)
+        btn_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         btn_frame.pack(fill="x", padx=12, pady=(0, 6))
 
         can_modify = self.role in ALLOWED_ROLES
@@ -224,22 +228,22 @@ class ManageItemFamilies(tk.Frame):
                 btn_frame,
                 text=self.t(text_key, fallback=fallback),
                 command=cmd if can_modify else None,
-                bg=color if can_modify else BTN_DISABLED,
-                fg="#FFFFFF",
-                activebackground=color if can_modify else BTN_DISABLED,
+                bg=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
+                fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
+                activebackground=color if can_modify else AppTheme.BTN_DISABLED,  # UPDATED: Use AppTheme
                 relief="flat",
                 padx=14, pady=6,
-                font=("Helvetica", 10, "bold"),
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold"),  # UPDATED: Use AppTheme
                 state="normal" if can_modify else "disabled"
             )
 
-        self.btn_add = mk_btn("add_button", "Add", self.add_item_family, BTN_ADD)
+        self.btn_add = mk_btn("add_button", "Add", self.add_item_family, AppTheme.BTN_SUCCESS)  # UPDATED: Use AppTheme
         self.btn_add.pack(side="left", padx=4)
 
-        self.btn_edit = mk_btn("edit_button", "Edit", self.edit_item_family, BTN_EDIT)
+        self.btn_edit = mk_btn("edit_button", "Edit", self.edit_item_family, AppTheme.BTN_WARNING)  # UPDATED: Use AppTheme
         self.btn_edit.pack(side="left", padx=4)
 
-        self.btn_delete = mk_btn("delete_button", "Delete", self.delete_item_family, BTN_DELETE)
+        self.btn_delete = mk_btn("delete_button", "Delete", self.delete_item_family, AppTheme.BTN_DANGER)  # UPDATED: Use AppTheme
         self.btn_delete.pack(side="left", padx=4)
 
         if not can_modify:
@@ -255,12 +259,12 @@ class ManageItemFamilies(tk.Frame):
             self,
             textvariable=self.status_var,
             anchor="w",
-            bg=BG_MAIN,
-            fg=COLOR_PRIMARY,
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
             relief="sunken"
         ).pack(fill="x", padx=12, pady=(0, 10))
 
-    # Data load
+    # Data load (UPDATED: Row colors use AppTheme)
     def load_item_families(self):
         for iid in self.tree.get_children():
             self.tree.delete(iid)
@@ -288,8 +292,8 @@ class ManageItemFamilies(tk.Frame):
                     ),
                     tags=(tag,)
                 )
-            self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-            self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+            self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+            self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
             self.status_var.set(
                 self.t("loaded_records", fallback="Loaded {n} records").format(n=len(rows))
             )
@@ -302,11 +306,11 @@ class ManageItemFamilies(tk.Frame):
             cur.close()
             conn.close()
 
-    # Form helper
+    # Form helper (UPDATED: All color references use AppTheme)
     def open_form(self, title, save_callback, initial=None):
         form = tk.Toplevel(self)
         form.title(title)
-        form.configure(bg=BG_MAIN)
+        form.configure(bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         form.geometry("480x400")
         form.transient(self)
         form.grab_set()
@@ -314,9 +318,9 @@ class ManageItemFamilies(tk.Frame):
         tk.Label(
             form,
             text=title,
-            font=("Helvetica", 16, "bold"),
-            fg=COLOR_PRIMARY,
-            bg=BG_MAIN,
+            font=(AppTheme.FONT_FAMILY, 16, "bold"),  # UPDATED: Use AppTheme
+            fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+            bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
             anchor="w"
         ).pack(fill="x", padx=16, pady=(16, 10))
 
@@ -332,9 +336,9 @@ class ManageItemFamilies(tk.Frame):
             tk.Label(
                 form,
                 text=f"{label}{' *' if required else ''}:",
-                bg=BG_MAIN,
-                fg=COLOR_PRIMARY,
-                font=("Helvetica", 10),
+                bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL),  # UPDATED: Use AppTheme
                 anchor="w"
             ).pack(fill="x", padx=18, pady=(6, 0))
             if fname == "family_type":
@@ -343,7 +347,9 @@ class ManageItemFamilies(tk.Frame):
                 cb.pack(fill="x", padx=18, pady=(0, 6))
                 self.entries[fname] = cb
             else:
-                ent = tk.Entry(form, font=("Helvetica", 11), relief="solid", bd=1)
+                ent = tk.Entry(form, 
+                             font=(AppTheme.FONT_FAMILY, 11),  # UPDATED: Use AppTheme
+                             relief="solid", bd=1)
                 if initial and fname in initial:
                     ent.insert(0, initial[fname] or "")
                 ent.pack(fill="x", padx=18, pady=(0, 6))
@@ -359,11 +365,11 @@ class ManageItemFamilies(tk.Frame):
             form,
             text=self.t("save_button", fallback="Save"),
             command=do_save,
-            bg=COLOR_ACCENT,
-            fg="#FFFFFF",
+            bg=AppTheme.COLOR_ACCENT,  # UPDATED: Use AppTheme
+            fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
             activebackground="#1D4ED8",
             relief="flat",
-            font=("Helvetica", 11, "bold"),
+            font=(AppTheme.FONT_FAMILY, 11, "bold"),  # UPDATED: Use AppTheme
             padx=14, pady=8
         ).pack(fill="x", padx=18, pady=18)
 

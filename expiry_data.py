@@ -26,18 +26,26 @@ from language_manager import lang
 from popup_utils import custom_popup
 from manage_items import get_item_description, detect_type
 
-# ---------------- Theme Constants ----------------
-BG_MAIN        = "#F0F4F8"
-BG_PANEL       = "#FFFFFF"
-COLOR_PRIMARY  = "#2C3E50"
-COLOR_ACCENT   = "#2563EB"
-COLOR_BORDER   = "#D0D7DE"
-ROW_ALT_COLOR  = "#F7FAFC"
-ROW_NORM_COLOR = "#FFFFFF"
-BTN_EXPORT     = "#2980B9"
-BTN_REFRESH    = "#2563EB"
-BTN_CLEAR      = "#7F8C8D"
-BTN_TOGGLE     = "#8E44AD"
+# ============================================================
+# IMPORT CENTRALIZED THEME (NEW)
+# ============================================================
+from theme_config import AppTheme, configure_tree_tags
+
+# ============================================================
+# REMOVED OLD COLOR CONSTANTS - Now using AppTheme
+# ============================================================
+# OLD (REMOVED):
+# BG_MAIN        = "#F0F4F8"
+# BG_PANEL       = "#FFFFFF"
+# COLOR_PRIMARY  = "#2C3E50"
+# COLOR_ACCENT   = "#2563EB"
+# COLOR_BORDER   = "#D0D7DE"
+# ROW_ALT_COLOR  = "#F7FAFC"
+# ROW_NORM_COLOR = "#FFFFFF"
+# BTN_EXPORT     = "#2980B9"
+# BTN_REFRESH    = "#2563EB"
+# BTN_CLEAR      = "#7F8C8D"
+# BTN_TOGGLE     = "#8E44AD"
 
 # ---------------- Helper Functions ----------------
 def months_between_inclusive(start_ym, end_ym):
@@ -378,12 +386,12 @@ class ExpiryDataCalculator:
                 pass
 
 
-# ---------------- UI View ----------------
+# ---------------- UI View (UPDATED: All color references use AppTheme) ----------------
 class ExpiryDataView(tk.Frame):
     SIMPLE_BASE = ["code", "description", "expired_qty", "this_month_qty", "row_total"]
 
     def __init__(self, parent, app):
-        super().__init__(parent, bg=BG_MAIN)
+        super().__init__(parent, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         self.app = app
         self.tree = None
         self.columns_meta = []
@@ -416,26 +424,28 @@ class ExpiryDataView(tk.Frame):
         return mapping
 
     def _build_ui(self):
-        header_frame = tk.Frame(self, bg=BG_MAIN)
+        header_frame = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         header_frame.pack(fill="x", padx=12, pady=(12,4))
         tk.Label(header_frame,
                  text=self.t("title", "Stock Expiry / Projection"),
-                 font=("Helvetica", 20, "bold"),
-                 bg=BG_MAIN, fg=COLOR_PRIMARY,
+                 font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                  anchor="w").pack(side="left", fill="x", expand=True)
 
         self.toggle_btn = tk.Button(header_frame,
                                     text=self.t("toggle_detailed", "Detailed"),
-                                    bg=BTN_TOGGLE, fg="#FFFFFF",
+                                    bg=AppTheme.BTN_TOGGLE,  # UPDATED: Use AppTheme
+                                    fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                                     padx=14, pady=6, relief="flat",
                                     command=self.toggle_mode)
         self.toggle_btn.pack(side="right")
 
-        filters = tk.Frame(self, bg=BG_MAIN)
+        filters = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         filters.pack(fill="x", padx=12, pady=(0, 10))
 
-        r1 = tk.Frame(filters, bg=BG_MAIN); r1.pack(fill="x", pady=2)
-        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
+        r1 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r1.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r1, text=self.t("management_mode","Management Mode"), bg=AppTheme.BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.mgmt_mode_var = tk.StringVar(value=self.t("all", "All"))
         self.mgmt_mode_cb = ttk.Combobox(
             r1,
@@ -450,29 +460,29 @@ class ExpiryDataView(tk.Frame):
         )
         self.mgmt_mode_cb.grid(row=0, column=1, padx=(0,14))
 
-        tk.Label(r1, text=self.t("scenario","Scenario"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("scenario","Scenario"), bg=AppTheme.BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.scenario_var = tk.StringVar(value=self.t("all", "All"))
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var, state="readonly", width=20)
         self.scenario_cb.grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r1, text=self.t("kit_number","Kit Number"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("kit_number","Kit Number"), bg=AppTheme.BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.kit_var = tk.StringVar(value=self.t("all", "All"))
         self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_var, state="readonly", width=16, values=[self.t("all", "All")])
         self.kit_cb.grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r1, text=self.t("module_number","Module Number"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r1, text=self.t("module_number","Module Number"), bg=AppTheme.BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.module_var = tk.StringVar(value=self.t("all", "All"))
         self.module_cb = ttk.Combobox(r1, textvariable=self.module_var, state="readonly", width=16, values=[self.t("all", "All")])
         self.module_cb.grid(row=0, column=7, padx=(0,14))
 
-        r2 = tk.Frame(filters, bg=BG_MAIN); r2.pack(fill="x", pady=2)
-        tk.Label(r2, text=self.t("item_search","Item Search"), bg=BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))
+        r2 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r2.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        tk.Label(r2, text=self.t("item_search","Item Search"), bg=AppTheme.BG_MAIN).grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.item_search_var = tk.StringVar()
         item_entry = tk.Entry(r2, textvariable=self.item_search_var, width=22)
         item_entry.grid(row=0, column=1, padx=(0,14))
         item_entry.bind("<Return>", lambda e: self.refresh())
 
-        tk.Label(r2, text=self.t("type","Type"), bg=BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("type","Type"), bg=AppTheme.BG_MAIN).grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.type_var = tk.StringVar(value=self.t("type_all", "All"))
         self.type_cb = ttk.Combobox(
             r2,
@@ -488,29 +498,37 @@ class ExpiryDataView(tk.Frame):
         )
         self.type_cb.grid(row=0, column=3, padx=(0,14))
 
-        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("expiry_period","Expiry Period (Months)"), bg=AppTheme.BG_MAIN).grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.expiry_period_var = tk.StringVar(value="12")
         tk.Entry(r2, textvariable=self.expiry_period_var, width=6,
                  validate="key", validatecommand=(self.register(self._val_1_99), "%P")).grid(row=0, column=5, padx=(0,14))
 
-        tk.Label(r2, text=self.t("amc_months","AMC Months (0=No Consumption)"), bg=BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))
+        tk.Label(r2, text=self.t("amc_months","AMC Months (0=No Consumption)"), bg=AppTheme.BG_MAIN).grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.amc_months_var = tk.StringVar(value="6")
         tk.Entry(r2, textvariable=self.amc_months_var, width=6,
                  validate="key", validatecommand=(self.register(self._val_0_99), "%P")).grid(row=0, column=7, padx=(0,14))
 
-        btn_row = tk.Frame(filters, bg=BG_MAIN); btn_row.pack(fill="x", pady=(6,4))
-        tk.Button(btn_row, text=self.t("refresh","Refresh"), bg=BTN_REFRESH, fg="#FFFFFF",
+        btn_row = tk.Frame(filters, bg=AppTheme.BG_MAIN); btn_row.pack(fill="x", pady=(6,4))  # UPDATED: Use AppTheme
+        tk.Button(btn_row, text=self.t("refresh","Refresh"), 
+                  bg=AppTheme.BTN_REFRESH,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat", padx=14, pady=6, command=self.refresh).pack(side="left", padx=(0,6))
-        tk.Button(btn_row, text=self.t("clear","Clear"), bg=BTN_CLEAR, fg="#FFFFFF",
+        tk.Button(btn_row, text=self.t("clear","Clear"), 
+                  bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat", padx=14, pady=6, command=self.clear_filters).pack(side="left", padx=(0,6))
-        tk.Button(btn_row, text=self.t("export","Export"), bg=BTN_EXPORT, fg="#FFFFFF",
+        tk.Button(btn_row, text=self.t("export","Export"), 
+                  bg=AppTheme.BTN_EXPORT,  # UPDATED: Use AppTheme
+                  fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat", padx=14, pady=6, command=self.export_excel).pack(side="left", padx=(0,6))
 
         self.status_var = tk.StringVar(value=self.t("ready","Ready"))
         tk.Label(self, textvariable=self.status_var, anchor="w",
-                 bg=BG_MAIN, fg=COLOR_PRIMARY, relief="sunken").pack(fill="x", padx=12, pady=(0,8))
+                 bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
+                 fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                 relief="sunken").pack(fill="x", padx=12, pady=(0,8))
 
-        outer = tk.Frame(self, bg=COLOR_BORDER, bd=1, relief="solid")
+        outer = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         outer.pack(fill="both", expand=True, padx=12, pady=(0,12))
         outer.grid_rowconfigure(0, weight=1)
         outer.grid_columnconfigure(0, weight=1)
@@ -523,21 +541,21 @@ class ExpiryDataView(tk.Frame):
         hsb.grid(row=1, column=0, sticky="ew")
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
+        # Style configuration (UPDATED: Removed theme_use, using AppTheme)
         style = ttk.Style()
-        try: style.theme_use("clam")
-        except Exception: pass
+        # REMOVED: style.theme_use("clam") - already applied globally
         style.configure("Treeview",
-                        background=BG_PANEL,
-                        fieldbackground=BG_PANEL,
-                        foreground=COLOR_PRIMARY,
+                        background=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        fieldbackground=AppTheme.BG_PANEL,  # UPDATED: Use AppTheme
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                         rowheight=24,
-                        font=("Helvetica",10))
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL))  # UPDATED: Use AppTheme
         style.configure("Treeview.Heading",
                         background="#E5E8EB",
-                        foreground=COLOR_PRIMARY,
-                        font=("Helvetica",11,"bold"))
-        self.tree.tag_configure("norm", background=ROW_NORM_COLOR)
-        self.tree.tag_configure("alt", background=ROW_ALT_COLOR)
+                        foreground=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
+                        font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HEADING, "bold"))  # UPDATED: Use AppTheme
+        self.tree.tag_configure("norm", background=AppTheme.ROW_NORM)  # UPDATED: Use AppTheme
+        self.tree.tag_configure("alt", background=AppTheme.ROW_ALT)  # UPDATED: Use AppTheme
 
     def _val_1_99(self, P):
         if P == "": return True
@@ -611,7 +629,7 @@ class ExpiryDataView(tk.Frame):
         except ValueError:
             amc_months = 6; self.amc_months_var.set("6")
 
-                # Normalize translated selections back to canonical internal values, INSERTED FROM HERE. (KHALID 1 start)
+        # Normalize translated selections back to canonical internal values
         all_lbl = self.t("all", "All")
         mgmt = self.mgmt_mode_var.get()
         if mgmt == all_lbl:
@@ -643,7 +661,6 @@ class ExpiryDataView(tk.Frame):
             type_norm = "Item"
         else:
             type_norm = type_sel
-        # UPTO HERE (KHALID 1 end)
 
         calc = ExpiryDataCalculator(
             scenario_name_map=self.scenario_map,
