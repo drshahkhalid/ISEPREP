@@ -2095,107 +2095,181 @@ class StockDispatchKit(tk.Frame):
     def initialize_quantities_and_highlight(self):
         """
         Initialize quantities and apply visual highlighting to rows.
-        - Sets default qty_to_issue based on item type
-        - Marks editable cells with ★
-        - Applies color tags for kits/modules
-        - Handles FEFO-derived quantities for items
+        ✅ FIXED: Stars added to ALL editable rows (Kit/Module/Item), not just Kit/Module.
         """
         rules = self.get_mode_rules()
         mode_key = self.current_mode_key()
+        editable_types_lower = {t.lower() for t in rules.get("editable_types", [])}
 
-        # ✅ STEP 1: Initialize qty_to_issue for Kits and Modules
+        # ✅ Configure tags FIRST
+        try:
+            self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
+            self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
+            self.tree.tag_configure("Kit_module_highlight", background="#FFF9C4")
+            self.tree.tag_configure("editable_row", foreground="#000000")
+            self.tree.tag_configure("non_editable", foreground="#666666")
+        except Exception as e:
+            logging.warning(f"[INIT_QTY] Tag configuration failed: {e}")
+
+        # ✅ STEP 1: Update Kit/Module qty_to_issue (items already have it from populate_rows)
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
-        
+            
             vals = list(self.tree.item(iid, "values"))
+            if len(vals) < 10:
+                logging.warning(f"[INIT_QTY] Row {iid} has only {len(vals)} columns, skipping")
+                continue
+            
             row_type_lower = (vals[2] or "").lower()
 
-            try:
-                stock = int(vals[5]) if vals[5] else 0
-            except Exception:
-                stock = 0
+            # Only update Kit/Module qty_to_issue (items already set by populate_rows)
+            if row_type_lower in ("kit", "module"):
+                try:
+                    stock = int(vals[5]) if vals[5] else 0
+                except Exception:
+                    stock = 0
 
-            # ✅ Initialize qty_to_issue (column 9)
-            if row_type_lower == "kit":
-                if mode_key == "dispatch_kit":
-                    qty = 1
+                if row_type_lower == "kit":
+                    if mode_key == "dispatch_kit":
+                        qty = 1
+                    else:
+                        qty = 1 if ("kit" in editable_types_lower and stock > 0) else 0
+                elif row_type_lower == "module":
+                    qty = 1 if ("module" in editable_types_lower and stock > 0) else 0
                 else:
-                    qty = 1 if ("kit" in {t.lower() for t in rules["editable_types"]} and stock > 0) else 0
-            elif row_type_lower == "module":
-                qty = 1 if ("module" in {t.lower() for t in rules["editable_types"]} and stock > 0) else 0
-            elif row_type_lower == "item":
-                # Items already have qty_to_issue set by populate_rows FEFO logic
-                # Don't override it here
-                qty = vals[9] if len(vals) > 9 else 0
-            else:
-                qty = 0
+                    qty = 0
 
-            # ✅ Update qty_to_issue (column 9)
-            vals[9] = str(qty)
-            self.tree.item(iid, values=vals)
+                vals[9] = str(qty)
+                self.tree.item(iid, values=vals)
+                logging.debug(f"[INIT_QTY] Updated {row_type_lower} {iid} qty_to_issue={qty}")
 
-        # ✅ STEP 2: Derive module/item quantities if needed
+        # ✅ STEP 2: Force refresh after quantity updates
+        self.tree.update_idletasks()
+
+        # ✅ STEP 3: Derive quantities if needed
         if rules.get("derive_modules_from_kit") and hasattr(self, "_derive_modules_from_kits"):
             self._derive_modules_from_kits()
         if rules.get("derive_items_from_modules"):
             self._derive_items_from_modules()
 
-        # ✅ STEP 3: Highlight header rows
-        for iid in self.tree.get_children():
-            meta = self.row_data.get(iid, {})
-            if not meta.get("is_header"):
-                continue
-            vals = self.tree.item(iid, "values")
-            rt = (vals[2] or "").lower()
-            if rt == "kit":
-                self.tree.item(iid, tags=("Kit_header", "Kit_module_highlight"))
-            elif rt == "module":
-                self.tree.item(iid, tags=("module_header", "Kit_module_highlight"))
-
-        # ✅ STEP 4: Mark editable cells with ★ and apply tags
-        editable_types_lower = {t.lower() for t in rules["editable_types"]}
-    
-        for iid in self.tree.get_children():
-            meta = self.row_data.get(iid, {})
-            if meta.get("is_header"):
-                continue
+        # ✅ STEP 4: Add stars and apply tags (CRITICAL SECTION)
+        stars_added = 0
         
+        for iid in self.tree.get_children():
+            meta = self.row_data.get(iid, {})
+            
+            # Handle header rows
+            if meta.get("is_header"):
+                vals = self.tree.item(iid, "values")
+                rt = (vals[2] or "").lower() if len(vals) > 2 else ""
+                if rt == "kit":
+                    self.tree.item(iid, tags=("Kit_header", "Kit_module_highlight"))
+                elif rt == "module":
+                    self.tree.item(iid, tags=("module_header", "Kit_module_highlight"))
+                logging.debug(f"[INIT_QTY] Header row {iid}: type={rt}")
+                continue
+            
+            # Handle data rows
             vals = list(self.tree.item(iid, "values"))
+            if len(vals) < 10:
+                continue
+            
             rt_low = (vals[2] or "").lower()
             tags = []
-        
-            # ✅ Apply highlighting for kits/modules
+            stars_added_this_row = False
+            
+            # Highlight kits/modules
             if rt_low in ("kit", "module"):
                 tags.append("Kit_module_highlight")
-        
-            # ✅ Check if row is editable
+            
+            # Check if editable
             is_editable = (rt_low in editable_types_lower and meta.get("unique_id"))
-        
+            
             if is_editable:
-                # ✅ Add star to batch_no (column 7) if can_edit_batch
+                # ✅ Add star to batch_no (column 7) if allowed
                 if rules.get("can_edit_batch"):
-                    batch_val = vals[7]
-                    if not str(batch_val).startswith("★"):
+                    batch_val = str(vals[7]) if vals[7] else ""
+                    if not batch_val.startswith("★"):
+                        old_batch = batch_val
                         vals[7] = f"★ {batch_val}"
-            
-                # ✅ Add star to qty_to_issue (column 9) for Kit/Module rows only
-                if rt_low in ("kit", "module"):
-                    qty_val = vals[9]
-                    if not str(qty_val).startswith("★"):
-                        vals[9] = f"★ {qty_val}"
-            
-                # ✅ For items, qty_to_issue is editable via right-click (NO star)
-                # Items already have qty_to_issue calculated by FEFO in populate_rows
-            
+                        stars_added_this_row = True
+                        logging.debug(f"[INIT_QTY] Row {iid} batch: '{old_batch}' → '{vals[7]}'")
+                
+                # ✅ FIXED: Add star to qty_to_issue (column 9) for ALL editable rows (not just Kit/Module)
+                qty_val = str(vals[9]) if vals[9] else "0"
+                if qty_val and qty_val != "0" and not qty_val.startswith("★"):
+                    old_qty = qty_val
+                    vals[9] = f"★ {qty_val}"
+                    stars_added_this_row = True
+                    stars_added += 1
+                    logging.debug(f"[INIT_QTY] Row {iid} ({rt_low}) qty: '{old_qty}' → '{vals[9]}'")
+                
                 tags.append("editable_row")
-                self.tree.item(iid, values=vals, tags=tuple(tags))
             else:
                 tags.append("non_editable")
+            
+            # ✅ Update tree (CRITICAL: update both values AND tags together)
+            if stars_added_this_row:
+                self.tree.item(iid, values=tuple(vals), tags=tuple(tags))
+            else:
                 self.tree.item(iid, tags=tuple(tags))
 
-        logging.debug("[INIT_QTY] Quantities initialized and editable cells marked with ★")
+        logging.debug(f"[INIT_QTY] Added stars to {stars_added} rows")
+
+        # ✅ STEP 5: AGGRESSIVE MULTI-LEVEL REFRESH
+        try:
+            self.tree.update_idletasks()
+            self.update_idletasks()
+            self.tree.update()
+            self.update()
+            self.after(5, lambda: self.tree.update_idletasks())
+            self.after(10, lambda: self.tree.update())
+            self.after(20, lambda: self._force_tree_redraw())
+            logging.debug("[INIT_QTY] Multi-level refresh completed")
+        except Exception as e:
+            logging.error(f"[INIT_QTY] Refresh failed: {e}")
+        
+        logging.info(f"[INIT_QTY] Quantities initialized, {stars_added} stars added to editable cells")
+
+    def _force_tree_redraw(self):
+        """Helper to force tree redraw - called with delay."""
+        try:
+            if self.tree and self.tree.winfo_exists():
+                visible = self.tree.get_children()
+                if visible:
+                    current_selection = self.tree.selection()
+                    self.tree.selection_set(visible[0])
+                    self.tree.update()
+                    if current_selection:
+                        self.tree.selection_set(current_selection)
+                    else:
+                        self.tree.selection_remove(visible[0])
+                    self.tree.update()
+                logging.debug("[INIT_QTY] Forced tree redraw completed")
+        except Exception as e:
+            logging.debug(f"[INIT_QTY] Force redraw failed (non-critical): {e}")
+
+    def _force_tree_redraw(self):
+        """Helper to force tree redraw - called with delay."""
+        try:
+            if self.tree and self.tree.winfo_exists():
+                # Get first visible item
+                visible = self.tree.get_children()
+                if visible:
+                    # Force tree to redraw by briefly selecting/deselecting
+                    current_selection = self.tree.selection()
+                    self.tree.selection_set(visible[0])
+                    self.tree.update()
+                    if current_selection:
+                        self.tree.selection_set(current_selection)
+                    else:
+                        self.tree.selection_remove(visible[0])
+                    self.tree.update()
+                logging.debug("[INIT_QTY] Forced tree redraw completed")
+        except Exception as e:
+            logging.debug(f"[INIT_QTY] Force redraw failed (non-critical): {e}")
 
     def _derive_modules_from_kits(self):
         """Derive module quantities from kit quantities."""
@@ -2831,11 +2905,10 @@ class StockDispatchKit(tk.Frame):
                 # Not an item, skip FEFO calculation
                 for item in group_items:
                     item['qty_to_issue'] = 0
-                    item['qty_required'] = "N/A"
+                    item['qty_required'] = ""
                 continue
             
             # Sort group by expiry date (FEFO within this module/code)
-
             def expiry_key(it):
                 """Sort by expiry date only - preserve original order when dates equal."""
                 exp_str = it.get('expiry_date', '')
@@ -2892,29 +2965,24 @@ class StockDispatchKit(tk.Frame):
             batch_no = item.get('batch_no', '')
             unique_id = item.get('unique_id', '')
             
-            # Format qty_required (safe handling)
+            # ✅ Format qty_required (safe handling - FIXED duplicate try-except)
             qty_required = item.get('qty_required', '')
-            if qty_required == "N/A" or qty_required == '' or qty_required is None:
+            if qty_required == "" or qty_required is None:
                 qty_required_display = ""
             else:
                 try:
-                    try:
-                        qty_required_display = str(int(qty_required)) if qty_required not in (None, '', 0) else ""
-                    except (ValueError, TypeError):
-                        qty_required_display = ""
-
-
+                    qty_required_display = str(int(qty_required))
                 except (ValueError, TypeError):
-                    qty_required_display = "N/A"
+                    qty_required_display = ""
             
-            # Format qty_to_issue
+            # Format qty_to_issue (NO STAR YET - added in initialize_quantities_and_highlight)
             qty_to_issue = item.get('qty_to_issue', 0)
             try:
                 qty_to_issue_display = str(int(qty_to_issue))
             except (ValueError, TypeError):
                 qty_to_issue_display = "0"
             
-            # Insert row with 11 columns
+            # Insert row with 11 columns (NO STARS YET)
             iid = self.tree.insert(
                 "",
                 "end",
@@ -2928,7 +2996,7 @@ class StockDispatchKit(tk.Frame):
                     expiry_date,
                     batch_no,
                     qty_required_display,
-                    qty_to_issue_display,
+                    qty_to_issue_display,  # ✅ NO STAR - will be added by initialize_quantities_and_highlight
                     unique_id
                 )
             )
@@ -2945,10 +3013,11 @@ class StockDispatchKit(tk.Frame):
                 'qty_to_issue': qty_to_issue,
                 'qty_required': qty_required,
                 'is_header': item.get('is_header', False),
-                'std_qty': item.get('std_qty')
+                'std_qty': item.get('std_qty'),
+                'row_type': item_type  # ✅ Added for initialize_quantities_and_highlight
             }
         
-        # Initialize quantities and highlighting
+        # ✅ Initialize quantities and highlighting (THIS ADDS THE STARS)
         self.initialize_quantities_and_highlight()
         
         # Set status
@@ -3267,19 +3336,35 @@ class StockDispatchKit(tk.Frame):
     # Save (Issue)
     # ---------------------------------------------------------
     def save_all(self):
+        """
+        Save/issue all items that have qty_to_issue > 0.
+        ✅ Complete version with proper 11-column unpacking and validation.
+        """
         logging.info("[DISPATCH] save_all called")
-        if self.role not in ["admin", "manager"]:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.no_permission", "Only admin or manager roles can save changes."), "error")
+        
+        # Role validation
+        if self.role not in ["admin", "manager", "supervisor"]:
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.no_permission", "Only admin or manager roles can save changes."), 
+                "error"
+            )
             return
 
+        # Get and validate out_type
         out_type_display = (self.trans_type_var.get() or "").strip()
         out_type = self._value_for_out_type(out_type_display)
         if not out_type:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.no_out_type", "OUT Type is mandatory."), "error")
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.no_out_type", "OUT Type is mandatory."), 
+                "error"
+            )
             return
 
+        # Define required fields by out_type
         third_party_required = {"Out Donation", "Loan", "Return of Borrowing"}
         end_user_required = {"Issue to End User"}
         remarks_required = {
@@ -3287,112 +3372,193 @@ class StockDispatchKit(tk.Frame):
             "Batch Recall", "Theft", "Other Losses", "Quarantine"
         }
 
+        # Get form values
         end_user = (self.end_user_var.get() or "").strip()
         third_party = (self.third_party_var.get() or "").strip()
         remarks = (self.remarks_entry.get() or "").strip()
 
+        # Validate required fields based on out_type
         if out_type in end_user_required and not end_user:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.err_end_user_required", "End User is required for this Out Type."), "error")
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.err_end_user_required", "End User is required for this Out Type."), 
+                "error"
+            )
             return
+            
         if out_type in third_party_required and not third_party:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.err_third_party_required", "Third Party is required for this Out Type."), "error")
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.err_third_party_required", "Third Party is required for this Out Type."), 
+                "error"
+            )
             return
-        if out_type in remarks_required and (len(remarks) < 3):
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.err_remarks_required", "Remarks are required (min 3 chars) for this Out Type."), "error")
+            
+        if out_type in remarks_required and len(remarks) < 3:
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.err_remarks_required", "Remarks are required (min 3 chars) for this Out Type."), 
+                "error"
+            )
             return
 
+        # Collect rows to issue
         rows_to_issue = []
+        
         for iid in self.tree.get_children():
-            vals = self.tree.item(iid, "values")
+            meta = self.row_data.get(iid, {})
+            
+            # Skip header rows
+            if meta.get("is_header"):
+                continue
+            
+            vals = list(self.tree.item(iid, "values"))
             if not vals:
                 continue
-            code, desc, type_field, kit_col, module_col, current_stock, exp_date, batch_no, qty_to_issue, tree_unique_id = vals
-            meta = self.row_data.get(iid, {})
+            
+            # ✅ CRITICAL: Tree has 11 columns!
+            # Columns: Code, Description, Type, Kit, Module, Stock, Expiry, Batch, Qty_Required, Qty_to_Issue, unique_id
+            if len(vals) < 11:
+                logging.warning(f"[SAVE_ALL] Row {iid} has {len(vals)} columns (expected 11), skipping")
+                continue
+            
+            # ✅ UNPACK 11 VALUES (added qty_required between batch_no and qty_to_issue)
+            code, desc, type_field, kit_col, module_col, current_stock, exp_date, batch_no, qty_required, qty_to_issue, tree_unique_id = vals
+            
+            # Get unique_id from metadata (more reliable than tree column)
             unique_id = meta.get("unique_id") or tree_unique_id
             if not unique_id:
+                logging.warning(f"[SAVE_ALL] Row {iid} has no unique_id, skipping")
                 continue
-            raw_q = qty_to_issue[2:].strip() if qty_to_issue.startswith("★") else qty_to_issue
-            if not raw_q.isdigit():
+            
+            # ✅ Parse qty_to_issue (remove star if present)
+            raw_q = str(qty_to_issue).replace("★", "").strip()
+            if not raw_q or not raw_q.isdigit():
                 continue
+            
             q_int = int(raw_q)
             if q_int <= 0:
                 continue
+            
+            # ✅ Parse current_stock (remove star if present)
             try:
-                stock_int = int(current_stock) if str(current_stock).isdigit() else 0
+                stock_str = str(current_stock).replace("★", "").strip()
+                stock_int = int(stock_str) if stock_str.isdigit() else 0
             except Exception:
                 stock_int = 0
-            rows_to_issue.append((iid, code, desc, type_field, stock_int, q_int, exp_date, batch_no, unique_id))
+            
+            # Collect row data
+            rows_to_issue.append({
+                "iid": iid,
+                "code": code,
+                "description": desc,
+                "type": type_field,
+                "kit": kit_col if kit_col != "-----" else None,
+                "module": module_col if module_col != "-----" else None,
+                "current_stock": stock_int,
+                "qty_to_issue": q_int,
+                "expiry_date": exp_date if exp_date else None,
+                "batch_no": batch_no if batch_no else None,
+                "unique_id": unique_id,
+                "metadata": meta
+            })
 
+        # Check if any items to issue
         if not rows_to_issue:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.no_issue_qty", "No quantities entered to issue."), "error")
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.no_issue_qty", "No quantities entered to issue."), 
+                "error"
+            )
             return
 
-        over = [code for (_, code, _, _, stock, qty, _, _, _) in rows_to_issue if qty > stock and stock > 0]
-        if over:
-            custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                         lang.t("dispatch_kit.over_issue",
-                                "Cannot issue more than stock for: {list}").format(list=", ".join(over)), "error")
+        # Validate stock availability
+        over_issue = [r["code"] for r in rows_to_issue if r["qty_to_issue"] > r["current_stock"] and r["current_stock"] > 0]
+        if over_issue:
+            custom_popup(
+                self.parent, 
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("dispatch_kit.over_issue", "Cannot issue more than stock for: {list}").format(list=", ".join(over_issue)), 
+                "error"
+            )
             return
 
+        # Get scenario and movement type
         scenario_name = self.scenario_map.get(self.selected_scenario_id, "")
-        movement_label = self. mode_var.get()  # Get display label from dropdown
+        movement_label = self.mode_var.get()  # Get display label from dropdown
         movement_type_canonical = self._canon_movement_type(movement_label)  # ✅ Convert to English
 
+        # Generate document number
         doc_number = self.generate_document_number(out_type)
-        self.status_var.set(lang.t("dispatch_kit.pending_dispatch", "Pending dispatch... Document Number: {doc}")
-                            .format(doc=doc_number))
+        self.status_var.set(
+            lang.t("dispatch_kit.pending_dispatch", "Pending dispatch... Document Number: {doc}").format(doc=doc_number)
+        )
 
+        # Process transactions with retry logic
         import time
         max_attempts = 4
+        
         for attempt in range(1, max_attempts + 1):
             conn = connect_db()
             if conn is None:
-                custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                             lang.t("dispatch_kit.db_error", "Database connection failed"), "error")
+                custom_popup(
+                    self.parent, 
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("dispatch_kit.db_error", "Database connection failed"), 
+                    "error"
+                )
                 return
+            
             try:
                 conn.execute("PRAGMA busy_timeout=5000;")
                 cur = conn.cursor()
                 now_date = datetime.today().strftime('%Y-%m-%d')
                 now_time = datetime.now().strftime('%H:%M:%S')
 
-                for (iid, code, desc, type_field, stock, qty, exp_date, batch_no, unique_id) in rows_to_issue:
+                # Process each row
+                for row in rows_to_issue:
+                    # Verify stock availability (concurrency check)
                     cur.execute("""
                         SELECT final_qty FROM stock_data WHERE unique_id = ?
-                    """, (unique_id,))
-                    row = cur.fetchone()
-                    if not row or row[0] is None or row[0] < qty:
-                        raise ValueError(f"Insufficient stock or concurrency issue for {code}")
+                    """, (row["unique_id"],))
+                    
+                    db_row = cur.fetchone()
+                    if not db_row or db_row[0] is None or db_row[0] < row["qty_to_issue"]:
+                        raise ValueError(f"Insufficient stock or concurrency issue for {row['code']}")
 
+                    # Update stock_data
                     cur.execute("""
                         UPDATE stock_data
-                           SET qty_out = qty_out + ?,
-                               updated_at = ?
-                         WHERE unique_id = ?
-                           AND (qty_in - qty_out) >= ?
-                    """, (qty, f"{now_date} {now_time}", unique_id, qty))
+                        SET qty_out = qty_out + ?,
+                            updated_at = ?
+                        WHERE unique_id = ?
+                        AND (qty_in - qty_out) >= ?
+                    """, (row["qty_to_issue"], f"{now_date} {now_time}", row["unique_id"], row["qty_to_issue"]))
+                    
                     if cur.rowcount == 0:
-                        raise ValueError(f"Concurrent change or insufficient stock for {code}")
+                        raise ValueError(f"Concurrent change or insufficient stock for {row['code']}")
 
-                    rd = self.row_data.get(iid, {})
-                    kit_number = rd.get('Kit_number') or rd.get('kit_number') or kit_col or None
-                    module_number = rd.get('module_number') or module_col or None
+                    # Get kit_number and module_number from metadata
+                    rd = row["metadata"]
+                    kit_number = rd.get('Kit_number') or rd.get('kit_number') or row["kit"] or None
+                    module_number = rd.get('module_number') or row["module"] or None
 
+                    # Insert transaction record
                     self._insert_transaction_issue(
                         cur,
-                        unique_id=unique_id,
-                        code=code,
-                        description=desc,
-                        expiry_date=exp_date if exp_date else None,
-                        batch_number=batch_no if batch_no else None,
+                        unique_id=row["unique_id"],
+                        code=row["code"],
+                        description=row["description"],
+                        expiry_date=row["expiry_date"],
+                        batch_number=row["batch_no"],
                         scenario=scenario_name,
                         kit_number=kit_number,
                         module_number=module_number,
-                        qty_out=qty,
+                        qty_out=row["qty_to_issue"],
                         out_type=out_type,
                         third_party=third_party if third_party else None,
                         end_user=end_user if end_user else None,
@@ -3403,21 +3569,39 @@ class StockDispatchKit(tk.Frame):
                         document_number=doc_number
                     )
 
+                # Commit transaction
                 conn.commit()
-                custom_popup(self.parent, lang.t("dialog_titles.success", "Success"),
-                             lang.t("dispatch_kit.issue_success", "Stock issued successfully."), "info")
-                self.status_var.set(lang.t("dispatch_kit.issue_complete", "Issue complete. Document Number: {doc}")
-                                    .format(doc=doc_number))
+                
+                # Success message
+                custom_popup(
+                    self.parent, 
+                    lang.t("dialog_titles.success", "Success"),
+                    lang.t("dispatch_kit.issue_success", "Stock issued successfully."), 
+                    "info"
+                )
+                
+                self.status_var.set(
+                    lang.t("dispatch_kit.issue_complete", "Issue complete. Document Number: {doc}").format(doc=doc_number)
+                )
 
-                if custom_askyesno(self.parent,
-                                   lang.t("dialog_titles.confirm", "Confirm"),
-                                   lang.t("dispatch_kit.ask_export", "Do you want to export the issuance to Excel?")) == "yes":
-                    export_tuples = [(iid, code, desc, stock, qty, exp_date, batch_no)
-                                     for (iid, code, desc, _type, stock, qty, exp_date, batch_no, _uid) in rows_to_issue]
+                # Ask for Excel export
+                if custom_askyesno(
+                    self.parent,
+                    lang.t("dialog_titles.confirm", "Confirm"),
+                    lang.t("dispatch_kit.ask_export", "Do you want to export the issuance to Excel?")
+                ) == "yes":
+                    # Prepare export data
+                    export_tuples = [
+                        (r["iid"], r["code"], r["description"], r["current_stock"], 
+                         r["qty_to_issue"], r["expiry_date"], r["batch_no"])
+                        for r in rows_to_issue
+                    ]
                     self.export_data(export_tuples)
 
+                # Clear form
                 self.clear_form()
                 return
+                
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower():
                     logging.warning(f"[DISPATCH] Database locked attempt {attempt}/{max_attempts}; retrying...")
@@ -3432,18 +3616,28 @@ class StockDispatchKit(tk.Frame):
                     except:
                         pass
                     logging.error(f"[DISPATCH] Issue failed: {e}")
-                    custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), "error")
+                    custom_popup(
+                        self.parent, 
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), 
+                        "error"
+                    )
                     return
+                    
             except Exception as e:
                 try:
                     conn.rollback()
                 except:
                     pass
                 logging.error(f"[DISPATCH] Issue failed: {e}")
-                custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                             lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), "error")
+                custom_popup(
+                    self.parent, 
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("dispatch_kit.issue_failed", "Issue failed: {err}").format(err=e), 
+                    "error"
+                )
                 return
+                
             finally:
                 try:
                     cur.close()
@@ -3454,8 +3648,13 @@ class StockDispatchKit(tk.Frame):
                 except:
                     pass
 
-        custom_popup(self.parent, lang.t("dialog_titles.error", "Error"),
-                     lang.t("dispatch_kit.issue_failed_locked", "Issue failed: database remained locked."), "error")
+        # Max attempts reached
+        custom_popup(
+            self.parent, 
+            lang.t("dialog_titles.error", "Error"),
+            lang.t("dispatch_kit.issue_failed_locked", "Issue failed: database remained locked."), 
+            "error"
+        )
 
     # ---------------------------------------------------------
     # Helper: insert transaction using existing cursor
