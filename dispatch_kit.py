@@ -465,6 +465,34 @@ class StockDispatchKit(tk.Frame):
                 std_qty = 1
         return {"Kit_code": Kit_code, "module_code": module_code, "item_code": item_code, "std_qty": std_qty}
 
+
+    @staticmethod
+    def extract_std_qty_from_unique_id(unique_id: str) -> int:
+        """
+        Extract std_qty from unique_id.
+        Format: scenario/kit/module/item/std_qty/exp_date/kit_number/module_number
+        
+        Args:
+            unique_id: The unique identifier string
+        
+        Returns:
+            std_qty as integer (defaults to 1 if not found or invalid)
+        """
+        if not unique_id:
+            return 1
+        
+        parts = unique_id.split("/")
+        if len(parts) < 5:
+            return 1
+        
+        try:
+            std_qty = int(parts[4])
+            return std_qty if std_qty > 0 else 1
+        except (ValueError, IndexError):
+            return 1
+
+  
+
     def enrich_stock_row(self, scenario_id, unique_id, final_qty, exp_date,
                          Kit_number, module_number):
         """
@@ -594,8 +622,7 @@ class StockDispatchKit(tk.Frame):
         self.selected_scenario_id = sel.split(" - ")[0]
         self.selected_scenario_name = sel.split(" - ", 1)[1] if " - " in sel else ""
         
-        # ✅ Add debug call
-        self.debug_kit_items_structure(self.selected_scenario_id)
+
         
         self.build_mode_definitions()
         self.mode_cb['values'] = [lbl for _, lbl in self.mode_definitions]
@@ -1333,87 +1360,7 @@ class StockDispatchKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def fetch_standalone_stock_items(self, scenario_id):
-        """
-        Fetch standalone items (type='Item' at primary level) with available stock.
-        
-        Args:
-            scenario_id: Scenario ID
-        
-        Returns: 
-            List of stock row dicts with enriched data
-        """
-        conn = connect_db()
-        if conn is None:
-            logging.error("[DISPATCH] DB connection failed")
-            return []
-        
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        try: 
-            # Get items from stock_data with non-zero stock
-            cur.execute("""
-                SELECT 
-                    unique_id,
-                    code,
-                    scenario,
-                    kit,
-                    module,
-                    kit_number,
-                    module_number,
-                    exp_date,
-                    final_qty
-                FROM stock_data
-                WHERE scenario=? 
-                  AND final_qty > 0
-                  AND code IS NOT NULL
-                ORDER BY code
-            """, (scenario_id,))
-            
-            rows = cur.fetchall()
-            
-            if not rows:
-                logging.info(f"[DISPATCH] No stock found for scenario {scenario_id}")
-                return []
-            
-            # Filter to only include primary-level items (type='Item')
-            result = []
-            for r in rows:
-                code = r['code']
-                desc = get_item_description(code)
-                item_type = detect_type(code, desc).upper()
-                
-                # Check if it's an item at primary level
-                # Primary level means:  kit=NULL/None AND module=NULL/None
-                is_primary = (not r['kit'] or r['kit'] == '') and (not r['module'] or r['module'] == '')
-                
-                # Only include if type is ITEM and at primary level
-                if item_type == "ITEM" and is_primary:
-                    enriched = self. enrich_stock_row(
-                        scenario_id,
-                        r['unique_id'],
-                        r['final_qty'],
-                        r['exp_date'],
-                        code,
-                        desc,
-                        item_type,
-                        r['kit'],
-                        r['module'],
-                        r['kit_number'],
-                        r['module_number']
-                    )
-                    result.append(enriched)
-            
-            logging.info(f"[DISPATCH] Found {len(result)} standalone items for scenario {scenario_id}")
-            return result
-            
-        except sqlite3.Error as e:
-            logging.error(f"[DISPATCH] fetch_standalone_stock_items error: {e}")
-            return []
-        finally:
-            cur.close()
-            conn.close()
+
 
     def fill_from_search(self, event=None):
         """
@@ -1550,6 +1497,173 @@ class StockDispatchKit(tk.Frame):
             conn.close()
 
 
+    def on_qty_to_issue_changed(self, iid: str):
+        """
+        Called when qty_to_issue changes for an item.
+        Recalculates qty_required for all subsequent siblings with same code.
+        
+        Args:
+            iid: Tree item ID that was changed
+        """
+        if iid not in self.row_data:
+            return
+        
+        item_data = self.row_data[iid]
+        code = item_data.get('code', '')
+        parent_iid = self.tree.parent(iid)
+        
+        if not parent_iid:
+            return
+        
+        # Get all children of parent
+        siblings = list(self.tree.get_children(parent_iid))
+        
+        # Find current item index
+        try:
+            current_index = siblings.index(iid)
+        except ValueError:
+            return
+        
+        # Update qty_required for current item and all subsequent siblings with same code
+        for sibling_iid in siblings[current_index:]:
+            if sibling_iid not in self.row_data:
+                continue
+            
+            sibling_data = self.row_data[sibling_iid]
+            
+            # Only update siblings with same item code
+            if sibling_data.get('code') == code:
+                # Recalculate qty_required
+                qty_required = self.calculate_qty_required(sibling_iid)
+                
+                # Update tree display
+                self.tree.set(sibling_iid, "qty_required", qty_required)
+                
+                # Update row_data
+                self.row_data[sibling_iid]['qty_required'] = qty_required
+                
+                logging.debug(f"[QTY_REQUIRED] Updated {sibling_iid}: qty_required={qty_required}")
+
+
+    def show_qty_edit_menu(self, event):
+        """
+        Show context menu for editing qty_to_issue on right-click.
+        Only shows for ITEM rows (Kit/Module use direct editing).
+        """
+        # Identify what was clicked
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        
+        row_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        
+        if not row_id or not col_id:
+            return
+        
+        # Check if qty_to_issue column (column 10, index 9)
+        col_index = int(col_id.replace("#", "")) - 1
+        if col_index != 9:  # qty_to_issue is column 9 (0-indexed)
+            return
+        
+        # Check if row is an Item (not Kit/Module)
+        vals = self.tree.item(row_id, "values")
+        row_type = (vals[2] or "").upper()
+        
+        if row_type != "ITEM":
+            return  # Only items can be edited via right-click
+        
+        # Check if row has stock
+        meta = self.row_data.get(row_id, {})
+        if meta.get("is_header"):
+            return
+        
+        try:
+            current_stock = int(vals[5]) if vals[5] else 0
+        except:
+            current_stock = 0
+        
+        if current_stock == 0:
+            self.status_var.set(lang.t("dispatch_kit.no_stock", "No stock available"))
+            return
+        
+        # Create context menu
+        menu = tk.Menu(self.tree, tearoff=0)
+        menu.add_command(
+            label=lang.t("dispatch_kit.edit_quantity", "Edit Quantity"),
+            command=lambda: self.edit_qty_to_issue_popup(row_id, current_stock)
+        )
+        
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+
+    def calculate_qty_required(self, iid: str) -> int:
+        """
+        Calculate quantity required for a specific tree item.
+        Formula: std_qty - sum(qty_to_issue of previous siblings with same code)
+        
+        This implements FEFO by showing remaining requirement after earlier batches.
+        
+        Args:
+            iid: Tree item ID
+        
+        Returns:
+            Quantity still required (0 if fully allocated)
+        """
+        if iid not in self.row_data:
+            return 0
+        
+        item_data = self.row_data[iid]
+        unique_id = item_data.get('unique_id', '')
+        code = item_data.get('code', '')
+        item_type = item_data.get('type', '').upper()
+        
+        # Only calculate for items (not kits or modules)
+        if item_type != "ITEM":
+            return 0
+        
+        # Extract std_qty from unique_id
+        std_qty = self.extract_std_qty_from_unique_id(unique_id)
+        
+        if std_qty <= 0:
+            return 0
+        
+        # Find parent
+        parent_iid = self.tree.parent(iid)
+        if not parent_iid:
+            # No parent - return full std_qty
+            return std_qty
+        
+        # Get all children of parent (in order)
+        siblings = self.tree.get_children(parent_iid)
+        
+        # Sum quantities already allocated to EARLIER siblings with same code
+        allocated_qty = 0
+        for sibling_iid in siblings:
+            # Stop when we reach current item (FEFO: only count earlier batches)
+            if sibling_iid == iid:
+                break
+            
+            if sibling_iid not in self.row_data:
+                continue
+            
+            sibling_data = self.row_data[sibling_iid]
+            
+            # Only count siblings with same item code
+            if sibling_data.get('code') == code:
+                try:
+                    qty_to_issue = int(sibling_data.get('qty_to_issue', 0))
+                    allocated_qty += qty_to_issue
+                except (ValueError, TypeError):
+                    pass
+        
+        # Calculate remaining requirement
+        remaining = std_qty - allocated_qty
+        
+        return max(0, remaining)  # Never negative
 
     # ---------------------------------------------------------
     # UI
@@ -1570,13 +1684,14 @@ class StockDispatchKit(tk.Frame):
                  font=("Helvetica", 20, "bold"),
                  bg="#F0F4F8").pack(pady=(10, 0))
 
+        # ✅ UPDATED: Instructions mention right-click for qty editing
         instruct_frame = tk.Frame(self.parent, bg="#FFF9C4", highlightbackground="#E0D890",
                                   highlightthickness=1, bd=0)
         instruct_frame.pack(fill="x", padx=10, pady=(6, 4))
         tk.Label(
             instruct_frame,
             text=lang.t("dispatch_kit.instructions",
-                        "Cells marked with ★ are editable. Enter quantities only there; other cells are automatic. "
+                        "Cells marked with ★ are editable. Right-click 'Qty to Issue' to edit quantity. "
                         "For Kits and modules quantity entered can be either 1 or 0."),
             fg="#444",
             bg="#FFF9C4",
@@ -1602,7 +1717,7 @@ class StockDispatchKit(tk.Frame):
 
         # Kit selector
         self.Kit_var = tk.StringVar()
-        self.Kit_cb = ttk.Combobox(main, textvariable=self.Kit_var, state="disabled", width=80)  # ✅ Increased width
+        self.Kit_cb = ttk.Combobox(main, textvariable=self.Kit_var, state="disabled", width=80)
         tk.Label(main, text=lang.t("dispatch_kit.select_kit", "Select Kit:"), bg="#F0F4F8")\
             .grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.Kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
@@ -1617,12 +1732,12 @@ class StockDispatchKit(tk.Frame):
         self.Kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
 
         # Module selector
-        self. module_var = tk.StringVar()
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=80)  # ✅ Increased width
+        self.module_var = tk.StringVar()
+        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=80)
         tk.Label(main, text=lang.t("dispatch_kit.select_module", "Select Module:"), bg="#F0F4F8")\
             .grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        self.module_cb. bind("<<ComboboxSelected>>", self.on_module_selected)
+        self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
 
         # Module number selector
         self.module_number_var = tk.StringVar()
@@ -1681,15 +1796,17 @@ class StockDispatchKit(tk.Frame):
         self.search_listbox.grid(row=6, column=1, columnspan=3, padx=5, pady=5, sticky="we")
 
         self.search_listbox.bind("<<ListboxSelect>>", self.fill_from_search)
-        self.search_listbox.bind("<Return>", self.fill_from_search)  # Keep Enter key           
-        self.search_listbox.bind("<space>", self.fill_from_search)  # Optional: Space key also works
+        self.search_listbox.bind("<Return>", self.fill_from_search)
+        self.search_listbox.bind("<space>", self.fill_from_search)
 
         logging.debug("[RENDER_UI] Search listbox bindings set")
 
+        # ✅ UPDATED: Added qty_required column between batch_no and qty_to_issue
         cols = ("code", "description", "type", "Kit", "module",
-                "current_stock", "expiry_date", "batch_no", "qty_to_issue", "unique_id")
+                "current_stock", "expiry_date", "batch_no", "qty_required", "qty_to_issue", "unique_id")
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=18)
 
+        # ✅ UPDATED: Added qty_required heading
         headings = {
             "code": lang.t("dispatch_kit.code", "Code"),
             "description": lang.t("dispatch_kit.description", "Description"),
@@ -1699,20 +1816,41 @@ class StockDispatchKit(tk.Frame):
             "current_stock": lang.t("dispatch_kit.current_stock", "Current Stock"),
             "expiry_date": lang.t("dispatch_kit.expiry_date", "Expiry Date"),
             "batch_no": lang.t("dispatch_kit.batch_no", "Batch Number"),
+            "qty_required": lang.t("dispatch_kit.qty_required", "Qty Required"),  # ✅ NEW
             "qty_to_issue": lang.t("dispatch_kit.qty_to_issue", "Quantity to Issue"),
             "unique_id": "Unique ID"
         }
 
+        # ✅ UPDATED: Added qty_required width
         widths = {
-            "code": 160, "description": 380, "type": 120, "Kit": 120, "module": 120,
-            "current_stock": 110, "expiry_date": 150, "batch_no": 140, "qty_to_issue": 140,
+            "code": 160, 
+            "description": 380, 
+            "type": 120, 
+            "Kit": 120, 
+            "module": 120,
+            "current_stock": 110, 
+            "expiry_date": 150, 
+            "batch_no": 140, 
+            "qty_required": 110,  # ✅ NEW
+            "qty_to_issue": 140,
             "unique_id": 0
         }
+        
+        # ✅ UPDATED: Added qty_required alignment
         aligns = {
-            "code": "w", "description": "w", "type": "w", "Kit": "w", "module": "w",
-            "current_stock": "e", "expiry_date": "w", "batch_no": "w", "qty_to_issue": "e",
+            "code": "w", 
+            "description": "w", 
+            "type": "w", 
+            "Kit": "w", 
+            "module": "w",
+            "current_stock": "e", 
+            "expiry_date": "w", 
+            "batch_no": "w", 
+            "qty_required": "e",  # ✅ NEW - right-aligned for numbers
+            "qty_to_issue": "e",
             "unique_id": "w"
         }
+        
         for c in cols:
             self.tree.heading(c, text=headings[c])
             self.tree.column(
@@ -1733,11 +1871,27 @@ class StockDispatchKit(tk.Frame):
         main.grid_rowconfigure(7, weight=1)
         main.grid_columnconfigure(1, weight=1)
 
+        # ✅ Existing bindings (starred cells remain directly editable)
         self.tree.bind("<Double-1>", self.start_edit)
         self.tree.bind("<KeyPress-Return>", self.start_edit)
         self.tree.bind("<KeyPress-Tab>", self.start_edit)
         self.tree.bind("<KeyPress-Up>", self.navigate_tree)
         self.tree.bind("<KeyPress-Down>", self.navigate_tree)
+        
+        # ✅ NEW: Right-click context menu for qty_to_issue column
+        self.tree.bind("<Button-3>", self.show_qty_edit_menu)  # Right-click (Windows/Linux)
+        self.tree.bind("<Control-Button-1>", self.show_qty_edit_menu)  # Ctrl+Click (Mac)
+        
+        logging.debug("[RENDER_UI] Tree bindings set - starred cells editable, qty_to_issue via right-click")
+
+                # ✅ Configure visual tags for tree styling
+        self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
+        self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
+        self.tree.tag_configure("Kit_module_highlight", background="#FFF9C4")
+        self.tree.tag_configure("editable_row", foreground="#000000")
+        self.tree.tag_configure("non_editable", foreground="#666666")
+        
+        logging.debug("[RENDER_UI] Tree visual tags configured")
 
         btnf = tk.Frame(main, bg="#F0F4F8")
         btnf.grid(row=9, column=0, columnspan=4, pady=5)
@@ -1760,65 +1914,156 @@ class StockDispatchKit(tk.Frame):
     # Headers + Display Assembly
     # ---------------------------------------------------------
     def _build_with_headers(self, rows):
-        def sort_key(it):
-            return (
-                it.get("Kit_number") or "",
-                it.get("module_number") or "",
-                it.get("treecode") or "",
-                it.get("code") or ""
-            )
-        ordered = sorted(rows, key=sort_key)
+        """
+        Build hierarchical view with kit/module headers.
+        ✅ FIXED: Kit rows, then modules (each with items sorted by CODE then EXPIRY).
+    
+        Structure:
+        - Kit header
+        - Kit row (type='Kit')
+        - For each module:
+        - Module header
+        - Module row (type='Module')
+        - Item rows (type='Item', sorted by code alphabetically, then expiry FEFO)
+        """
+       # Separate rows by type and group
+        kit_rows = {}      # {kit_number: [kit_rows]}
+        module_groups = {} # {(kit_num, mod_num): [module_rows + item_rows]}
+    
+        for idx, item in enumerate(rows):
+            item_type = (item.get('type') or '').upper()
+            kit_num = item.get("Kit_number") or ""
+            mod_num = item.get("module_number") or ""
+        
+            if item_type == 'KIT':
+                # Kit rows go in separate dict
+                if kit_num not in kit_rows:
+                    kit_rows[kit_num] = []
+                kit_rows[kit_num].append((idx, item))
+        
+            else:
+                # Module and Item rows grouped together by (kit, module)
+                key = (kit_num, mod_num)
+                if key not in module_groups:
+                    module_groups[key] = []
+                module_groups[key].append((idx, item, item_type))
+    
+        # Sort function for items within a module group
+        def sort_within_module(triple):
+            """
+            Sort by:
+            1. Type: Module (0) before Item (1)
+            2. Item code (alphabetically) - ✅ NEW
+            3. Expiry date (earliest first) for Items
+            4. Original index for stability
+            """
+            idx, item, item_type = triple
+        
+            # Type priority
+            type_priority = 0 if item_type == 'MODULE' else 1
+        
+            # ✅ Item code for alphabetical grouping
+            item_code = item.get('code', '').upper()
+        
+            # Expiry date
+            exp_str = item.get('expiry_date', '')
+            if not exp_str or exp_str == "":
+                exp_date = "9999-12-31"
+            else:
+                try:
+                    if len(exp_str) == 10 and exp_str[4] == '-':
+                        exp_date = exp_str
+                    else:
+                        dt = datetime.strptime(exp_str, "%d-%b-%Y")
+                        exp_date = dt.strftime("%Y-%m-%d")
+                except:
+                    exp_date = "9999-12-31"
+        
+            # ✅ UPDATED: Sort by type, then code, then expiry, then index
+            return (type_priority, item_code, exp_date, idx)
+    
+        # Sort each module group (Module rows first, then Items by code+expiry)
+        for key in module_groups:
+            module_groups[key].sort(key=sort_within_module)
+    
+        # Sort groups by (kit_number, module_number)
+        sorted_module_groups = sorted(module_groups.items(), key=lambda x: (x[0][0], x[0][1]))
+    
+        # Build final result
         result = []
         seen_kit = set()
         seen_module = set()
-        for it in ordered:
-            Kit_code = it.get("Kit") if it.get("Kit") and it.get("Kit") != "-----" else None
-            module_code = it.get("module") if it.get("module") and it.get("module") != "-----" else None
-            Kit_number = it.get("Kit_number")
-            module_number = it.get("module_number")
-
-            if Kit_code and Kit_number and (Kit_code, Kit_number) not in seen_kit:
-                result.append({
-                    "is_header": True,
-                    "header_level": "Kit",
-                    "code": Kit_code,
-                    "description": get_item_description(Kit_code),
-                    "type": "Kit",
-                    "Kit": Kit_number,
-                    "module": "",
-                    "current_stock": "",
-                    "expiry_date": "",
-                    "batch_no": "",
-                    "unique_id": "",
-                    "Kit_number": Kit_number,
-                    "module_number": None,
-                    "treecode": None,
-                    "std_qty": None
-                })
-                seen_kit.add((Kit_code, Kit_number))
-
-            if module_code and module_number and (Kit_code, module_code, module_number, Kit_number) not in seen_module:
+        current_kit = None
+    
+        for (kit_num, mod_num), item_triples in sorted_module_groups:
+            if not item_triples:
+                continue
+        
+            # Get first item to extract codes
+            first_item = item_triples[0][1]
+            kit_code = first_item.get("Kit") if first_item.get("Kit") and first_item.get("Kit") != "-----" else None
+            module_code = first_item.get("module") if first_item.get("module") and first_item.get("module") != "-----" else None
+        
+            # Add Kit header + Kit rows (only once per kit)
+            if kit_code and kit_num and kit_num != current_kit:
+                current_kit = kit_num
+            
+                # Add Kit header
+                if (kit_code, kit_num) not in seen_kit:
+                    result.append({
+                        "is_header": True,
+                        "header_level": "Kit",
+                        "code": kit_code,
+                        "description": get_item_description(kit_code),
+                        "type": "Kit",
+                        "Kit": kit_num,
+                        "module": "",
+                        "current_stock": "",
+                        "expiry_date": "",
+                        "batch_no": "",
+                        "qty_required": "",
+                        "unique_id": "",
+                        "Kit_number": kit_num,
+                        "module_number": None,
+                        "treecode": first_item.get("treecode"),
+                        "std_qty": None
+                    })
+                    seen_kit.add((kit_code, kit_num))
+            
+                # Add Kit rows (type='Kit') right after header
+                if kit_num in kit_rows:
+                    for idx, kit_item in kit_rows[kit_num]:
+                        result.append(kit_item)
+        
+            # Add Module header
+            if module_code and mod_num and (kit_code, module_code, mod_num, kit_num) not in seen_module:
                 result.append({
                     "is_header": True,
                     "header_level": "module",
                     "code": module_code,
                     "description": get_item_description(module_code),
                     "type": "Module",
-                    "Kit": Kit_number or "",
-                    "module": module_number,
+                    "Kit": kit_num or "",
+                    "module": mod_num,
                     "current_stock": "",
                     "expiry_date": "",
                     "batch_no": "",
+                    "qty_required": "",
                     "unique_id": "",
-                    "Kit_number": Kit_number,
-                    "module_number": module_number,
-                    "treecode": None,
+                    "Kit_number": kit_num,
+                    "module_number": mod_num,
+                    "treecode": first_item.get("treecode"),
                     "std_qty": None
                 })
-                seen_module.add((Kit_code, module_code, module_number, Kit_number))
-
-            result.append(it)
+                seen_module.add((kit_code, module_code, mod_num, kit_num))
+        
+            # Add Module row + Item rows (sorted: Module first, Items by CODE then EXPIRY)
+            for idx, item, item_type in item_triples:
+                result.append(item)
+    
+        logging.debug(f"[BUILD_HEADERS] Built {len(result)} rows (Kits→Modules→Items, code+expiry-sorted)")
         return result
+
 
     # ---------------------------------------------------------
     # Mode Rules & Quantity Logic
@@ -1848,13 +2093,22 @@ class StockDispatchKit(tk.Frame):
         return rules
 
     def initialize_quantities_and_highlight(self):
+        """
+        Initialize quantities and apply visual highlighting to rows.
+        - Sets default qty_to_issue based on item type
+        - Marks editable cells with ★
+        - Applies color tags for kits/modules
+        - Handles FEFO-derived quantities for items
+        """
         rules = self.get_mode_rules()
         mode_key = self.current_mode_key()
 
+        # ✅ STEP 1: Initialize qty_to_issue for Kits and Modules
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
+        
             vals = list(self.tree.item(iid, "values"))
             row_type_lower = (vals[2] or "").lower()
 
@@ -1863,6 +2117,7 @@ class StockDispatchKit(tk.Frame):
             except Exception:
                 stock = 0
 
+            # ✅ Initialize qty_to_issue (column 9)
             if row_type_lower == "kit":
                 if mode_key == "dispatch_kit":
                     qty = 1
@@ -1871,18 +2126,23 @@ class StockDispatchKit(tk.Frame):
             elif row_type_lower == "module":
                 qty = 1 if ("module" in {t.lower() for t in rules["editable_types"]} and stock > 0) else 0
             elif row_type_lower == "item":
-                qty = 0
+                # Items already have qty_to_issue set by populate_rows FEFO logic
+                # Don't override it here
+                qty = vals[9] if len(vals) > 9 else 0
             else:
                 qty = 0
 
-            vals[8] = str(qty)
+            # ✅ Update qty_to_issue (column 9)
+            vals[9] = str(qty)
             self.tree.item(iid, values=vals)
 
+        # ✅ STEP 2: Derive module/item quantities if needed
         if rules.get("derive_modules_from_kit") and hasattr(self, "_derive_modules_from_kits"):
             self._derive_modules_from_kits()
         if rules.get("derive_items_from_modules"):
             self._derive_items_from_modules()
 
+        # ✅ STEP 3: Highlight header rows
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if not meta.get("is_header"):
@@ -1894,35 +2154,62 @@ class StockDispatchKit(tk.Frame):
             elif rt == "module":
                 self.tree.item(iid, tags=("module_header", "Kit_module_highlight"))
 
+        # ✅ STEP 4: Mark editable cells with ★ and apply tags
         editable_types_lower = {t.lower() for t in rules["editable_types"]}
+    
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
+        
             vals = list(self.tree.item(iid, "values"))
             rt_low = (vals[2] or "").lower()
             tags = []
+        
+            # ✅ Apply highlighting for kits/modules
             if rt_low in ("kit", "module"):
                 tags.append("Kit_module_highlight")
+        
+            # ✅ Check if row is editable
             is_editable = (rt_low in editable_types_lower and meta.get("unique_id"))
+        
             if is_editable:
-                if not vals[8].startswith("★"):
-                    vals[8] = f"★ {vals[8]}"
+                # ✅ Add star to batch_no (column 7) if can_edit_batch
+                if rules.get("can_edit_batch"):
+                    batch_val = vals[7]
+                    if not str(batch_val).startswith("★"):
+                        vals[7] = f"★ {batch_val}"
+            
+                # ✅ Add star to qty_to_issue (column 9) for Kit/Module rows only
+                if rt_low in ("kit", "module"):
+                    qty_val = vals[9]
+                    if not str(qty_val).startswith("★"):
+                        vals[9] = f"★ {qty_val}"
+            
+                # ✅ For items, qty_to_issue is editable via right-click (NO star)
+                # Items already have qty_to_issue calculated by FEFO in populate_rows
+            
                 tags.append("editable_row")
                 self.tree.item(iid, values=vals, tags=tuple(tags))
             else:
                 tags.append("non_editable")
                 self.tree.item(iid, tags=tuple(tags))
 
+        logging.debug("[INIT_QTY] Quantities initialized and editable cells marked with ★")
+
     def _derive_modules_from_kits(self):
+        """Derive module quantities from kit quantities."""
         kit_quantities = {}
+        
         for iid in self.tree.get_children():
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
+            
             vals = self.tree.item(iid, "values")
             if (vals[2] or "").lower() == "kit":
-                raw = vals[8]
+                # ✅ FIXED: Column 9 is qty_to_issue now (was 8)
+                raw = vals[9]
                 if raw.startswith("★"):
                     raw = raw[2:].strip()
                 kit_qty = int(raw) if raw.isdigit() else 0
@@ -1932,6 +2219,7 @@ class StockDispatchKit(tk.Frame):
             meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
+            
             vals = list(self.tree.item(iid, "values"))
             if (vals[2] or "").lower() == "module":
                 base_qty = kit_quantities.get(meta.get("Kit_number"), 0)
@@ -1941,7 +2229,9 @@ class StockDispatchKit(tk.Frame):
                     stock = 0
                 if base_qty > stock:
                     base_qty = stock
-                vals[8] = str(base_qty)
+                
+                # ✅ FIXED: Column 9 is qty_to_issue now (was 8)
+                vals[9] = str(base_qty)
                 self.tree.item(iid, values=vals)
 
     def _reapply_editable_icons(self, rules):
@@ -1964,7 +2254,7 @@ class StockDispatchKit(tk.Frame):
                 tags.append("Kit_module_highlight")
 
             if rt_low in editable_lower and meta.get("unique_id"):
-                cell_val = vals[8]
+                cell_val = vals[9]  # qty_to_issue column
                 core = cell_val[2:].strip() if cell_val.startswith("★") else cell_val.strip()
                 if core == "":
                     core = "0"
@@ -1982,19 +2272,20 @@ class StockDispatchKit(tk.Frame):
         """
         # Collect module quantities
         module_quantities = {}
-        for iid in self. tree.get_children():
-            meta = self.row_data. get(iid, {})
+        for iid in self.tree.get_children():
+            meta = self.row_data.get(iid, {})
             if meta.get("is_header"):
                 continue
             vals = self.tree.item(iid, "values")
             if (vals[2] or "").lower() == "module":
-                raw = vals[8]
+                # ✅ FIXED: Column 9 is qty_to_issue now (was 8)
+                raw = vals[9]
                 if raw.startswith("★"):
                     raw = raw[2:].strip()
                 module_qty = int(raw) if raw.isdigit() else 0
                 
                 # Key by (kit_number, module_number) for uniqueness
-                key = (meta. get("Kit_number"), meta.get("module_number"))
+                key = (meta.get("Kit_number"), meta.get("module_number"))
                 module_quantities[key] = module_qty
         
         # Group items by (kit_number, module_number, item_code)
@@ -2046,11 +2337,12 @@ class StockDispatchKit(tk.Frame):
                 # Module qty is 0, set all items to 0
                 for row in item_rows:
                     vals = list(self.tree.item(row['iid'], "values"))
-                    vals[8] = "0"
+                    # ✅ FIXED: Column 9 is qty_to_issue now (was 8)
+                    vals[9] = "0"
                     self.tree.item(row['iid'], values=vals)
                 continue
             
-            # Calculate required quantity:  module_qty * std_qty
+            # Calculate required quantity: module_qty * std_qty
             std_qty = item_rows[0]['std_qty']  # All rows should have same std_qty
             required_qty = module_qty * std_qty
             
@@ -2063,9 +2355,107 @@ class StockDispatchKit(tk.Frame):
                 qty = fefo_distribution.get(iid, 0)
                 
                 vals = list(self.tree.item(iid, "values"))
-                vals[8] = str(qty)
-                self.tree. item(iid, values=vals)
+                # ✅ FIXED: Column 9 is qty_to_issue now (was 8)
+                vals[9] = str(qty)
+                self.tree.item(iid, values=vals)
 
+    def _auto_fill_fefo_quantities(self):
+        """
+        Auto-fill qty_to_issue for items using FEFO logic.
+        Distributes quantity required across available stock by earliest expiry.
+        """
+        # Group items by parent and code
+        parent_map = {}  # {parent_iid: {code: [iid_list]}}
+        
+        def collect_items(iid):
+            """Recursively collect item nodes."""
+            if iid not in self.row_data:
+                return
+            
+            item_type = self.row_data[iid].get('type', '').upper()
+            
+            if item_type == "ITEM":
+                # Leaf node
+                parent_iid = self.tree.parent(iid)
+                if parent_iid:
+                    code = self.row_data[iid].get('code', '')
+                    if parent_iid not in parent_map:
+                        parent_map[parent_iid] = {}
+                    if code not in parent_map[parent_iid]:
+                        parent_map[parent_iid][code] = []
+                    parent_map[parent_iid][code].append(iid)
+            else:
+                # Branch node - recurse
+                for child_iid in self.tree.get_children(iid):
+                    collect_items(child_iid)
+        
+        # Collect all items
+        for root_iid in self.tree.get_children():
+            collect_items(root_iid)
+        
+        # Process each parent's items
+        for parent_iid, code_map in parent_map.items():
+            for code, iid_list in code_map.items():
+                if not iid_list:
+                    continue
+                
+                # Get std_qty from first item
+                first_item = self.row_data.get(iid_list[0], {})
+                std_qty = self.extract_std_qty_from_unique_id(first_item.get('unique_id', ''))
+                
+                # Build stock rows for FEFO distribution
+                stock_rows = []
+                for iid in iid_list:
+                    item = self.row_data.get(iid, {})
+                    stock_rows.append({
+                        'iid': iid,
+                        'expiry_date': item.get('expiry_date', ''),
+                        'current_stock': item.get('current_stock', 0)
+                    })
+                
+                # Use existing FEFO helper
+                distribution = self._distribute_qty_by_fefo(stock_rows, std_qty)
+                
+                # Apply distribution
+                for iid, qty in distribution.items():
+                    self.tree.set(iid, "qty_to_issue", qty)
+                    if iid in self.row_data:
+                        self.row_data[iid]['qty_to_issue'] = qty
+                
+                logging.debug(f"[FEFO] Distributed {std_qty} for {code}: {distribution}")
+
+
+    def _calculate_all_qty_required(self):
+        """
+        Calculate and set qty_required for all item rows in the tree.
+        Should be called after qty_to_issue is populated.
+        """
+        def process_node(iid):
+            """Recursively process nodes."""
+            if iid not in self.row_data:
+                return
+            
+            item_type = self.row_data[iid].get('type', '').upper()
+            
+            if item_type == "ITEM":
+                # Calculate qty_required
+                qty_required = self.calculate_qty_required(iid)
+                
+                # Update tree
+                self.tree.set(iid, "qty_required", qty_required)
+                
+                # Update row_data
+                self.row_data[iid]['qty_required'] = qty_required
+            
+            # Process children
+            for child_iid in self.tree.get_children(iid):
+                process_node(child_iid)
+        
+        # Process all root nodes
+        for root_iid in self.tree.get_children():
+            process_node(root_iid)
+        
+        logging.debug("[QTY_REQUIRED] Calculated qty_required for all items")
     # ---------------------------------------------------------
     # Out Type Dependents
     # ---------------------------------------------------------
@@ -2183,60 +2573,6 @@ class StockDispatchKit(tk.Frame):
                 self.Kit_number_cb['values'] = []
                 self.Kit_number_cb.config(state="disabled")
 
-    def debug_kit_items_structure(self, scenario_id):
-        """
-        DEBUG: Show what's actually in kit_items table.
-        """
-        conn = connect_db()
-        if conn is None:
-            logging.error("[DEBUG] No DB connection")
-            return
-        
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        try:
-            # Get sample rows
-            cur.execute("""
-                SELECT code, kit, module, item, level, treecode
-                FROM kit_items
-                WHERE scenario_id=?
-                LIMIT 20
-            """, (scenario_id,))
-            
-            rows = cur.fetchall()
-            
-            logging.info(f"[DEBUG] Found {len(rows)} rows in kit_items for scenario {scenario_id}")
-            
-            for i, row in enumerate(rows):
-                logging.info(f"[DEBUG] Row {i}: code={row['code']}, kit={row['kit']}, module={row['module']}, item={row['item']}, level={row['level']}, treecode={row['treecode']}")
-            
-            # Check distinct level values
-            cur.execute("""
-                SELECT DISTINCT level
-                FROM kit_items
-                WHERE scenario_id=?
-            """, (scenario_id,))
-            
-            levels = [r['level'] for r in cur.fetchall()]
-            logging.info(f"[DEBUG] Distinct 'level' values: {levels}")
-            
-            # Check how many kits exist
-            cur.execute("""
-                SELECT COUNT(*) as cnt
-                FROM kit_items
-                WHERE scenario_id=?
-                  AND level='kit'
-            """, (scenario_id,))
-            
-            kit_count = cur.fetchone()['cnt']
-            logging.info(f"[DEBUG] Rows with level='kit': {kit_count}")
-            
-        except sqlite3.Error as e:
-            logging.error(f"[DEBUG] Error: {e}")
-        finally:
-            cur.close()
-            conn.close()                
 
             
     def on_kit_number_selected(self, event=None):
@@ -2450,125 +2786,209 @@ class StockDispatchKit(tk.Frame):
 
     def populate_rows(self, items=None, status_msg="", update_cache=True):
         """
-        Populate tree with items, applying FEFO sorting and quantity initialization.
-        Items are sorted by kit_number, module_number, code, then expiry_date (earliest first).
-        
-        Args:
-            items: List of item dicts to display
-            status_msg: Status message to show
-            update_cache: If True, update self.full_items cache (set False for filtered views)
+        Populate the tree with items, applying FEFO logic for qty_to_issue.
+        ✅ FIXED: No global sorting - hierarchy preserved, FEFO applied per module.
         """
         if items is None:
-            items = self.full_items if hasattr(self, 'full_items') else []
-        else:
-            # ✅ CRITICAL: Only update cache if this is NOT a filtered view
-            if update_cache:
-                self.full_items = items[:]
-                logging.debug(f"[POPULATE_ROWS] Cached {len(items)} items to self.full_items")
-            else:
-                logging.debug(f"[POPULATE_ROWS] Displaying {len(items)} filtered items (cache preserved)")
+            items = []
+        
+        # Cache items for search restore
+        if update_cache:
+            self.full_items = items.copy()
+            logging.debug(f"[POPULATE_ROWS] Cached {len(items)} items to self.full_items")
+        
+        # Clear existing rows
+        self.clear_table_only()
+        self.row_data = {}
         
         if not items:
-            self.clear_table_only()
             if status_msg:
                 self.status_var.set(status_msg)
             else:
-                self.status_var.set(lang.t("dispatch_kit.no_items", "No items found"))
+                self.status_var.set(lang.t("dispatch_kit.no_items", "No items to display"))
             return
         
-        # ✅ FEFO Sorting: Sort by kit/module/code, then by expiry date (earliest first)
-        def sort_key_with_expiry(item):
-            """Sort items with FEFO logic - earliest expiry first."""
-            kit_num = item.get("Kit_number") or ""
-            mod_num = item.get("module_number") or ""
-            code = item.get("code") or ""
-            exp_date = item.get("expiry_date") or ""
+        # ✅ NO GLOBAL SORTING - preserve order from database
+        logging.debug(f"[POPULATE_ROWS] Processing {len(items)} items without global sorting")
+        
+        # Group items by (kit_number, module_number, code) for FEFO calculation
+        fefo_groups = {}
+        for item in items:
+            kit_num = item.get('Kit_number', '')
+            mod_num = item.get('module_number', '')
+            code = item.get('code', '')
+            key = (kit_num, mod_num, code)
             
-            # Parse expiry to sortable format (YYYY-MM-DD)
-            sortable_exp = "9999-12-31"  # Default for items without expiry
+            if key not in fefo_groups:
+                fefo_groups[key] = []
+            fefo_groups[key].append(item)
+        
+        # Calculate qty_to_issue and qty_required using FEFO within each group
+        for (kit_num, mod_num, code), group_items in fefo_groups.items():
+            # Get std_qty from first item
+            std_qty = group_items[0].get('std_qty')
+            if std_qty is None or std_qty <= 0:
+                # Not an item, skip FEFO calculation
+                for item in group_items:
+                    item['qty_to_issue'] = 0
+                    item['qty_required'] = "N/A"
+                continue
             
-            if exp_date:
+            # Sort group by expiry date (FEFO within this module/code)
+
+            def expiry_key(it):
+                """Sort by expiry date only - preserve original order when dates equal."""
+                exp_str = it.get('expiry_date', '')
+                if not exp_str:
+                    return "9999-12-31"
                 try:
-                    # Check if already in ISO format (YYYY-MM-DD)
-                    if len(exp_date) == 10 and exp_date[4] == '-' and exp_date[7] == '-':
-                        sortable_exp = exp_date
-                    else:
-                        # Try parsing DD-Mon-YYYY format
-                        from datetime import datetime
-                        dt = datetime.strptime(exp_date, "%d-%b-%Y")
-                        sortable_exp = dt.strftime("%Y-%m-%d")
-                except Exception:
-                    # If parsing fails, keep default
-                    pass
+                    if len(exp_str) == 10 and exp_str[4] == '-':
+                        return exp_str
+                    dt = datetime.strptime(exp_str, "%d-%b-%Y")
+                    return dt.strftime("%Y-%m-%d")
+                except:
+                    return "9999-12-31"
             
-            return (kit_num, mod_num, code, sortable_exp)
-        
-        # Sort items using FEFO logic
-        sorted_items = sorted(items, key=sort_key_with_expiry)
-        
-        # Build display rows with headers (preserves sorting)
-        display_rows = self._build_with_headers(sorted_items)
-        
-        # Clear existing tree
-        self.clear_table_only()
-        self.row_data.clear()
-
-        # Populate tree
-        for row in display_rows:
-            if row.get("is_header"):
-                values = (
-                    row["code"], row["description"], row["type"],
-                    row["Kit"], row["module"],
-                    row["current_stock"], row["expiry_date"], row["batch_no"], "",
-                    row["unique_id"]
+            group_items.sort(key=expiry_key)  # ✅ Only sorts by expiry date
+            
+            # Apply FEFO: distribute std_qty across items with earliest expiry first
+            remaining = std_qty
+            for item in group_items:
+                current_stock = item.get('current_stock', 0)
+                
+                # Calculate qty_required (how much is still needed)
+                qty_required = max(0, remaining)
+                item['qty_required'] = qty_required
+                
+                # Calculate qty_to_issue (how much from this batch)
+                if remaining <= 0:
+                    qty_to_issue = 0
+                elif current_stock >= remaining:
+                    qty_to_issue = remaining
+                    remaining = 0
+                else:
+                    qty_to_issue = current_stock
+                    remaining -= current_stock
+                
+                item['qty_to_issue'] = qty_to_issue
+                
+                logging.debug(
+                    f"[QTY_REQUIRED] {code}: std_qty={std_qty}, "
+                    f"qty_required={qty_required}, qty_to_issue={qty_to_issue}"
                 )
-                iid = self.tree.insert("", "end", values=values)
-                self.row_data[iid] = {
-                    "is_header": True,
-                    "row_type": row["type"],
-                    "Kit_number": row["Kit_number"],
-                    "module_number": row["module_number"],
-                    "header_level": row.get("header_level")
-                }
+        
+        # Build hierarchical structure with headers (preserves order, adds headers)
+        structured = self._build_with_headers(items)
+        
+        # Insert into tree
+        for item in structured:
+            code = item.get('code', '')
+            desc = item.get('description', '')
+            item_type = item.get('type', '')
+            kit_val = item.get('Kit', '')
+            module_val = item.get('module', '')
+            current_stock = item.get('current_stock', '')
+            expiry_date = item.get('expiry_date', '')
+            batch_no = item.get('batch_no', '')
+            unique_id = item.get('unique_id', '')
+            
+            # Format qty_required (safe handling)
+            qty_required = item.get('qty_required', '')
+            if qty_required == "N/A" or qty_required == '' or qty_required is None:
+                qty_required_display = ""
             else:
-                values = (
-                    row["code"], row["description"], row["type"],
-                    row["Kit"], row["module"],
-                    row["current_stock"], row["expiry_date"], row["batch_no"], "",
-                    row["unique_id"]
+                try:
+                    try:
+                        qty_required_display = str(int(qty_required)) if qty_required not in (None, '', 0) else ""
+                    except (ValueError, TypeError):
+                        qty_required_display = ""
+
+
+                except (ValueError, TypeError):
+                    qty_required_display = "N/A"
+            
+            # Format qty_to_issue
+            qty_to_issue = item.get('qty_to_issue', 0)
+            try:
+                qty_to_issue_display = str(int(qty_to_issue))
+            except (ValueError, TypeError):
+                qty_to_issue_display = "0"
+            
+            # Insert row with 11 columns
+            iid = self.tree.insert(
+                "",
+                "end",
+                values=(
+                    code,
+                    desc,
+                    item_type,
+                    kit_val,
+                    module_val,
+                    current_stock,
+                    expiry_date,
+                    batch_no,
+                    qty_required_display,
+                    qty_to_issue_display,
+                    unique_id
                 )
-                iid = self.tree.insert("", "end", values=values)
-                self.row_data[iid] = {
-                    "unique_id": row["unique_id"],
-                    "Kit_number": row["Kit_number"],
-                    "module_number": row["module_number"],
-                    "current_stock": row["current_stock"],
-                    "is_header": False,
-                    "row_type": row["type"],
-                    "std_qty": row.get("std_qty"),
-                    "treecode": row.get("treecode")
-                }
-
-        # Configure tags for styling
-        self.tree.tag_configure("Kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("Kit_module_highlight", background="#FFF9C4")
-        self.tree.tag_configure("editable_row", foreground="#000000")
-        self.tree.tag_configure("non_editable", foreground="#666666")
-        self.tree.tag_configure("editable_cell", background="#FFF9C4")
-
-        # Initialize quantities with FEFO logic and apply highlighting
+            )
+            
+            # Store metadata
+            self.row_data[iid] = {
+                'unique_id': unique_id,
+                'code': code,
+                'description': desc,
+                'type': item_type,
+                'Kit_number': item.get('Kit_number'),
+                'module_number': item.get('module_number'),
+                'current_stock': current_stock,
+                'qty_to_issue': qty_to_issue,
+                'qty_required': qty_required,
+                'is_header': item.get('is_header', False),
+                'std_qty': item.get('std_qty')
+            }
+        
+        # Initialize quantities and highlighting
         self.initialize_quantities_and_highlight()
-
-        # Update status bar
+        
+        # Set status
         if status_msg:
             self.status_var.set(status_msg)
         else:
-            total_items = len([r for r in display_rows if not r.get("is_header")])
             self.status_var.set(
-                lang.t("dispatch_kit.showing_items",
-                       "Showing {n} items").format(n=total_items)
+                lang.t("dispatch_kit.items_loaded", "Loaded {count} items").format(count=len(items))
             )
+        
+        logging.info(f"[POPULATE_ROWS] Populated {len(items)} items with hierarchy preserved")
+
+        
+
+    def _extract_std_qty_from_unique_id(self, unique_id: str) -> int:
+        """
+        Extract std_qty from unique_id.
+        Format: scenario/kit/module/item/std_qty/exp_date/kit_number/module_number
+        
+        Args:
+            unique_id: The unique identifier string
+        
+        Returns:
+            std_qty as integer (defaults to 1 if not found or invalid)
+        """
+        if not unique_id:
+            return 1
+        
+        parts = unique_id.split("/")
+        if len(parts) < 5:
+            return 1
+        
+        try:
+            std_qty = int(parts[4])
+            return std_qty if std_qty > 0 else 1
+        except (ValueError, IndexError):
+            return 1
+
+
+
 
 
     def get_selected_unique_ids(self):
@@ -2606,83 +3026,131 @@ class StockDispatchKit(tk.Frame):
         return out
 
     def navigate_tree(self, event):
+        """
+        Navigate tree with arrow keys and start editing with Enter/Tab.
+        """
         if self.editing_cell:
             return
+        
         rows = self._flatten_rows()
         if not rows:
             return
+        
         sel = self.tree.selection()
         if not sel:
             self.tree.selection_set(rows[0])
             self.tree.focus(rows[0])
-            self.start_edit_cell(rows[0], 8)
+            self.start_edit_cell(rows[0], 9)
             return
+        
         cur = sel[0]
-        idx = rows.index(cur)
+        try:
+            idx = rows.index(cur)
+        except ValueError:
+            return
+        
         if event.keysym == "Up" and idx > 0:
             self.tree.selection_set(rows[idx - 1])
             self.tree.focus(rows[idx - 1])
-            self.start_edit_cell(rows[idx - 1], 8)
+            self.tree.see(rows[idx - 1])
         elif event.keysym == "Down" and idx < len(rows) - 1:
             self.tree.selection_set(rows[idx + 1])
             self.tree.focus(rows[idx + 1])
-            self.start_edit_cell(rows[idx + 1], 8)
+            self.tree.see(rows[idx + 1])
         elif event.keysym in ("Return", "Tab"):
-            self.start_edit_cell(cur, 8)
+            self.start_edit_cell(cur, 9)
 
     def start_edit(self, event):
+        """
+        Handle editing trigger from double-click or keyboard.
+        Only allows editing qty_to_issue column (column 9, index 9).
+        """
         if event.type == tk.EventType.KeyPress:
             sel = self.tree.selection()
             if not sel:
                 return
-            self.start_edit_cell(sel[0], 8)
+            # For keyboard, edit currently selected row's qty_to_issue column
+            self.start_edit_cell(sel[0], 9)
             return
 
+        # For mouse double-click
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
+        
         row_id = self.tree.identify_row(event.y)
         col_id = self.tree.identify_column(event.x)
+        
         if not row_id or not col_id:
             return
+        
         col_index = int(col_id.replace("#", "")) - 1
-        if col_index != 8:
+        
+        # Only allow editing qty_to_issue column (index 9)
+        if col_index != 9:
             return
-        self.start_edit_cell(row_id, 8)
+        
+        self.start_edit_cell(row_id, 9)
 
     def start_edit_cell(self, row_id, col_index):
-        if col_index != 8:
+        """
+        Start inline editing for a cell.
+        Only works for qty_to_issue column (index 9) on editable rows.
+        """
+        # Only allow editing qty_to_issue column
+        if col_index != 9:
+            logging.debug(f"[EDIT] Column {col_index} not editable (only col 9 allowed)")
             return
 
         rules = self.get_mode_rules()
         editable_lower = {t.lower() for t in rules["editable_types"]}
         meta = self.row_data.get(row_id, {})
-        if meta.get("is_header") or not meta.get("unique_id"):
+        
+        # Don't edit headers
+        if meta.get("is_header"):
+            logging.debug(f"[EDIT] Row {row_id} is header, not editable")
+            return
+        
+        # Don't edit rows without unique_id
+        if not meta.get("unique_id"):
+            logging.debug(f"[EDIT] Row {row_id} has no unique_id, not editable")
             return
 
         vals = self.tree.item(row_id, "values")
         rt_low = (vals[2] or "").lower()
+        
+        # Check if row type is editable in current mode
         if rt_low not in editable_lower:
+            logging.debug(f"[EDIT] Row type '{rt_low}' not editable in current mode. Editable types: {editable_lower}")
             return
 
+        # Get cell position
         bbox = self.tree.bbox(row_id, f"#{col_index + 1}")
         if not bbox:
+            logging.debug(f"[EDIT] Cell not visible")
             return
 
         x, y, w, h = bbox
+        
+        # Get current value (strip star if present)
         raw_old = self.tree.set(row_id, "qty_to_issue")
         old_clean = raw_old[2:].strip() if raw_old.startswith("★") else raw_old.strip()
 
+        logging.debug(f"[EDIT] Starting edit for {vals[0]} (type={rt_low}), current value={old_clean}")
+
+        # Close any existing editor
         if self.editing_cell:
             try:
                 self.editing_cell.destroy()
             except Exception:
                 pass
 
+        # Create entry widget
         entry = tk.Entry(self.tree, font=("Helvetica", 10), background="#FFFBE0")
         entry.place(x=x, y=y, width=w, height=h)
         entry.insert(0, old_clean if old_clean else "")
         entry.focus()
+        entry.select_range(0, tk.END)
         self.editing_cell = entry
 
         def set_status(msg):
@@ -2696,13 +3164,16 @@ class StockDispatchKit(tk.Frame):
             except Exception:
                 stock = 0
 
+            # Validate based on row type
             if rt_low in ("kit", "module"):
+                # Kit/Module: only allow 0 or 1
                 if val not in ("0", "1"):
                     set_status(lang.t("dispatch_kit.msg_qty_binary", "Only 0 or 1 allowed – auto-corrected."))
                     val = old_clean if old_clean in ("0", "1") else ("1" if stock > 0 else "0")
                 if stock == 0 and val == "1":
                     val = "0"
             else:  # item
+                # Item: allow any non-negative integer up to stock
                 if not val.isdigit():
                     set_status(lang.t("dispatch_kit.msg_invalid_number", "Invalid number – set to 0."))
                     val = "0"
@@ -2716,11 +3187,15 @@ class StockDispatchKit(tk.Frame):
                         set_status(lang.t("dispatch_kit.msg_exceeded_stock", "Exceeded stock – capped."))
                     val = str(iv)
 
+            # Update tree with star for editable types
             self.tree.set(row_id, "qty_to_issue", f"★ {val}")
             entry.destroy()
             self.editing_cell = None
 
-            if rt_low == "kit" and rules.get("derive_modules_from_kit") and hasattr(self, "_derive_modules_from_kits"):
+            logging.debug(f"[EDIT] Saved {vals[0]}: {old_clean} → {val}")
+
+            # Trigger cascading updates if needed
+            if rt_low == "kit" and rules.get("derive_modules_from_kit"):
                 self._derive_modules_from_kits()
                 if rules.get("derive_items_from_modules"):
                     self._derive_items_from_modules()
@@ -2729,10 +3204,14 @@ class StockDispatchKit(tk.Frame):
                 self._derive_items_from_modules()
                 self._reapply_editable_icons(rules)
 
+        # Bind save triggers
         entry.bind("<Return>", save)
+        entry.bind("<KP_Enter>", save)  # Numpad Enter
         entry.bind("<Tab>", save)
         entry.bind("<FocusOut>", save)
-        entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self, "editing_cell", None)))
+        entry.bind("<Escape>", lambda _: (entry.destroy(), setattr(self, "editing_cell", None)))
+        
+
 
     # ---------------------------------------------------------
     # Search
@@ -3111,6 +3590,250 @@ class StockDispatchKit(tk.Frame):
         self.scenario_map = self.fetch_scenario_map()
         self.load_scenarios()
 
+
+    def edit_qty_to_issue_popup(self, row_id, max_stock):
+        """
+        Open dialog to edit qty_to_issue for an item row.
+        Uses native Tkinter dialog for maximum compatibility.
+        
+        Args:
+            row_id: Tree item ID
+            max_stock: Maximum allowed quantity (current stock)
+        """
+        vals = list(self.tree.item(row_id, "values"))
+        code = vals[0]
+        description = vals[1]
+        current_qty_str = vals[9]  # qty_to_issue column
+        
+        # Strip star if present
+        if current_qty_str.startswith("★"):
+            current_qty_str = current_qty_str[2:].strip()
+        
+        try:
+            current_qty = int(current_qty_str) if current_qty_str.isdigit() else 0
+        except:
+            current_qty = 0
+        
+        # ✅ Get qty_required for context
+        qty_required_str = vals[8]
+        if qty_required_str != "N/A":
+            try:
+                qty_required = int(qty_required_str)
+            except:
+                qty_required = None
+        else:
+            qty_required = None
+        
+        # ===== CREATE CUSTOM DIALOG =====
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(lang.t("dispatch_kit.edit_qty_title", "Edit Quantity"))
+        dialog.geometry("450x450")
+        dialog.transient(self.parent)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Main frame
+        main_frame = tk.Frame(dialog, bg="#F0F4F8", padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Title
+        title_label = tk.Label(
+            main_frame,
+            text=lang.t("dispatch_kit.edit_quantity", "Edit Quantity"),
+            font=("Helvetica", 14, "bold"),
+            bg="#F0F4F8"
+        )
+        title_label.pack(pady=(0, 15))
+
+        instruction_label = tk.Label(
+            main_frame,
+            text=lang.t("dispatch_kit.edit_qty_instruction", "Enter new quantity and press ENTER or click Save"),
+            font=("Helvetica", 9, "italic"),
+            fg="#555",
+            bg="#F0F4F8"
+        )
+        instruction_label.pack(pady=(0, 15))
+        
+        # Item info frame
+        info_frame = tk.Frame(main_frame, bg="white", relief="solid", borderwidth=1)
+        info_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(
+            info_frame,
+            text=f"{lang.t('dispatch_kit.code', 'Code')}: {code}",
+            font=("Helvetica", 11, "bold"),
+            bg="white",
+            anchor="w"
+        ).pack(fill="x", padx=10, pady=5)
+        
+        tk.Label(
+            info_frame,
+            text=description,
+            font=("Helvetica", 10),
+            bg="white",
+            anchor="w",
+            wraplength=400,
+            justify="left"
+        ).pack(fill="x", padx=10, pady=(0, 5))
+        
+        # Stock info frame
+        stock_frame = tk.Frame(main_frame, bg="#E8F4F8", relief="solid", borderwidth=1)
+        stock_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(
+            stock_frame,
+            text=f"{lang.t('dispatch_kit.current_stock', 'Current Stock')}: {max_stock}",
+            font=("Helvetica", 10),
+            bg="#E8F4F8",
+            anchor="w"
+        ).pack(fill="x", padx=10, pady=3)
+        
+        if qty_required is not None:
+            tk.Label(
+                stock_frame,
+                text=f"{lang.t('dispatch_kit.qty_required', 'Qty Required')}: {qty_required}",
+                font=("Helvetica", 10),
+                bg="#E8F4F8",
+                anchor="w"
+            ).pack(fill="x", padx=10, pady=3)
+        
+        tk.Label(
+            stock_frame,
+            text=f"{lang.t('dispatch_kit.current_qty_issue', 'Current Qty to Issue')}: {current_qty}",
+            font=("Helvetica", 10),
+            bg="#E8F4F8",
+            anchor="w"
+        ).pack(fill="x", padx=10, pady=3)
+        
+        # Entry frame
+        entry_frame = tk.Frame(main_frame, bg="#F0F4F8")
+        entry_frame.pack(fill="x", pady=(0, 10))
+        
+        tk.Label(
+            entry_frame,
+            text=f"{lang.t('dispatch_kit.new_quantity', 'New Quantity')}:",
+            font=("Helvetica", 11, "bold"),
+            bg="#F0F4F8"
+        ).pack(anchor="w")
+        
+        qty_var = tk.StringVar(value=str(current_qty))
+        qty_entry = tk.Entry(
+            entry_frame,
+            textvariable=qty_var,
+            font=("Helvetica", 12),
+            width=15
+        )
+        qty_entry.pack(anchor="w", pady=5)
+        qty_entry.focus()
+        qty_entry.select_range(0, tk.END)
+        
+        # Status/error label
+        status_label = tk.Label(
+            main_frame,
+            text="",
+            font=("Helvetica", 9),
+            fg="red",
+            bg="#F0F4F8",
+            wraplength=400
+        )
+        status_label.pack(pady=5)
+        
+        # Result variable
+        result = {"cancelled": True, "value": None}
+        
+        def save_quantity():
+            new_qty_str = qty_var.get().strip()
+            
+            # Validate
+            if not new_qty_str.isdigit():
+                status_label.config(
+                    text=lang.t("dispatch_kit.error_invalid_number", "Please enter a valid number")
+                )
+                return
+            
+            new_qty = int(new_qty_str)
+            
+            if new_qty < 0:
+                status_label.config(
+                    text=lang.t("dispatch_kit.error_negative", "Quantity cannot be negative")
+                )
+                return
+            
+            if new_qty > max_stock:
+                status_label.config(
+                    text=lang.t("dispatch_kit.error_exceeds_stock", 
+                               "Exceeds available stock ({stock})").format(stock=max_stock)
+                )
+                return
+            
+            # Valid input
+            result["cancelled"] = False
+            result["value"] = new_qty
+            dialog.destroy()
+        
+        def cancel():
+            result["cancelled"] = True
+            dialog.destroy()
+        
+        # Button frame
+        btn_frame = tk.Frame(main_frame, bg="#F0F4F8")
+        btn_frame.pack(side="bottom", pady=10)
+        
+        tk.Button(
+            btn_frame,
+            text=lang.t("dispatch_kit.save", "Save"),
+            font=("Helvetica", 10, "bold"),
+            bg="#27AE60",
+            fg="white",
+            width=10,
+            command=save_quantity
+        ).pack(side="left", padx=5)
+        
+        tk.Button(
+            btn_frame,
+            text=lang.t("dispatch_kit.cancel", "Cancel"),
+            font=("Helvetica", 10),
+            bg="#7F8C8D",
+            fg="white",
+            width=10,
+            command=cancel
+        ).pack(side="left", padx=5)
+        
+        # Bind keys
+        qty_entry.bind("<Return>", lambda e: save_quantity())
+        qty_entry.bind("<KP_Enter>", lambda e: save_quantity())
+        dialog.bind("<Escape>", lambda e: cancel())
+        
+        # Wait for dialog
+        dialog.wait_window()
+        
+        # Process result
+        if result["cancelled"]:
+            return
+        
+        new_qty = result["value"]
+        
+        # Update tree (NO star for items)
+        vals[9] = str(new_qty)
+        self.tree.item(row_id, values=vals)
+        
+        # Update row_data
+        if row_id in self.row_data:
+            self.row_data[row_id]['qty_to_issue'] = new_qty
+        
+        self.status_var.set(
+            lang.t("dispatch_kit.qty_updated", 
+                   "Quantity updated for {code}: {qty}").format(code=code, qty=new_qty)
+        )
+        
+        logging.debug(f"[EDIT_QTY] Updated {code} qty_to_issue: {current_qty} → {new_qty}")
+
+        
     def export_data(self, rows_to_issue=None):
         logging.info("[DISPATCH] export_data called")
         if self.parent is None or not self.parent.winfo_exists():
@@ -3131,7 +3854,7 @@ class StockDispatchKit(tk.Frame):
                 if not vals or len(vals) < 10:
                     logging.warning(f"[DISPATCH] Skipping invalid row {iid}: {vals}")
                     continue
-                code, desc, tfield, kit_col, module_col, current_stock, exp_date, batch_no, qty_to_issue, _uid = vals
+                code, desc, tfield, kit_col, module_col, current_stock, exp_date, batch_no, qty_required, qty_to_issue, _uid = vals
                 raw_q = qty_to_issue[2:].strip() if qty_to_issue.startswith("★") else qty_to_issue
                 qty = int(raw_q) if raw_q.isdigit() else 0
                 rd = self.row_data.get(iid, {})
