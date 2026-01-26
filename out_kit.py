@@ -32,7 +32,8 @@ from popup_utils import custom_popup, custom_askyesno, custom_dialog
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
-OUT_TYPE_FIXED = "Internal move from in-box items"
+# Canonical English value (used for database storage)
+OUT_TYPE_CANONICAL = "Internal move from in-box items"
 
 def fetch_project_details():
     conn = connect_db()
@@ -92,7 +93,7 @@ class StockOutKit(tk.Frame):
         self.Kit_number_var = tk.StringVar()
         self.module_var = tk.StringVar()
         self.module_number_var = tk.StringVar()
-        self.out_type_var = tk.StringVar(value=OUT_TYPE_FIXED)
+        self.out_type_var = tk.StringVar(value="")  # Will be set after lang is available
         self.search_var = tk.StringVar()
         self.status_var = tk.StringVar(value=lang.t("break_kit.ready", "Ready"))
 
@@ -259,6 +260,277 @@ class StockOutKit(tk.Frame):
 
     def current_mode_key(self):
         return self.mode_label_to_key.get(self.mode_var.get())
+
+    # -------------------- unique_id Management Helpers --------------------
+    @staticmethod
+    def count_slashes(unique_id: str) -> int:
+        """Count slashes in unique_id."""
+        return unique_id.count("/") if unique_id else 0
+
+    @staticmethod
+    def is_inbox_item(unique_id: str) -> bool:
+        """Check if unique_id is in-box format (> 6 slashes)."""
+        return StockOutKit.count_slashes(unique_id) > 6
+
+    @staticmethod
+    def is_onshelf_item(unique_id: str) -> bool:
+        """Check if unique_id is on-shelf format (≤ 6 slashes)."""
+        slash_count = StockOutKit.count_slashes(unique_id)
+        return 0 < slash_count <= 6
+
+    @staticmethod
+    def convert_inbox_to_onshelf(unique_id: str) -> str:
+        """
+        Convert in-box unique_id to on-shelf format.
+        Removes kit_number and module_number (last 2 parts).
+        
+        Format:
+        - in-box:   scenario/kit/module/item/std_qty/exp_date/kit_number/module_number (>6 slashes)
+        - on-shelf: scenario/kit/module/item/std_qty/exp_date (≤6 slashes)
+        
+        Example:
+            IN:  1/KMEDKCHO1--/KMEDMCHO01-/MED001/10/2025-12-31/CHOL-001/M-001
+            OUT: 1/KMEDKCHO1--/KMEDMCHO01-/MED001/10/2025-12-31
+        """
+        if not unique_id:
+            return unique_id
+        
+        parts = unique_id.split("/")
+        
+        # If already on-shelf or invalid, return as-is
+        if len(parts) <= 6:
+            logging.debug(f"[CONVERT] Already on-shelf or invalid: {unique_id}")
+            return unique_id
+        
+        # Remove last 2 parts (kit_number, module_number)
+        onshelf_parts = parts[:6]
+        onshelf_id = "/".join(onshelf_parts)
+        
+        logging.debug(f"[CONVERT] in-box: {unique_id} → on-shelf: {onshelf_id}")
+        return onshelf_id
+
+    def check_if_adopted_expiry(self, unique_id_inbox):
+        """
+        Check if an in-box item has an adopted expiry date.
+        
+        Args:
+            unique_id_inbox: The in-box unique_id
+        
+        Returns:
+            tuple: (is_adopted: bool, comment: str)
+        """
+        conn = connect_db()
+        if conn is None:
+            return False, ""
+        
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        try:
+            cur.execute("""
+                SELECT comments FROM stock_data WHERE unique_id = ?
+            """, (unique_id_inbox,))
+            
+            row = cur.fetchone()
+            
+            if not row or not row['comments']:
+                return False, ""
+            
+            comment = str(row['comments']).lower()
+            
+            # Check for adoption indicators
+            adoption_keywords = ['adopted', 'candidate', 'inherited', 'propagated']
+            is_adopted = any(keyword in comment for keyword in adoption_keywords)
+            
+            logging.debug(f"[ADOPTED_CHECK] {unique_id_inbox}: adopted={is_adopted}, comment={row['comments'][:50] if row['comments'] else 'None'}")
+            
+            return is_adopted, row['comments'] if is_adopted else ""
+            
+        except sqlite3.Error as e:
+            logging.error(f"[OUT_KIT] check_if_adopted_expiry error: {e}")
+            return False, ""
+        finally:
+            cur.close()
+            conn.close()
+
+
+    def _validate_date_format(self, date_str):
+        """
+        Validate date format (YYYY-MM-DD).
+        
+        Args:
+            date_str: Date string to validate
+        
+        Returns:
+            bool: True if valid format
+        """
+        if not date_str:
+            return True  # Empty is allowed
+        
+        import re
+        
+        # Check basic format
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            return False
+        
+        # Try parsing as actual date
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            return True
+        except ValueError:
+            return False
+    
+    def _is_date_in_future(self, date_str):
+        """
+        Check if date is in the future (or today).
+        
+        Args:
+            date_str: Date string in YYYY-MM-DD format
+        
+        Returns:
+            bool: True if date is today or in future
+        """
+        if not date_str:
+            return True  # Empty is allowed
+        
+        try:
+            exp_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            today = datetime.today().date()
+            return exp_date >= today
+        except ValueError:
+            return False
+
+
+
+    def _parse_flexible_date(self, date_input):
+        """
+        Parse flexible date formats and convert to YYYY-MM-DD.
+        
+        Supported formats:
+        - YYYY-MM-DD (standard)
+        - YYYY-MM (month only → last day of month)
+        - YYYY (year only → December 31)
+        - MM/YYYY (e.g., 12/2029 → 2029-12-31)
+        - DD-MM-YYYY, DD/MM/YYYY (day first, e.g., 31-12-2029)
+        - MM-DD-YYYY, MM/DD/YYYY (month first, US format)
+        
+        Args:
+            date_input: User's date string
+        
+        Returns:
+            tuple: (success: bool, parsed_date: str or None, error_msg: str)
+        """
+        if not date_input:
+            return True, None, ""
+        
+        import re
+        from calendar import monthrange
+        
+        date_input = date_input.strip()
+        
+        # Try various formats in priority order
+        patterns = [
+            # 1. YYYY-MM-DD (standard ISO format)
+            (r'^(\d{4})-(\d{2})-(\d{2})$', 'YYYY-MM-DD', 
+             lambda m: f"{m[0]}-{m[1]}-{m[2]}"),
+            
+            # 2. YYYY-MM (month only → last day)
+            (r'^(\d{4})-(\d{2})$', 'YYYY-MM', 
+             lambda m: self._last_day_of_month(int(m[0]), int(m[1]))),
+            
+            # 3. YYYY (year only → December 31)
+            (r'^(\d{4})$', 'YYYY', 
+             lambda m: f"{m[0]}-12-31"),
+            
+            # 4. MM/YYYY (e.g., 12/2029 → 2029-12-31)
+            (r'^(\d{1,2})/(\d{4})$', 'MM/YYYY', 
+             lambda m: self._last_day_of_month(int(m[1]), int(m[0]))),
+            
+            # 5. DD-MM-YYYY (day first, common in Europe)
+            (r'^(\d{2})-(\d{2})-(\d{4})$', 'DD-MM-YYYY', 
+             lambda m: f"{m[2]}-{m[1]}-{m[0]}"),
+            
+            # 6. DD/MM/YYYY (day first with slashes)
+            # Disambiguate by checking if day > 12
+            (r'^(\d{1,2})/(\d{1,2})/(\d{4})$', 'DD/MM/YYYY or MM/DD/YYYY', 
+             self._parse_ambiguous_slash_date),
+        ]
+        
+        for pattern, format_name, converter in patterns:
+            match = re.match(pattern, date_input)
+            if match:
+                try:
+                    groups = match.groups()
+                    result = converter(groups)
+                    
+                    if result is None:
+                        continue  # Ambiguous pattern, try next
+                    
+                    # Validate the result is a real date
+                    datetime.strptime(result, '%Y-%m-%d')
+                    
+                    logging.debug(f"[PARSE_DATE] '{date_input}' ({format_name}) → '{result}'")
+                    return True, result, ""
+                    
+                except (ValueError, IndexError) as e:
+                    logging.debug(f"[PARSE_DATE] Pattern {format_name} matched but failed validation: {e}")
+                    continue
+        
+        # No pattern matched
+        error_msg = (
+            f"Cannot parse date: '{date_input}'\n\n"
+            f"Supported formats:\n"
+            f"  • YYYY-MM-DD    (e.g., 2027-12-31)\n"
+            f"  • YYYY-MM       (e.g., 2027-12 → 2027-12-31)\n"
+            f"  • YYYY          (e.g., 2027 → 2027-12-31)\n"
+            f"  • MM/YYYY       (e.g., 12/2029 → 2029-12-31)\n"
+            f"  • DD-MM-YYYY    (e.g., 31-12-2027)\n"
+            f"  • DD/MM/YYYY    (e.g., 31/12/2027)\n"
+            f"  • MM/DD/YYYY    (e.g., 12/31/2027)"
+        )
+        return False, None, error_msg
+    
+    def _parse_ambiguous_slash_date(self, groups):
+        """
+        Parse DD/MM/YYYY vs MM/DD/YYYY by checking if first number > 12.
+        
+        Args:
+            groups: (first, second, year) from regex
+        
+        Returns:
+            str: YYYY-MM-DD or None if ambiguous
+        """
+        first = int(groups[0])
+        second = int(groups[1])
+        year = groups[2]
+        
+        # If first > 12, must be DD/MM/YYYY
+        if first > 12:
+            return f"{year}-{second:02d}-{first:02d}"
+        
+        # If second > 12, must be MM/DD/YYYY
+        if second > 12:
+            return f"{year}-{first:02d}-{second:02d}"
+        
+        # Both ≤ 12: ambiguous - default to DD/MM/YYYY (European)
+        # You could also add a preference setting here
+        logging.debug(f"[PARSE_DATE] Ambiguous date {first}/{second}/{year}, assuming DD/MM/YYYY")
+        return f"{year}-{second:02d}-{first:02d}"
+    
+    def _last_day_of_month(self, year, month):
+        """Get last day of month in YYYY-MM-DD format."""
+        from calendar import monthrange
+        
+        if not (1 <= month <= 12):
+            raise ValueError(f"Invalid month: {month}")
+        
+        last_day = monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-{last_day:02d}"
+
+
+
+
+
 
     def load_scenarios(self):
         vals = [f"{sid} - {nm}" for sid, nm in self.scenario_map.items()]
@@ -470,72 +742,139 @@ class StockOutKit(tk.Frame):
 
     # -------------------- Stock Fetch --------------------
     def fetch_stock_data_for_Kit_number(self, scenario_id, Kit_number, Kit_code=None):
+        """
+        Fetch stock data for a kit number.
+        ✅ FILTERS: Only in-box items (> 6 slashes in unique_id).
+        """
         self.ensure_item_index(scenario_id)
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[OUT_KIT] DB connection failed in fetch_stock_data_for_Kit_number")
+            return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # ✅ Filter: Only in-box items (> 6 slashes)
             cur.execute("""
                 SELECT unique_id, final_qty, exp_date, kit_number, module_number, line_id
-                  FROM stock_data
-                 WHERE kit_number=? AND unique_id LIKE ? AND final_qty > 0
-            """,(Kit_number, f"{scenario_id}/%"))
+                FROM stock_data
+                WHERE kit_number=? 
+                  AND unique_id LIKE ? 
+                  AND final_qty > 0
+                  AND LENGTH(unique_id) - LENGTH(REPLACE(unique_id, '/', '')) > 6
+                ORDER BY unique_id
+            """, (Kit_number, f"{scenario_id}/%"))
+            
             rows = cur.fetchall()
-            return [self.enrich_stock_row(scenario_id, r["unique_id"], r["final_qty"],
-                                          r["exp_date"], r["kit_number"], r["module_number"], r["line_id"])
-                    for r in rows]
+            
+            result = [
+                self.enrich_stock_row(
+                    scenario_id, r["unique_id"], r["final_qty"],
+                    r["exp_date"], r["kit_number"], r["module_number"], r["line_id"]
+                )
+                for r in rows
+            ]
+            
+            logging.info(f"[OUT_KIT] Found {len(result)} in-box items for Kit_number={Kit_number}")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[BREAK] fetch_stock_data_for_Kit_number error: {e}")
+            logging.error(f"[OUT_KIT] fetch_stock_data_for_Kit_number error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
     def fetch_stock_data_for_module_number(self, scenario_id, module_number, Kit_code=None, module_code=None):
+        """
+        Fetch stock data for a module number.
+        ✅ FILTERS: Only in-box items (> 6 slashes in unique_id).
+        """
         self.ensure_item_index(scenario_id)
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[OUT_KIT] DB connection failed in fetch_stock_data_for_module_number")
+            return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # ✅ Filter: Only in-box items (> 6 slashes)
             cur.execute("""
                 SELECT unique_id, final_qty, exp_date, kit_number, module_number, line_id
-                  FROM stock_data
-                 WHERE module_number=? AND unique_id LIKE ? AND final_qty > 0
-            """,(module_number, f"{scenario_id}/%"))
+                FROM stock_data
+                WHERE module_number=? 
+                  AND unique_id LIKE ? 
+                  AND final_qty > 0
+                  AND LENGTH(unique_id) - LENGTH(REPLACE(unique_id, '/', '')) > 6
+                ORDER BY unique_id
+            """, (module_number, f"{scenario_id}/%"))
+            
             rows = cur.fetchall()
-            return [self.enrich_stock_row(scenario_id, r["unique_id"], r["final_qty"],
-                                          r["exp_date"], r["kit_number"], r["module_number"], r["line_id"])
-                    for r in rows]
+            
+            result = [
+                self.enrich_stock_row(
+                    scenario_id, r["unique_id"], r["final_qty"],
+                    r["exp_date"], r["kit_number"], r["module_number"], r["line_id"]
+                )
+                for r in rows
+            ]
+            
+            logging.info(f"[OUT_KIT] Found {len(result)} in-box items for module_number={module_number}")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[BREAK] fetch_stock_data_for_module_number error: {e}")
+            logging.error(f"[OUT_KIT] fetch_stock_data_for_module_number error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
     def fetch_standalone_stock_items(self, scenario_id):
+        """
+        Fetch standalone stock items (no kit_number or module_number).
+        ✅ FILTERS: Only in-box items (> 6 slashes in unique_id).
+        """
         self.ensure_item_index(scenario_id)
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[OUT_KIT] DB connection failed in fetch_standalone_stock_items")
+            return []
+        
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # ✅ Filter: Only in-box items (> 6 slashes)
             cur.execute("""
                 SELECT unique_id, final_qty, exp_date, kit_number, module_number, line_id
-                  FROM stock_data
-                 WHERE final_qty>0
-                   AND (kit_number IS NULL OR kit_number='None')
-                   AND (module_number IS NULL OR module_number='None')
-                   AND unique_id LIKE ?
-            """,(f"{scenario_id}/%",))
+                FROM stock_data
+                WHERE final_qty > 0
+                  AND (kit_number IS NULL OR kit_number='None')
+                  AND (module_number IS NULL OR module_number='None')
+                  AND unique_id LIKE ?
+                  AND LENGTH(unique_id) - LENGTH(REPLACE(unique_id, '/', '')) > 6
+                ORDER BY unique_id
+            """, (f"{scenario_id}/%",))
+            
             rows = cur.fetchall()
-            return [self.enrich_stock_row(scenario_id, r["unique_id"], r["final_qty"],
-                                          r["exp_date"], r["kit_number"], r["module_number"], r["line_id"])
-                    for r in rows]
+            
+            result = [
+                self.enrich_stock_row(
+                    scenario_id, r["unique_id"], r["final_qty"],
+                    r["exp_date"], r["kit_number"], r["module_number"], r["line_id"]
+                )
+                for r in rows
+            ]
+            
+            logging.info(f"[OUT_KIT] Found {len(result)} standalone in-box items")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[BREAK] fetch_standalone_stock_items error: {e}")
+            logging.error(f"[OUT_KIT] fetch_standalone_stock_items error: {e}")
             return []
         finally:
             cur.close()
@@ -1024,7 +1363,10 @@ class StockOutKit(tk.Frame):
             font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")
         ).grid(row=0, column=0, padx=5, sticky="w")
         
-        self.out_type_var = tk.StringVar(value=OUT_TYPE_FIXED)
+        # ✅ Display translated OUT Type (but store canonical English)
+        self.out_type_var = tk.StringVar(
+            value=lang.t("out_kit.out_type_fixed", "Internal move from in-box items")
+        )
         tk.Label(
             type_frame,
             textvariable=self.out_type_var,
@@ -1257,18 +1599,63 @@ class StockOutKit(tk.Frame):
 
     def configure_tree_tags(self):
         """
-        Configure visual tags for tree rows.
+        Configure visual styling tags for tree rows.
         ✅ Kit headers: Green background
         ✅ Module headers: Blue background
-        ✅ Kit/Module data rows: Yellow highlight
+        ✅ Kit data rows: Light green
+        ✅ Module data rows: Light blue  
+        ✅ Adopted expiry: Red/pink background
+        ✅ Edited expiry: Light cyan background (NEW)
         """
-        self.tree.tag_configure("kit_header", background="#E3F6E1", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("module_header", background="#E1ECFC", font=("Helvetica", 10, "bold"))
-        self.tree.tag_configure("kit_module_highlight", background="#FFF9C4")
-        self.tree.tag_configure("item_row", background="white")
-        
-        logging.debug("[OUT_KIT] Tree visual tags configured")
-
+        try:
+            # ===== Header styles =====
+            self.tree.tag_configure(
+                "kit_header",
+                background="#C8E6C9",  # Light green
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")
+            )
+            
+            self.tree.tag_configure(
+                "module_header",
+                background="#BBDEFB",  # Light blue
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")
+            )
+            
+            # ===== Data row styles =====
+            self.tree.tag_configure(
+                "kit_data",
+                background="#C5EDC1"  # ✅ Light green for kit rows
+            )
+            
+            self.tree.tag_configure(
+                "module_data",
+                background="#C9E2FA"  # Light blue for module rows
+            )
+            
+            # ✅ DEPRECATED: Old yellow highlight (kept for compatibility)
+            self.tree.tag_configure(
+                "kit_module_highlight",
+                background="#FFF9C4"  # Light yellow (deprecated)
+            )
+            
+            # ===== Special states =====
+            self.tree.tag_configure(
+                "adopted_expiry",
+                background="#FFCDD2",  # Light red/pink for adopted expiries
+                foreground="#B71C1C"   # Dark red text
+            )
+            
+            # ✅ NEW: Light cyan for user-edited expiries
+            self.tree.tag_configure(
+                "expiry_edited",
+                background="#B2EBF2",  # Light cyan (different from yellow)
+                foreground="#006064"   # Dark cyan text
+            )
+            
+            logging.debug("[OUT_KIT] Tree visual tags configured")
+            
+        except Exception as e:
+            logging.warning(f"[OUT_KIT] Tag configuration failed: {e}")
 
 
     # -------------------- Row building & sorting (treecode) --------------------
@@ -1660,113 +2047,160 @@ class StockOutKit(tk.Frame):
 
     def populate_rows(self, items=None, status_msg=""):
         """
-        Populate tree with stock items.
-        ✅ ALL rows get qty_to_issue = current_stock by default
-        ✅ Editable via right-click
-        ✅ Visual tags applied for Kit/Module/Item rows
+        Populate tree with items, checking for adopted expiries.
+        ✅ Highlights rows with adopted expiry dates
+        ✅ Stores adoption flag in row_data
         """
         if items is None:
             items = self.full_items
-    
-        display_rows = self._build_with_headers(items)
-        self.clear_table_only()
-    
-        logging.debug(f"[POPULATE_ROWS] Inserting {len(display_rows)} rows")
-    
-        for row in display_rows:
-            # ✅ Extract current_stock
-            current_stock = row.get("current_stock", 0)
-            try:
-                current_stock = int(current_stock)
-            except (ValueError, TypeError):
-                current_stock = 0
-        
-            # ✅ DEFAULT: qty_to_issue = current_stock for ALL rows
-            qty_to_issue = current_stock
-        
-            row_type = row.get("type", "").upper()
-        
-            if row.get("is_header"):
-                # ===== HEADER ROWS (Kit/Module summaries) =====
-                values = (
-                    row["code"], row["description"], row["type"],
-                    row["Kit"], row["module"],
-                    current_stock, row["expiry_date"], row["batch_no"],
-                    qty_to_issue,  # ✅ Column 8: qty_to_issue
-                    row.get("unique_id", ""), row.get("line_id", ""), qty_to_issue  # ✅ Column 11: mirror
-                )
-            
-                # ✅ Apply tag based on header type
-                if row_type == "KIT":
-                    tag = "kit_header"
-                elif row_type == "MODULE":
-                    tag = "module_header"
-                else:
-                    tag = ""
-            
-                iid = self.tree.insert("", "end", values=values, tags=(tag,))
-            
-                self.row_data[iid] = {
-                    "is_header": True,
-                    "row_type": row["type"],
-                    "Kit_number": row.get("Kit_number"),
-                    "module_number": row.get("module_number"),
-                    "current_stock": current_stock
-                }
-            
-            else:
-                # ===== DATA ROWS (Actual Kit/Module/Item instances) =====
-                values = (
-                    row["code"], row["description"], row["type"],
-                    row["Kit"], row["module"],
-                    current_stock, row["expiry_date"], row["batch_no"],
-                    qty_to_issue,  # ✅ Column 8: qty_to_issue
-                    row["unique_id"], row["line_id"],
-                    qty_to_issue  # ✅ Column 11: mirror for dual transaction
-                )
-            
-                # ✅ Apply tag based on row type
-                if row_type in ("KIT", "MODULE"):
-                    tag = "kit_module_highlight"  # Yellow highlight
-                else:
-                    tag = "item_row"  # White background
-            
-                iid = self.tree.insert("", "end", values=values, tags=(tag,))
-            
-                self.row_data[iid] = {
-                    "unique_id": row["unique_id"],
-                    "Kit_number": row["Kit_number"],
-                    "module_number": row["module_number"],
-                    "current_stock": current_stock,
-                    "is_header": False,
-                    "row_type": row["type"],
-                    "std_qty": row.get("std_qty"),
-                    "line_id": row.get("line_id"),
-                    "qty_to_issue": qty_to_issue  # ✅ Store in metadata
-                }
-    
-        if status_msg:
-            self.status_var.set(status_msg)
         else:
-            self.status_var.set(f"Showing {len(display_rows)} rows (qty auto-filled)")
-    
-        logging.info(f"[POPULATE_ROWS] Populated {len(display_rows)} rows with highlights and auto-filled quantities")
+            self.full_items = items
+        
+        self.clear_table_only()
+        
+        if not items:
+            self.status_var.set(lang.t("out_kit.no_data", "No data to display"))
+            return
+        
+        # Build with headers
+        rows_with_headers = self._build_with_headers(items)
+        
+        logging.debug(f"[POPULATE_ROWS] Inserting {len(rows_with_headers)} rows ({len(items)} items)")
+        
+        adopted_count = 0
+        
+        for item in rows_with_headers:
+            is_header = item.get("is_header", False)
+            
+            # Prepare tree values (12 columns)
+            vals = (
+                item.get("code", ""),
+                item.get("description", ""),
+                item.get("type", ""),
+                item.get("Kit", "-----"),
+                item.get("module", "-----"),
+                str(item.get("current_stock", "")),
+                item.get("expiry_date", ""),
+                item.get("batch_no", ""),
+                str(item.get("current_stock", "")),  # qty_to_issue = current_stock
+                item.get("unique_id", ""),
+                item.get("line_id", ""),
+                str(item.get("current_stock", ""))  # qty_in_hidden = current_stock
+            )
+            
+            # Insert into tree
+            iid = self.tree.insert("", "end", values=vals)
+            
+            # ✅ CHECK: Adopted expiry? (only for data rows with unique_id)
+            is_adopted = False
+            original_comment = ""
+            
+            if not is_header and item.get("unique_id"):
+                is_adopted, original_comment = self.check_if_adopted_expiry(item["unique_id"])
+                
+                if is_adopted:
+                    adopted_count += 1
+            
+            # ✅ Store metadata
+            self.row_data[iid] = {
+                "unique_id": item.get("unique_id", ""),
+                "code": item.get("code", ""),
+                "is_header": is_header,
+                "row_type": item.get("type", ""),  # ✅ Store type for later use
+                "Kit_number": item.get("Kit_number"),
+                "module_number": item.get("module_number"),
+                "treecode": item.get("treecode"),
+                "std_qty": item.get("std_qty"),
+                "adopted_expiry": is_adopted,
+                "original_comment": original_comment,
+                "expiry_edited": False  # Track if user manually edits
+            }
+            
+            # ===== BUILD AND APPLY TAGS =====
+            tags = []
+            row_type = item.get("type", "").lower()
+            
+            if is_header:
+                # ✅ HEADER ROWS: Green for Kit, Blue for Module
+                if row_type == "kit":
+                    tags.append("kit_header")
+                    logging.debug(f"[POPULATE] Kit header: {item.get('code')}")
+                elif row_type == "module":
+                    tags.append("module_header")
+                    logging.debug(f"[POPULATE] Module header: {item.get('code')}")
+            else:
+                # ✅ DATA ROWS: Apply type-specific background first
+                if row_type == "kit":
+                    tags.append("kit_data")  # Light green background
+                elif row_type == "module":
+                    tags.append("module_data")  # Light blue background
+                # Items get no special background (default white)
+                
+                # ✅ HIGHLIGHT: Adopted expiry (RED - highest priority)
+                if is_adopted:
+                    tags.append("adopted_expiry")  # Overrides type background with red/pink
+                # ✅ HIGHLIGHT: User-edited expiry (CYAN - secondary priority)
+                elif self.row_data[iid].get("expiry_edited"):
+                    tags.append("expiry_edited")  # Overrides type background with cyan
+            
+            # Apply all tags at once
+            if tags:
+                self.tree.item(iid, tags=tuple(tags))
+        
+        # Configure visual tags
+        self.configure_tree_tags()
+        
+        # Status message
+        if adopted_count > 0:
+            msg = lang.t(
+                "out_kit.loaded_with_adopted",
+                "Loaded {total} rows. ⚠️ {adopted} items have ADOPTED expiry dates (highlighted in red). Double-click expiry to edit.",
+                total=len(rows_with_headers),
+                adopted=adopted_count
+            )
+        else:
+            msg = status_msg or lang.t("out_kit.loaded_rows", "Loaded {count} rows", count=len(rows_with_headers))
+        
+        self.status_var.set(msg)
+        logging.info(f"[POPULATE_ROWS] Populated {len(rows_with_headers)} rows with highlights (adopted={adopted_count})")
 
     # -------------------- Editing --------------------
     def start_edit(self, event):
-        if event.type == tk.EventType.KeyPress:
-            sel = self.tree.selection()
-            if not sel: return
-            self._start_edit_cell(sel[0], 8)
-            return
+        """
+        Start editing a cell on double-click.
+        ✅ Allows editing expiry_date for rows with adopted expiry
+        """
         region = self.tree.identify("region", event.x, event.y)
-        if region != "cell": return
+        if region != "cell":
+            return
+        
         row_id = self.tree.identify_row(event.y)
         col_id = self.tree.identify_column(event.x)
-        if not row_id or not col_id: return
-        col_index = int(col_id.replace("#","")) - 1
-        if col_index != 8: return
-        self._start_edit_cell(row_id, col_index)
+        
+        if not row_id or not col_id:
+            return
+        
+        # Check if header row
+        meta = self.row_data.get(row_id, {})
+        if meta.get("is_header"):
+            return
+        
+        # Get column index (0-based)
+        col_index = int(col_id.replace("#", "")) - 1
+        
+        # Column 6 = expiry_date
+        if col_index == 6:
+            # ✅ Allow editing if adopted expiry
+            if meta.get("adopted_expiry"):
+                self._start_edit_cell(row_id, col_index)
+            else:
+                self.status_var.set(
+                    lang.t("out_kit.expiry_not_editable", "Expiry date is not editable (not adopted)")
+                )
+        else:
+            self.status_var.set(
+                lang.t("out_kit.column_not_editable", "This column is not editable")
+            )
 
     def navigate_tree(self, event):
         if self.editing_cell: return
@@ -2060,65 +2494,285 @@ class StockOutKit(tk.Frame):
 
 
     def _start_edit_cell(self, row_id, col_index):
-        if col_index != 8: return
-        rules = self.get_mode_rules()
-        editable_lower = {t.lower() for t in rules["editable_types"]}
-        meta = self.row_data.get(row_id,{})
-        if meta.get("is_header") or not meta.get("unique_id"): return
-        vals = self.tree.item(row_id,"values")
+        """
+        In-place editing of tree cells.
+        ✅ Column 6 (expiry_date): Editable if adopted expiry, with validation
+        ✅ Column 8 (qty_to_issue): Editable based on mode rules
+        ✅ Single popup for all errors, keeps editor open
+        """
+        meta = self.row_data.get(row_id, {})
+        if meta.get("is_header") or not meta.get("unique_id"):
+            return
+        
+        vals = self.tree.item(row_id, "values")
         rtype = (vals[2] or "").lower()
-        if rtype not in editable_lower: return
-        bbox = self.tree.bbox(row_id, f"#{col_index+1}")
-        if not bbox: return
-        x,y,w,h = bbox
-        raw_old = vals[8]
-        old_clean = raw_old[2:].strip() if raw_old.startswith("★") else raw_old.strip()
-        if self.editing_cell:
-            try: self.editing_cell.destroy()
-            except: pass
-        entry = tk.Entry(self.tree, font=("Helvetica",10), background="#FFFBE0")
-        entry.place(x=x,y=y,width=w,height=h)
-        entry.insert(0, old_clean if old_clean else "")
-        entry.focus()
-        self.editing_cell = entry
-
-        def save(_=None):
-            val = entry.get().strip()
-            try:
-                stock = int(vals[5]) if vals[5] else 0
-            except: stock=0
-            if rtype in ("kit","module"):
-                if val not in ("0","1"):
-                    val = "1" if stock>0 else "0"
-                if stock==0 and val=="1":
-                    val="0"
-            else:
-                if not val.isdigit():
-                    val="0"
+        
+        # ===== EXPIRY DATE EDITING (Column 6) =====
+        if col_index == 6:
+            if not meta.get("adopted_expiry"):
+                self.status_var.set(
+                    lang.t("out_kit.expiry_not_editable", "Expiry date is not editable (not adopted)")
+                )
+                return
+            
+            bbox = self.tree.bbox(row_id, f"#{col_index+1}")
+            if not bbox:
+                return
+            
+            x, y, w, h = bbox
+            old_expiry = vals[6] or ""
+            
+            # Destroy existing editor
+            if self.editing_cell:
+                try:
+                    self.editing_cell.destroy()
+                except:
+                    pass
+                self.editing_cell = None
+            
+            # Create entry
+            entry = tk.Entry(self.tree, font=("Helvetica", 10), background="#FFFBE0")
+            entry.place(x=x, y=y, width=w, height=h)
+            entry.insert(0, old_expiry)
+            entry.focus()
+            entry.select_range(0, tk.END)
+            self.editing_cell = entry
+            
+            def cleanup():
+                """Safely cleanup editor widget."""
+                try:
+                    if entry.winfo_exists():
+                        entry.destroy()
+                except:
+                    pass
+                self.editing_cell = None
+            
+            def save_expiry(_=None):
+                """Save edited expiry date with validation."""
+                # ✅ Define vals_list at the top (from parent scope)
+                vals_list = list(vals)
+                
+                raw_input = entry.get().strip()
+                
+                # ===== CASE 1: Empty input (clear expiry) =====
+                if not raw_input:
+                    vals_list[6] = ""
+                    self.tree.item(row_id, values=vals_list)
+                    
+                    # Mark as edited and clear adopted flag
+                    if row_id in self.row_data:
+                        self.row_data[row_id]["adopted_expiry"] = False
+                        self.row_data[row_id]["expiry_edited"] = True
+                        
+                        # Build tag list: preserve type tags + add expiry_edited
+                        tags = []
+                        rtype = vals_list[2].lower() if len(vals_list) > 2 else ""
+                        if rtype == "kit":
+                            tags.append("kit_data")
+                        elif rtype == "module":
+                            tags.append("module_data")
+                        tags.append("expiry_edited")
+                        
+                        self.tree.item(row_id, tags=tuple(tags))
+                        logging.debug(f"[EDIT_EXPIRY] Cleared expiry, tags: {tags}")
+                    
+                    self.status_var.set(lang.t("out_kit.expiry_cleared", "✓ Expiry cleared"))
+                    cleanup()
+                    return
+                
+                # ===== CASE 2: Validate date format =====
+                success, parsed_date, parse_error = self._parse_flexible_date(raw_input)
+                
+                if not success:
+                    # Clear cell + show error + keep editor open
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self.parent,
+                        lang.t("dialog_titles.error", "Error"),
+                        parse_error,
+                        "error"
+                    )
+                    entry.focus()
+                    return
+                
+                # ===== CASE 3: Validate date is in future =====
+                if not self._is_date_in_future(parsed_date):
+                    # Clear cell + show error + keep editor open
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self.parent,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("out_kit.date_must_be_future", 
+                               "Expiry date must be in the future.\n\n"
+                               "Entered date: {date}\n"
+                               "Today: {today}",
+                               date=parsed_date,
+                               today=datetime.today().strftime('%Y-%m-%d')),
+                        "error"
+                    )
+                    entry.focus()
+                    return
+                
+                # ===== CASE 4: All validations passed - SAVE =====
+                vals_list[6] = parsed_date
+                self.tree.item(row_id, values=vals_list)
+                
+                # Mark as edited and clear adopted flag
+                if row_id in self.row_data:
+                    # Clear adopted flag since user manually edited
+                    self.row_data[row_id]["adopted_expiry"] = False
+                    self.row_data[row_id]["expiry_edited"] = True
+                    
+                    # ✅ Build tag list: preserve type tags + add expiry_edited
+                    tags = []
+                    
+                    # Add type-specific tag (kit_data, module_data, or item_row)
+                    rtype = vals_list[2].lower() if len(vals_list) > 2 else ""
+                    if rtype == "kit":
+                        tags.append("kit_data")
+                    elif rtype == "module":
+                        tags.append("module_data")
+                    
+                    # Add edited expiry tag (cyan background - applied last to take priority)
+                    tags.append("expiry_edited")
+                    
+                    # Apply combined tags
+                    self.tree.item(row_id, tags=tuple(tags))
+                    
+                    logging.debug(f"[EDIT_EXPIRY] Applied tags: {tags} to row {row_id}")
+                    logging.info(f"[EDIT_EXPIRY] User edited: {meta.get('code')}: {old_expiry} → {parsed_date}")
+                    
+                    self.status_var.set(
+                        lang.t("out_kit.expiry_updated", 
+                               "✓ Expiry updated: {code} → {date}",
+                               code=meta.get('code', ''), 
+                               date=parsed_date)
+                    )
+                
+                cleanup()
+            
+            entry.bind("<Return>", save_expiry)
+            entry.bind("<KP_Enter>", save_expiry)
+            entry.bind("<Tab>", save_expiry)
+            entry.bind("<FocusOut>", save_expiry)
+            entry.bind("<Escape>", lambda e: cleanup())
+            return
+        
+        # ===== QUANTITY EDITING (Column 8) =====
+        elif col_index == 8:
+            rules = self.get_mode_rules()
+            editable_lower = {t.lower() for t in rules["editable_types"]}
+            
+            if rtype not in editable_lower:
+                return
+            
+            bbox = self.tree.bbox(row_id, f"#{col_index+1}")
+            if not bbox:
+                return
+            
+            x, y, w, h = bbox
+            raw_old = vals[8]
+            old_clean = raw_old[2:].strip() if raw_old.startswith("★") else raw_old.strip()
+            
+            # Destroy existing editor
+            if self.editing_cell:
+                try:
+                    self.editing_cell.destroy()
+                except:
+                    pass
+                self.editing_cell = None
+            
+            entry = tk.Entry(self.tree, font=("Helvetica", 10), background="#FFFBE0")
+            entry.place(x=x, y=y, width=w, height=h)
+            entry.insert(0, old_clean if old_clean else "")
+            entry.focus()
+            entry.select_range(0, tk.END)
+            self.editing_cell = entry
+            
+            def save_qty(_=None):
+                val = entry.get().strip()
+                
+                try:
+                    stock = int(vals[5]) if vals[5] else 0
+                except:
+                    stock = 0
+                
+                if rtype in ("kit", "module"):
+                    if val not in ("0", "1"):
+                        val = "1" if stock > 0 else "0"
+                    if stock == 0 and val == "1":
+                        val = "0"
                 else:
-                    iv=int(val)
-                    if iv<0: iv=0
-                    if iv>stock: iv=stock
-                    val=str(iv)
-            vals_list = list(vals)
-            vals_list[8] = f"★ {val}"
-            vals_list[11] = val
-            self.tree.item(row_id, values=vals_list)
-            entry.destroy()
-            self.editing_cell=None
-            if rtype=="kit" and rules.get("derive_modules_from_Kit"):
-                self._derive_modules_from_Kits()
-                if rules.get("derive_items_from_modules"):
+                    if not val.isdigit():
+                        val = "0"
+                    else:
+                        iv = int(val)
+                        if iv < 0:
+                            iv = 0
+                        if iv > stock:
+                            iv = stock
+                        val = str(iv)
+                
+                vals_list = list(vals)
+                vals_list[8] = f"★ {val}"
+                vals_list[11] = val
+                self.tree.item(row_id, values=vals_list)
+                
+                try:
+                    entry.destroy()
+                except:
+                    pass
+                self.editing_cell = None
+                
+                if rtype == "kit" and rules.get("derive_modules_from_Kit"):
+                    self._derive_modules_from_Kits()
+                    if rules.get("derive_items_from_modules"):
+                        self._derive_items_from_modules()
+                    self._reapply_editable_icons(rules)
+                elif rtype == "module" and rules.get("derive_items_from_modules"):
                     self._derive_items_from_modules()
-                self._reapply_editable_icons(rules)
-            elif rtype=="module" and rules.get("derive_items_from_modules"):
-                self._derive_items_from_modules()
-                self._reapply_editable_icons(rules)
+                    self._reapply_editable_icons(rules)
+            
+            entry.bind("<Return>", save_qty)
+            entry.bind("<KP_Enter>", save_qty)
+            entry.bind("<Tab>", save_qty)
+            entry.bind("<FocusOut>", save_qty)
+            entry.bind("<Escape>", lambda e: (entry.destroy() if entry.winfo_exists() else None, setattr(self, "editing_cell", None)))
+            return
+        
+        else:
+            self.status_var.set(
+                lang.t("out_kit.column_not_editable", "This column is not editable")
+            )
 
-        entry.bind("<Return>", save)
-        entry.bind("<Tab>", save)
-        entry.bind("<FocusOut>", save)
-        entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self,"editing_cell",None)))
+
+    def _validate_date_format(self, date_str):
+        """
+        Validate date format (YYYY-MM-DD).
+        
+        Args:
+            date_str: Date string to validate
+        
+        Returns:
+            bool: True if valid format
+        """
+        if not date_str:
+            return True  # Empty is allowed
+        
+        import re
+        
+        # Check basic format
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            return False
+        
+        # Try parsing as actual date
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            return True
+        except ValueError:
+            return False            
 
     # -------------------- Search --------------------
     def search_items(self, event=None):
@@ -2139,38 +2793,65 @@ class StockOutKit(tk.Frame):
 # ============================= out_kit.py (Part 5/6) =============================
     # -------------------- Transaction helpers --------------------
     def _insert_transaction_out(self, cur, *, unique_id, code, description,
-                                expiry_date, batch_number, scenario, kit_number,
-                                module_number, qty_out, out_type,
-                                ts_date, ts_time, movement_type, document_number):
-        cur.execute("""
-            INSERT INTO stock_transactions
-            (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-             Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-             Third_Party, End_User, Remarks, Movement_Type, document_number)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            ts_date, ts_time, unique_id, code, description,
-            expiry_date, batch_number, scenario, kit_number, module_number,
-            None, None, qty_out, out_type,
-            None, None, None, movement_type, document_number
-        ))
+                                expiry_date, batch_number, scenario,
+                                kit, module, qty_out, out_type,
+                                ts_date, ts_time, movement_type, document_number,
+                                comment=None):
+        """
+        Insert OUT transaction record.
+        ✅ Uses Kit/Module columns (not kit_number/module_number)
+        ✅ Includes comments parameter for expiry remarks
+        """
+        try:
+            cur.execute("""
+                INSERT INTO stock_transactions
+                (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
+                 Scenario, Kit, Module,
+                 Qty_Out, Out_Type, Movement_Type, document_number, comments)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                ts_date, ts_time, unique_id, code, description,
+                expiry_date, batch_number, scenario,
+                kit or "",  # ✅ Use kit (code), not kit_number (instance)
+                module or "",  # ✅ Use module (code), not module_number (instance)
+                qty_out, out_type, movement_type, document_number,
+                comment
+            ))
+            logging.debug(f"[OUT_TRANSACTION] Logged OUT: {code} qty={qty_out} kit={kit} module={module}")
+        except sqlite3.Error as e:
+            logging.error(f"[OUT_TRANSACTION] Failed: {e}")
+            raise
 
     def _insert_transaction_in_mirror(self, cur, *, unique_id, code, description,
-                                      expiry_date, batch_number, scenario, kit_number,
-                                      module_number, qty_in, out_type_as_in_type,
-                                      ts_date, ts_time, movement_type, document_number):
-        cur.execute("""
-            INSERT INTO stock_transactions
-            (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-             Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-             Third_Party, End_User, Remarks, Movement_Type, document_number)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            ts_date, ts_time, unique_id, code, description,
-            expiry_date, batch_number, scenario, kit_number, module_number,
-            qty_in, out_type_as_in_type, None, None,
-            None, None, None, movement_type, document_number
-        ))
+                                      expiry_date, batch_number, scenario,
+                                      kit, module, qty_in,
+                                      out_type_as_in_type, ts_date, ts_time,
+                                      movement_type, document_number,
+                                      comment=None):
+        """
+        Insert mirror IN transaction record.
+        ✅ Uses Kit/Module columns (not kit_number/module_number)
+        ✅ Includes comments parameter for expiry remarks
+        """
+        try:
+            cur.execute("""
+                INSERT INTO stock_transactions
+                (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
+                 Scenario, Kit, Module,
+                 Qty_IN, IN_Type, Movement_Type, document_number, comments)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                ts_date, ts_time, unique_id, code, description,
+                expiry_date, batch_number, scenario,
+                kit or "",  # ✅ Use kit (code), not kit_number (instance)
+                module or "",  # ✅ Use module (code), not module_number (instance)
+                qty_in, out_type_as_in_type, movement_type, document_number,
+                comment
+            ))
+            logging.debug(f"[IN_TRANSACTION] Logged IN: {code} qty={qty_in} kit={kit} module={module}")
+        except sqlite3.Error as e:
+            logging.error(f"[IN_TRANSACTION] Failed: {e}")
+            raise
 
     # -------------------- Document Number --------------------
     def generate_document_number(self, out_type_text: str) -> str:
@@ -2200,14 +2881,207 @@ class StockOutKit(tk.Frame):
         self.current_document_number = doc
         return doc
 
+    #----------------------Adopted Expiries WARNING pop-up--------
+
+    def _show_adopted_expiry_warning(self):
+        """
+        Show warning dialog if any items have adopted expiries.
+        Returns True to proceed with save, False to go back for review.
+        
+        Returns:
+            bool: True = proceed with save, False = cancel and review
+        """
+        # Count items with adopted expiries
+        adopted_count = 0
+        for iid in self.tree.get_children():
+            meta = self.row_data.get(iid, {})
+            if meta.get("adopted_expiry") and not meta.get("is_header"):
+                adopted_count += 1
+        
+        # If no adopted expiries, proceed directly
+        if adopted_count == 0:
+            logging.debug("[SAVE] No adopted expiries found, proceeding with save")
+            return True
+        
+        # ✅ Show warning dialog
+        logging.info(f"[SAVE] Found {adopted_count} items with adopted expiries, showing warning")
+        
+        # Create custom dialog
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(lang.t("out_kit.warning_title", "Warning - Adopted Expiries"))
+        dialog.geometry("550x550")
+        dialog.transient(self.parent)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Result variable
+        result = {"proceed": False}
+        
+        # Main frame
+        main_frame = tk.Frame(dialog, bg="#FFF3E0", padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Warning icon and title
+        title_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        title_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(
+            title_frame,
+            text="⚠️",
+            font=("Helvetica", 32),
+            bg="#FFF3E0",
+            fg="#FF6F00"
+        ).pack(side="left", padx=(0, 10))
+        
+        tk.Label(
+            title_frame,
+            text=lang.t("out_kit.adopted_expiry_warning_title", "Adopted Expiry Dates Detected"),
+            font=("Helvetica", 14, "bold"),
+            bg="#FFF3E0",
+            fg="#E65100"
+        ).pack(side="left")
+        
+        # Warning message frame
+        msg_frame = tk.Frame(main_frame, bg="white", relief="solid", borderwidth=1)
+        msg_frame.pack(fill="both", expand=True, pady=(0, 15))
+        
+        # Count label
+        count_label = tk.Label(
+            msg_frame,
+            text=lang.t(
+                "out_kit.adopted_count",
+                "{count} item(s) have expiry dates adopted from kit/module.",
+                count=adopted_count
+            ),
+            font=("Helvetica", 11, "bold"),
+            bg="white",
+            fg="#D84315",
+            wraplength=480,
+            justify="left"
+        )
+        count_label.pack(fill="x", padx=15, pady=(15, 10))
+        
+        # Warning text
+        warning_text = lang.t(
+            "out_kit.adopted_expiry_warning",
+            "This will cause issues in stock management for on-shelf items.\n\n"
+            "It is STRONGLY RECOMMENDED to check the expiries of all items manually "
+            "and enter verified expiries for all the RED highlighted rows before saving.\n\n"
+            "Items with adopted expiries are marked with a red/pink background in the table."
+        )
+        
+        warning_label = tk.Label(
+            msg_frame,
+            text=warning_text,
+            font=("Helvetica", 10),
+            bg="white",
+            fg="#424242",
+            wraplength=480,
+            justify="left"
+        )
+        warning_label.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        # Recommendation box
+        rec_frame = tk.Frame(main_frame, bg="#E3F2FD", relief="solid", borderwidth=1)
+        rec_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(
+            rec_frame,
+            text="💡 " + lang.t("out_kit.recommendation", "Recommendation"),
+            font=("Helvetica", 10, "bold"),
+            bg="#E3F2FD",
+            fg="#1565C0",
+            anchor="w"
+        ).pack(fill="x", padx=10, pady=(8, 4))
+        
+        tk.Label(
+            rec_frame,
+            text=lang.t(
+                "out_kit.recommendation_text",
+                "Click 'Review' to go back and verify expiry dates.\n"
+                "Double-click any RED highlighted row to edit the expiry date."
+            ),
+            font=("Helvetica", 9),
+            bg="#E3F2FD",
+            fg="#424242",
+            anchor="w",
+            justify="left"
+        ).pack(fill="x", padx=10, pady=(0, 8))
+        
+        # Button frame
+        btn_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        btn_frame.pack(side="bottom", pady=(10, 0))
+        
+        def on_review():
+            """User wants to go back and review."""
+            result["proceed"] = False
+            dialog.destroy()
+        
+        def on_save():
+            """User wants to proceed with save."""
+            result["proceed"] = True
+            dialog.destroy()
+        
+        # Review button (recommended action)
+        review_btn = tk.Button(
+            btn_frame,
+            text=lang.t("out_kit.review_button", "📋 Review Expiries"),
+            font=("Helvetica", 11, "bold"),
+            bg="#2196F3",
+            fg="white",
+            width=18,
+            command=on_review,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8
+        )
+        review_btn.pack(side="left", padx=5)
+        
+        # Save anyway button (warning action)
+        save_btn = tk.Button(
+            btn_frame,
+            text=lang.t("out_kit.save_anyway_button", "⚠️ Save Anyway"),
+            font=("Helvetica", 11),
+            bg="#FF9800",
+            fg="white",
+            width=18,
+            command=on_save,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8
+        )
+        save_btn.pack(side="left", padx=5)
+        
+        # Bind keys
+        dialog.bind("<Escape>", lambda e: on_review())
+        dialog.bind("<Return>", lambda e: on_review())  # Default = Review
+        
+        # Wait for dialog
+        dialog.wait_window()
+        
+        logging.info(f"[SAVE] User chose: {'PROCEED' if result['proceed'] else 'REVIEW'}")
+        return result["proceed"]    
+
+
+
+
     # -------------------- Save (Break logic) --------------------
     def save_all(self):
         """
         Save/issue all items with dual transaction logging (OUT + mirror IN).
+        ✅ Converts in-box items (>6 slashes) to on-shelf items (≤6 slashes)
+        ✅ Dual transaction: OUT (reduce in-box) + IN (add to on-shelf)
         ✅ Full localization with custom popups
-        ✅ Canonical movement type conversion
         ✅ Stock validation (qty_out <= current_stock)
         ✅ Proper error handling with retry logic
+        ✅ Comments in stock_transactions with expiry remarks
         """
         logging.info("[OUT_KIT] save_all called")
         
@@ -2221,8 +3095,19 @@ class StockOutKit(tk.Frame):
             )
             return
         
+        # Check for adopted expiries and show warning
+        if not self._show_adopted_expiry_warning():
+            # User chose to review - don't save, just return
+            self.status_var.set(
+                lang.t("out_kit.save_cancelled_review", "Save cancelled - please review expiry dates")
+            )
+            logging.info("[SAVE] User cancelled save to review adopted expiries")
+            return
+        # ===== Continue with existing save logic =====
+        logging.info("[SAVE] Starting save process...")
+
         # Fixed OUT type
-        out_type = OUT_TYPE_FIXED
+        out_type = OUT_TYPE_CANONICAL
         
         # Collect rows to process
         rows = []
@@ -2256,6 +3141,19 @@ class StockOutKit(tk.Frame):
             if q_out <= 0:
                 continue
             
+            # ✅ VALIDATION: Must be in-box item
+            if not self.is_inbox_item(unique_id):
+                logging.warning(f"[OUT_KIT] Skipping non-in-box item: {unique_id}")
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.warning", "Warning"),
+                    lang.t("out_kit.not_inbox",
+                           "Item {code} is not from in-box (unique_id has ≤6 slashes). Skipping.",
+                           code=code),
+                    "warning"
+                )
+                continue
+            
             # Parse current stock
             try:
                 stock_str = str(current_stock).replace("★", "").strip()
@@ -2275,11 +3173,19 @@ class StockOutKit(tk.Frame):
                 )
                 return
             
+            # ✅ Convert in-box unique_id to on-shelf unique_id
+            unique_id_onshelf = self.convert_inbox_to_onshelf(unique_id)
+            
             # Parse qty_in (mirror quantity)
             try:
                 q_in = int(qty_in_hidden) if str(qty_in_hidden).isdigit() else q_out
             except:
                 q_in = q_out
+
+            # ✅ CHECK: Adopted expiry?
+            is_adopted = meta.get("adopted_expiry", False)
+            expiry_edited = meta.get("expiry_edited", False)
+            original_comment = meta.get("original_comment", "")    
             
             # Collect row data
             rows.append({
@@ -2290,11 +3196,17 @@ class StockOutKit(tk.Frame):
                 "qty_out": q_out,
                 "qty_in": q_in,
                 "exp_date": exp_date if exp_date else None,
+                "exp_date_adopted": is_adopted,
+                "expiry_edited": expiry_edited,
+                "original_comment": original_comment,
                 "batch_no": batch_no if batch_no else None,
-                "unique_id": unique_id,
+                "unique_id_inbox": unique_id,
+                "unique_id_onshelf": unique_id_onshelf,
                 "line_id": line_id if line_id else None,
-                "kit_number": meta.get("Kit_number") or (kit_col if kit_col != "-----" else None),
-                "module_number": meta.get("module_number") or (module_col if module_col != "-----" else None)
+                "kit": kit_col if kit_col != "-----" else None,
+                "module": module_col if module_col != "-----" else None,
+                "kit_number": meta.get("Kit_number"),
+                "module_number": meta.get("module_number")
             })
         
         # Check if any items to process
@@ -2309,8 +3221,8 @@ class StockOutKit(tk.Frame):
         
         # Get scenario and movement type
         scenario_name = self.scenario_map.get(self.selected_scenario_id, "")
-        movement_label = self.mode_var.get()  # Get localized label
-        movement_canonical = self._canon_movement_type(movement_label)  # ✅ Convert to English
+        movement_label = self.mode_var.get()
+        movement_canonical = self._canon_movement_type(movement_label)
         
         # Generate document number
         doc_number = self.generate_document_number(out_type)
@@ -2342,10 +3254,12 @@ class StockOutKit(tk.Frame):
                 
                 # Process each row
                 for r in rows:
-                    # Verify stock availability (concurrency check)
+                    # ===== 1️⃣ OUT TRANSACTION (in-box) =====
+                    
+                    # Verify in-box stock availability
                     cur.execute("""
                         SELECT final_qty FROM stock_data WHERE unique_id = ?
-                    """, (r["unique_id"],))
+                    """, (r["unique_id_inbox"],))
                     
                     db_row = cur.fetchone()
                     if not db_row or db_row[0] is None or db_row[0] < r["qty_out"]:
@@ -2355,14 +3269,14 @@ class StockOutKit(tk.Frame):
                                    code=r["code"])
                         )
                     
-                    # Update stock_data: Increase qty_out
+                    # Update in-box stock_data: Increase qty_out
                     cur.execute("""
                         UPDATE stock_data
                         SET qty_out = qty_out + ?,
                             updated_at = ?
                         WHERE unique_id = ?
                           AND (qty_in - qty_out) >= ?
-                    """, (r["qty_out"], f"{now_date} {now_time}", r["unique_id"], r["qty_out"]))
+                    """, (r["qty_out"], f"{now_date} {now_time}", r["unique_id_inbox"], r["qty_out"]))
                     
                     if cur.rowcount == 0:
                         raise ValueError(
@@ -2371,66 +3285,141 @@ class StockOutKit(tk.Frame):
                                    code=r["code"])
                         )
                     
-                    # ✅ Mirror IN transaction: Increase qty_in using same line_id
-                    if r["line_id"] and r["qty_in"] > 0:
-                        cur.execute("""
-                            UPDATE stock_data
-                            SET qty_in = qty_in + ?,
-                                updated_at = ?
-                            WHERE line_id = ?
-                        """, (r["qty_in"], f"{now_date} {now_time}", r["line_id"]))
-                        
-                        logging.debug(f"[OUT_KIT] Mirror IN: line_id={r['line_id']}, qty_in={r['qty_in']}")
+                    # ✅ Build comment for OUT transaction
+                    out_comment = f"OUT from in-box {r['kit_number']}/{r['module_number']}"
+                    if r['exp_date_adopted'] and not r['expiry_edited']:
+                        out_comment += f" | ⚠️ Adopted expiry: {r['exp_date']} | Original: {r['original_comment'][:50] if r['original_comment'] else 'N/A'}"
+                    elif r['exp_date_adopted'] and r['expiry_edited']:
+                        out_comment += f" | ✓ Expiry verified/updated by user to {r['exp_date']}"
                     
-                    # Log OUT transaction
+                    # Log OUT transaction (in-box)
                     self._insert_transaction_out(
                         cur,
-                        unique_id=r["unique_id"],
+                        unique_id=r["unique_id_inbox"],
                         code=r["code"],
                         description=r["desc"],
                         expiry_date=r["exp_date"],
                         batch_number=r["batch_no"],
                         scenario=scenario_name,
-                        kit_number=r["kit_number"],
-                        module_number=r["module_number"],
+                        kit=r["kit"],  
+                        module=r["module"], 
                         qty_out=r["qty_out"],
                         out_type=out_type,
                         ts_date=now_date,
                         ts_time=now_time,
-                        movement_type=movement_canonical,  # ✅ Use canonical English
-                        document_number=doc_number
+                        movement_type=movement_canonical,
+                        document_number=doc_number,
+                        comment=out_comment  # ✅ PASS COMMENT
                     )
                     
-                    # Log mirror IN transaction
+                    logging.info(f"[OUT_KIT] OUT processed: {r['code']} qty={r['qty_out']} from in-box")
+                    
+                    # ===== 2️⃣ IN TRANSACTION (on-shelf) =====
+                    
                     if r["qty_in"] > 0:
+                        # Check if on-shelf unique_id already exists
+                        cur.execute("""
+                            SELECT line_id, qty_in, qty_out
+                            FROM stock_data
+                            WHERE unique_id = ?
+                        """, (r["unique_id_onshelf"],))
+                        
+                        onshelf_existing = cur.fetchone()
+                        
+                        if onshelf_existing:
+                            # Update existing on-shelf record
+                            cur.execute("""
+                                UPDATE stock_data
+                                SET qty_in = qty_in + ?,
+                                    updated_at = ?
+                                WHERE unique_id = ?
+                            """, (r["qty_in"], f"{now_date} {now_time}", r["unique_id_onshelf"]))
+                            
+                            logging.info(f"[OUT_KIT] Updated existing on-shelf: {r['unique_id_onshelf']}")
+                        
+                        else:
+                            # ✅ Create new on-shelf record - determine expiry, comments
+                            if r["exp_date_adopted"] and not r["expiry_edited"]:
+                                # ✅ ADOPTED + NOT EDITED: Keep expiry but warn
+                                onshelf_exp_date = r["exp_date"]
+                                onshelf_comment = f"⚠️ ADOPTED EXPIRY - Verify before use | Original: {r['original_comment'][:80] if r['original_comment'] else 'Unknown'}"
+                                in_comment = f"IN to on-shelf | ⚠️ Adopted expiry {r['exp_date']} needs verification"
+                                logging.warning(f"[OUT_KIT] Preserved adopted expiry (not edited): {r['code']} = {r['exp_date']}")
+                            
+                            elif r["exp_date_adopted"] and r["expiry_edited"]:
+                                # ✅ ADOPTED + EDITED: Use new expiry, mark as verified
+                                onshelf_exp_date = r["exp_date"]
+                                onshelf_comment = f"Expiry verified/updated during break from {r['kit_number']}/{r['module_number']}"
+                                in_comment = f"IN to on-shelf | Expiry verified by user: {r['exp_date']}"
+                                logging.info(f"[OUT_KIT] User verified expiry: {r['code']} = {r['exp_date']}")
+                            
+                            else:
+                                # ✅ NOT ADOPTED: Normal expiry
+                                onshelf_exp_date = r["exp_date"]
+                                onshelf_comment = f"Moved from in-box {r['kit_number']}/{r['module_number']}"
+                                in_comment = f"IN to on-shelf from {r['kit_number']}/{r['module_number']}"
+                            
+                            cur.execute("""
+                                INSERT INTO stock_data
+                                (unique_id, scenario, kit, module, item, std_qty,
+                                 qty_in, qty_out, exp_date, 
+                                 kit_number, module_number, management_mode, comments, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 'on-shelf', ?, ?)
+                            """, (
+                                r["unique_id_onshelf"],
+                                scenario_name,
+                                r["kit"],
+                                r["module"],
+                                r["code"],
+                                r.get("std_qty"),
+                                r["qty_in"],
+                                onshelf_exp_date,
+                                onshelf_comment,  # ✅ Smart comment
+                                f"{now_date} {now_time}"
+                            ))
+                            
+                            logging.info(f"[OUT_KIT] Created on-shelf: {r['unique_id_onshelf']} (adopted={r['exp_date_adopted']}, edited={r['expiry_edited']})")
+                        
+                        # ✅ Build comment for IN transaction (use in_comment if defined, else fallback)
+                        if not onshelf_existing:
+                            # Use the in_comment we built above
+                            pass  # in_comment already defined
+                        else:
+                            # For existing records, build a simple comment
+                            in_comment = f"IN to on-shelf (updated existing) from {r['kit_number']}/{r['module_number']}"
+                        
+                        # Log IN transaction (on-shelf)
                         self._insert_transaction_in_mirror(
                             cur,
-                            unique_id=r["unique_id"],
+                            unique_id=r["unique_id_onshelf"],
                             code=r["code"],
                             description=r["desc"],
-                            expiry_date=r["exp_date"],
+                            expiry_date=onshelf_exp_date if not onshelf_existing else r["exp_date"],
                             batch_number=r["batch_no"],
                             scenario=scenario_name,
-                            kit_number=r["kit_number"],
-                            module_number=r["module_number"],
+                            kit=r["kit"],
+                            module=r["module"],
                             qty_in=r["qty_in"],
-                            out_type_as_in_type=out_type,
+                            out_type_as_in_type="Internal move to on-shelf",
                             ts_date=now_date,
                             ts_time=now_time,
-                            movement_type=movement_canonical,  # ✅ Use canonical English
-                            document_number=doc_number
+                            movement_type=movement_canonical,
+                            document_number=doc_number,
+                            comment=in_comment  # ✅ PASS SMART COMMENT
                         )
+                        
+                        logging.info(f"[OUT_KIT] IN processed: {r['code']} qty={r['qty_in']} to on-shelf")
                 
                 # Commit transaction
                 conn.commit()
                 
                 # Success message
-                total_transactions = len(rows) * 2  # OUT + IN for each row
+                total_transactions = len(rows) * 2
                 custom_popup(
                     self.parent,
                     lang.t("dialog_titles.success", "Success"),
                     lang.t("out_kit.break_complete",
-                           "Break complete. Logged {count} transactions (OUT + IN).",
+                           "Break complete. Logged {count} transactions (OUT from in-box + IN to on-shelf).",
                            count=total_transactions),
                     "info"
                 )
@@ -2522,7 +3511,7 @@ class StockOutKit(tk.Frame):
         self.Kit_number_var.set("")
         self.module_var.set("")
         self.module_number_var.set("")
-        self.out_type_var.set(OUT_TYPE_FIXED)
+        self.out_type_var.set(lang.t("out_kit.out_type_fixed", "Internal move from in-box items"))
         self.status_var.set(lang.t("break_kit.ready","Ready"))
         self.scenario_map = self.fetch_scenario_map()
         self.load_scenarios()
@@ -2566,7 +3555,7 @@ class StockOutKit(tk.Frame):
             movement_type_raw = self.mode_var.get() or "Break Kit"
             scenario_name = self.selected_scenario_name or "N/A"
             doc_number = getattr(self, "current_document_number", None)
-            out_type_raw = OUT_TYPE_FIXED
+            out_type_raw = OUT_TYPE_CANONICAL
 
             def sanitize(s):
                 import re
