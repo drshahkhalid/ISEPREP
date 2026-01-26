@@ -354,6 +354,52 @@ class StockOutKit(tk.Frame):
             conn.close()
 
 
+
+    def check_if_item_requires_expiry(self, item_code):
+        """
+        Check if an item requires expiry date based on items_list.remarks.
+        
+        Args:
+            item_code: Item code to check
+        
+        Returns:
+            tuple: (requires_expiry: bool, remarks: str)
+        """
+        conn = connect_db()
+        if conn is None:
+            return False, ""
+        
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        try:
+            cur.execute("""
+                SELECT remarks FROM items_list WHERE code = ?
+            """, (item_code,))
+            
+            row = cur.fetchone()
+            
+            if not row or not row['remarks']:
+                return False, ""
+            
+            remarks = str(row['remarks'])
+            
+            # Check for "exp" keyword (case-insensitive)
+            requires_expiry = "exp" in remarks.lower()
+            
+            logging.debug(f"[EXPIRY_CHECK] {item_code}: requires={requires_expiry}, remarks={remarks[:50] if remarks else 'None'}")
+            
+            return requires_expiry, remarks
+            
+        except sqlite3.Error as e:
+            logging.error(f"[EXPIRY_CHECK] Error checking item {item_code}: {e}")
+            return False, ""
+        finally:
+            cur.close()
+            conn.close()
+
+
+
     def _validate_date_format(self, date_str):
         """
         Validate date format (YYYY-MM-DD).
@@ -1652,6 +1698,15 @@ class StockOutKit(tk.Frame):
                 foreground="#006064"   # Dark cyan text
             )
             
+            # ✅ NEW: RED text for items requiring expiry but missing valid date
+            self.tree.tag_configure(
+                "missing_required_expiry",
+                foreground="#D32F2F",  # Red text (no background - compatible with all row types)
+                font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_NORMAL, "bold")  # Bold for emphasis
+            )
+
+
+
             logging.debug("[OUT_KIT] Tree visual tags configured")
             
         except Exception as e:
@@ -2128,6 +2183,7 @@ class StockOutKit(tk.Frame):
                 elif row_type == "module":
                     tags.append("module_header")
                     logging.debug(f"[POPULATE] Module header: {item.get('code')}")
+                
             else:
                 # ✅ DATA ROWS: Apply type-specific background first
                 if row_type == "kit":
@@ -2136,12 +2192,37 @@ class StockOutKit(tk.Frame):
                     tags.append("module_data")  # Light blue background
                 # Items get no special background (default white)
                 
-                # ✅ HIGHLIGHT: Adopted expiry (RED - highest priority)
+                # ✅ Check if item requires expiry FIRST (before other tags)
+                requires_expiry = False
+                has_valid_expiry = True
+                
+                if row_type == "item":
+                    item_code = item.get("code", "")
+                    expiry_date = item.get("expiry_date", "")
+                    
+                    # Check if item requires expiry
+                    requires_expiry, _ = self.check_if_item_requires_expiry(item_code)
+                    
+                    if requires_expiry:
+                        # Validate expiry date
+                        has_valid_expiry = False
+                        
+                        if expiry_date and expiry_date.strip():
+                            if self._validate_date_format(expiry_date):
+                                if self._is_date_in_future(expiry_date):
+                                    has_valid_expiry = True
+                
+                # ✅ Apply priority-based highlighting
                 if is_adopted:
-                    tags.append("adopted_expiry")  # Overrides type background with red/pink
-                # ✅ HIGHLIGHT: User-edited expiry (CYAN - secondary priority)
+                    # PRIORITY 1: Adopted expiry (RED/PINK)
+                    tags.append("adopted_expiry")
+                elif requires_expiry and not has_valid_expiry:
+                    # PRIORITY 2: Missing REQUIRED expiry (RED/PINK)
+                    tags.append("missing_required_expiry")
+                    logging.debug(f"[POPULATE] Missing required expiry: {item.get('code')} (exp: '{item.get('expiry_date')}')")
                 elif self.row_data[iid].get("expiry_edited"):
-                    tags.append("expiry_edited")  # Overrides type background with cyan
+                    # PRIORITY 3: User-edited expiry (CYAN)
+                    tags.append("expiry_edited")
             
             # Apply all tags at once
             if tags:
@@ -2168,7 +2249,7 @@ class StockOutKit(tk.Frame):
     def start_edit(self, event):
         """
         Start editing a cell on double-click.
-        ✅ Allows editing expiry_date for rows with adopted expiry
+        ✅ ALL item expiry dates are ALWAYS editable (no restrictions)
         """
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
@@ -2183,24 +2264,45 @@ class StockOutKit(tk.Frame):
         # Check if header row
         meta = self.row_data.get(row_id, {})
         if meta.get("is_header"):
+            logging.debug("[EDIT] Cannot edit header row")
             return
         
         # Get column index (0-based)
-        col_index = int(col_id.replace("#", "")) - 1
+        try:
+            col_index = int(col_id.replace("#", "")) - 1
+        except:
+            return
         
-        # Column 6 = expiry_date
+        # Get row values
+        vals = self.tree.item(row_id, "values")
+        if not vals or len(vals) <= col_index:
+            return
+        
+        # Get item type from column 2
+        item_type = (vals[2] or "").upper() if len(vals) > 2 else ""
+        
+        # ===== EXPIRY DATE EDITING (Column 6) =====
         if col_index == 6:
-            # ✅ Allow editing if adopted expiry
-            if meta.get("adopted_expiry"):
+            # ✅ Simple rule: If it's an item, allow editing. Period.
+            if item_type == "ITEM":
+                item_code = vals[0] if vals else "unknown"
+                logging.info(f"[EDIT] Opening expiry editor for: {item_code}")
                 self._start_edit_cell(row_id, col_index)
             else:
+                logging.debug(f"[EDIT] Expiry not editable for type: {item_type}")
                 self.status_var.set(
-                    lang.t("out_kit.expiry_not_editable", "Expiry date is not editable (not adopted)")
+                    lang.t("out_kit.expiry_only_items", 
+                           "Expiry dates are only for items")
                 )
-        else:
-            self.status_var.set(
-                lang.t("out_kit.column_not_editable", "This column is not editable")
-            )
+            return
+        
+        # ===== OTHER COLUMNS =====
+        # Not editable via double-click
+        logging.debug(f"[EDIT] Column {col_index} not editable via double-click")
+        self.status_var.set(
+            lang.t("out_kit.column_not_editable", 
+                   "Right-click 'Qty to Out' to edit quantity")
+        )
 
     def navigate_tree(self, event):
         if self.editing_cell: return
@@ -2564,14 +2666,30 @@ class StockOutKit(tk.Frame):
                         self.row_data[row_id]["adopted_expiry"] = False
                         self.row_data[row_id]["expiry_edited"] = True
                         
-                        # Build tag list: preserve type tags + add expiry_edited
+                        # ✅ Build tag list: CHECK REQUIRED EXPIRY FIRST
                         tags = []
                         rtype = vals_list[2].lower() if len(vals_list) > 2 else ""
+                        item_code = vals_list[0] if vals_list else ""
+                        
+                        # Add type-specific background
                         if rtype == "kit":
                             tags.append("kit_data")
                         elif rtype == "module":
                             tags.append("module_data")
-                        tags.append("expiry_edited")
+                        
+                        # ✅ CRITICAL: Check if item requires expiry (takes priority over expiry_edited)
+                        requires_expiry = False
+                        if rtype == "item":
+                            requires_expiry, _ = self.check_if_item_requires_expiry(item_code)
+                        
+                        if requires_expiry:
+                            # User cleared REQUIRED expiry → RED background takes priority
+                            tags.append("missing_required_expiry")
+                            logging.warning(f"[EDIT_EXPIRY] User cleared REQUIRED expiry for {item_code}")
+                        else:
+                            # Optional expiry cleared → cyan background
+                            tags.append("expiry_edited")
+                            logging.debug(f"[EDIT_EXPIRY] User cleared optional expiry for {item_code}")
                         
                         self.tree.item(row_id, tags=tuple(tags))
                         logging.debug(f"[EDIT_EXPIRY] Cleared expiry, tags: {tags}")
@@ -3071,6 +3189,219 @@ class StockOutKit(tk.Frame):
 
 
 
+    def _validate_expiry_dates_required(self):
+        """
+        Validate that all items requiring expiry dates have valid dates.
+        
+        Items with "exp" (case-insensitive) in items_list.remarks MUST have expiry dates.
+        
+        Returns:
+            tuple: (is_valid: bool, missing_items: list of dicts)
+        """
+        logging.info("[VALIDATE_EXPIRY] Checking items requiring expiry dates...")
+        
+        missing_items = []
+        checked_codes = set()  # Avoid duplicate checks
+        
+        for iid in self.tree.get_children():
+            meta = self.row_data.get(iid, {})
+            
+            # Skip headers
+            if meta.get("is_header"):
+                continue
+            
+            # Get row values
+            vals = self.tree.item(iid, "values")
+            item_code = vals[0] if vals else ""
+            item_type = (vals[2] or "").upper() if len(vals) > 2 else ""
+            expiry_date = vals[6] if len(vals) > 6 else ""
+            qty_to_issue = vals[8] if len(vals) > 8 else "0"
+            
+            # Only validate ITEMS (not kits or modules) with qty > 0
+            if item_type != "ITEM":
+                continue
+            
+            # Extract quantity
+            qty_str = qty_to_issue
+            if qty_str.startswith("★"):
+                qty_str = qty_str[2:].strip()
+            
+            try:
+                qty = int(qty_str) if qty_str else 0
+            except:
+                qty = 0
+            
+            # Skip if no quantity to issue
+            if qty <= 0:
+                continue
+            
+            # Skip if already checked this code
+            if item_code in checked_codes:
+                continue
+            
+            checked_codes.add(item_code)
+            
+            # ✅ Check if item requires expiry
+            requires_expiry, remarks = self.check_if_item_requires_expiry(item_code)
+            
+            if requires_expiry:
+                # Validate expiry date
+                is_valid_date = False
+                
+                if expiry_date and expiry_date.strip():
+                    # Check format
+                    if self._validate_date_format(expiry_date):
+                        # Check if in future
+                        if self._is_date_in_future(expiry_date):
+                            is_valid_date = True
+                
+                if not is_valid_date:
+                    missing_items.append({
+                        "code": item_code,
+                        "description": vals[1] if len(vals) > 1 else "",
+                        "expiry_date": expiry_date or "(empty)",
+                        "remarks": remarks[:100],  # Truncate long remarks
+                        "iid": iid
+                    })
+                    
+                    logging.warning(f"[VALIDATE_EXPIRY] Missing/invalid expiry: {item_code} (exp: '{expiry_date}')")
+        
+        is_valid = len(missing_items) == 0
+        
+        if is_valid:
+            logging.info("[VALIDATE_EXPIRY] ✓ All items requiring expiry have valid dates")
+        else:
+            logging.warning(f"[VALIDATE_EXPIRY] ✗ {len(missing_items)} items missing valid expiry dates")
+        
+        return is_valid, missing_items
+    
+    def _show_missing_expiry_error(self, missing_items):
+        """
+        Show error dialog for items missing required expiry dates.
+        
+        Args:
+            missing_items: List of dicts with item details
+        """
+        # Create custom dialog
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(lang.t("out_kit.missing_expiry_title", "Missing Expiry Dates"))
+        dialog.geometry("700x500")
+        dialog.transient(self.parent)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Main frame
+        main_frame = tk.Frame(dialog, bg="#FFEBEE", padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Error icon and title
+        title_frame = tk.Frame(main_frame, bg="#FFEBEE")
+        title_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(
+            title_frame,
+            text="❌",
+            font=("Helvetica", 32),
+            bg="#FFEBEE",
+            fg="#C62828"
+        ).pack(side="left", padx=(0, 10))
+        
+        tk.Label(
+            title_frame,
+            text=lang.t("out_kit.missing_expiry_header", "Items Require Expiry Dates"),
+            font=("Helvetica", 14, "bold"),
+            bg="#FFEBEE",
+            fg="#C62828"
+        ).pack(side="left")
+        
+        # Message
+        msg_text = lang.t(
+            "out_kit.missing_expiry_message",
+            "{count} item(s) require expiry dates but have missing or invalid dates.\n\n"
+            "Items marked with 'EXP' in remarks MUST have valid future expiry dates before saving.\n\n"
+            "Please edit the expiry dates for the following items:",
+            count=len(missing_items)
+        )
+        
+        tk.Label(
+            main_frame,
+            text=msg_text,
+            font=("Helvetica", 10),
+            bg="#FFEBEE",
+            fg="#424242",
+            wraplength=650,
+            justify="left"
+        ).pack(fill="x", pady=(0, 15))
+        
+        # Scrollable list frame
+        list_frame = tk.Frame(main_frame, bg="white", relief="solid", borderwidth=1)
+        list_frame.pack(fill="both", expand=True, pady=(0, 15))
+        
+        # Scrollbar
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Listbox
+        listbox = tk.Listbox(
+            list_frame,
+            font=("Courier", 9),
+            bg="white",
+            fg="#424242",
+            yscrollcommand=scrollbar.set,
+            selectmode="single"
+        )
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate list
+        for idx, item in enumerate(missing_items, 1):
+            line = f"{idx}. {item['code']:20s} | Exp: {item['expiry_date']:15s} | {item['description'][:40]}"
+            listbox.insert("end", line)
+        
+        # Instruction
+        tk.Label(
+            main_frame,
+            text=lang.t(
+                "out_kit.missing_expiry_instruction",
+                "💡 Tip: Double-click the expiry date column (RED highlighted rows) to edit dates."
+            ),
+            font=("Helvetica", 9, "italic"),
+            bg="#FFEBEE",
+            fg="#1976D2",
+            wraplength=650,
+            justify="left"
+        ).pack(fill="x", pady=(0, 10))
+        
+        # OK button
+        tk.Button(
+            main_frame,
+            text=lang.t("dialog_buttons.ok", "OK"),
+            font=("Helvetica", 11, "bold"),
+            bg="#D32F2F",
+            fg="white",
+            width=15,
+            command=dialog.destroy,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8
+        ).pack()
+        
+        # Bind keys
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        dialog.bind("<Return>", lambda e: dialog.destroy())
+        
+        # Wait for dialog
+        dialog.wait_window()
+
+
+
+
 
     # -------------------- Save (Break logic) --------------------
     def save_all(self):
@@ -3103,6 +3434,23 @@ class StockOutKit(tk.Frame):
             )
             logging.info("[SAVE] User cancelled save to review adopted expiries")
             return
+
+        # ✅ CRITICAL: Validate items requiring expiry dates
+        is_valid, missing_items = self._validate_expiry_dates_required()
+        
+        if not is_valid:
+            # Show error dialog with missing items
+            self._show_missing_expiry_error(missing_items)
+            
+            self.status_var.set(
+                lang.t("out_kit.save_blocked_missing_expiry", 
+                       "Save blocked - {count} items require expiry dates",
+                       count=len(missing_items))
+            )
+            logging.error(f"[SAVE] Blocked - {len(missing_items)} items missing required expiry dates")
+            return
+
+
         # ===== Continue with existing save logic =====
         logging.info("[SAVE] Starting save process...")
 
