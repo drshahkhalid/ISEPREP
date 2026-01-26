@@ -2598,9 +2598,9 @@ class StockOutKit(tk.Frame):
     def _start_edit_cell(self, row_id, col_index):
         """
         In-place editing of tree cells.
-        ✅ Column 6 (expiry_date): Editable if adopted expiry, with validation
+        ✅ Column 6 (expiry_date): ALWAYS editable for ALL items (no restrictions)
         ✅ Column 8 (qty_to_issue): Editable based on mode rules
-        ✅ Single popup for all errors, keeps editor open
+        ✅ Single popup for errors, keeps editor open
         """
         meta = self.row_data.get(row_id, {})
         if meta.get("is_header") or not meta.get("unique_id"):
@@ -2611,9 +2611,12 @@ class StockOutKit(tk.Frame):
         
         # ===== EXPIRY DATE EDITING (Column 6) =====
         if col_index == 6:
-            if not meta.get("adopted_expiry"):
+            # ✅ SIMPLE RULE: If it's an item, allow editing. Period.
+            # No check for adopted_expiry - ALL items are editable
+            
+            if rtype != "item":
                 self.status_var.set(
-                    lang.t("out_kit.expiry_not_editable", "Expiry date is not editable (not adopted)")
+                    lang.t("out_kit.expiry_only_items", "Expiry dates are only for items")
                 )
                 return
             
