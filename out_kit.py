@@ -309,6 +309,63 @@ class StockOutKit(tk.Frame):
         logging.debug(f"[CONVERT] in-box: {unique_id} → on-shelf: {onshelf_id}")
         return onshelf_id
 
+
+    @staticmethod
+    def generate_onshelf_unique_id(inbox_unique_id: str, item_type: str, exp_date: str = None) -> str:
+        """
+        Generate proper on-shelf unique_id based on what's being broken.
+        
+        Format based on type:
+        - Kit:    scenario/kit_code/None/None/std_qty/exp_date
+        - Module: scenario/None/module_code/None/std_qty/exp_date
+        - Item:   scenario/None/None/item_code/std_qty/exp_date
+        
+        Args:
+            inbox_unique_id: Original in-box unique_id
+            item_type: "Kit", "Module", or "Item"
+            exp_date: Expiry date to use (if edited)
+        
+        Returns:
+            Properly formatted on-shelf unique_id
+        """
+        if not inbox_unique_id:
+            return inbox_unique_id
+        
+        parts = inbox_unique_id.split("/")
+        
+        if len(parts) < 6:
+            logging.warning(f"[GENERATE_ONSHELF] Invalid unique_id format: {inbox_unique_id}")
+            return inbox_unique_id
+        
+        scenario_id = parts[0]
+        kit_code = parts[1] if len(parts) > 1 else "None"
+        module_code = parts[2] if len(parts) > 2 else "None"
+        item_code = parts[3] if len(parts) > 3 else "None"
+        std_qty = parts[4] if len(parts) > 4 else "1"
+        original_exp = parts[5] if len(parts) > 5 else ""
+        
+        # Use edited expiry date if provided, otherwise use original
+        final_exp = exp_date if exp_date is not None else original_exp
+        
+        item_type_normalized = item_type.upper()
+        
+        if item_type_normalized == "KIT":
+            # Breaking a kit → scenario/kit/None/None/std_qty/exp_date
+            onshelf_id = f"{scenario_id}/{kit_code}/None/None/{std_qty}/{final_exp}"
+        elif item_type_normalized == "MODULE":
+            # Breaking a module → scenario/None/module/None/std_qty/exp_date
+            onshelf_id = f"{scenario_id}/None/{module_code}/None/{std_qty}/{final_exp}"
+        else:  # ITEM
+            # Breaking an item → scenario/None/None/item/std_qty/exp_date
+            onshelf_id = f"{scenario_id}/None/None/{item_code}/{std_qty}/{final_exp}"
+        
+        logging.debug(f"[GENERATE_ONSHELF] {item_type}: {inbox_unique_id} → {onshelf_id}")
+        return onshelf_id
+
+
+
+
+
     def check_if_adopted_expiry(self, unique_id_inbox):
         """
         Check if an in-box item has an adopted expiry date.
@@ -2944,34 +3001,69 @@ class StockOutKit(tk.Frame):
             raise
 
     def _insert_transaction_in_mirror(self, cur, *, unique_id, code, description,
-                                      expiry_date, batch_number, scenario,
-                                      kit, module, qty_in,
-                                      out_type_as_in_type, ts_date, ts_time,
-                                      movement_type, document_number,
-                                      comment=None):
+                                       exp_date, batch_no, scenario, kit, module,
+                                       qty_in, in_type, movement_type, doc_num, item_type,
+                                       is_adopted=False):
         """
-        Insert mirror IN transaction record.
-        ✅ Uses Kit/Module columns (not kit_number/module_number)
-        ✅ Includes comments parameter for expiry remarks
+        Insert mirror IN transaction for break operations.
+        ✅ Kits/Modules: qty_in=0 (releasing children, not adding new parent)
+        ✅ Items: qty_in mirrors the OUT quantity
+        ✅ Simple comments: "Adopted_Expiration/Caducidad" or NULL
         """
         try:
+            # ✅ CRITICAL: Kits and modules get qty_in=0
+            item_type_normalized = item_type.upper()
+            
+            if item_type_normalized in ("KIT", "MODULE"):
+                actual_qty_in = 0
+                logging.debug(f"[MIRROR_IN] {item_type} being broken → qty_in=0 (releasing children)")
+            else:
+                actual_qty_in = qty_in
+                logging.debug(f"[MIRROR_IN] Item → qty_in={qty_in} (mirroring OUT)")
+            
+            # ✅ SIMPLE COMMENT: Only "Adopted_Expiration/Caducidad" if adopted, else NULL
+            comment_text = "Adopted_Expiration/Caducidad" if is_adopted else None
+            
             cur.execute("""
-                INSERT INTO stock_transactions
-                (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
-                 Scenario, Kit, Module,
-                 Qty_IN, IN_Type, Movement_Type, document_number, comments)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO stock_transactions (
+                    Date, Time, unique_id, code, Description,
+                    Expiry_date, Batch_Number, Scenario, Kit, Module,
+                    Qty_IN, IN_Type,
+                    Qty_Out, Out_Type,
+                    Third_Party, End_User, Discrepancy, Remarks,
+                    Movement_Type, document_number, comments
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                ts_date, ts_time, unique_id, code, description,
-                expiry_date, batch_number, scenario,
-                kit or "",  # ✅ Use kit (code), not kit_number (instance)
-                module or "",  # ✅ Use module (code), not module_number (instance)
-                qty_in, out_type_as_in_type, movement_type, document_number,
-                comment
+                datetime.now().strftime('%Y-%m-%d'),  # Date
+                datetime.now().strftime('%H:%M:%S'),  # Time
+                unique_id,                             # unique_id
+                code,                                  # code
+                description,                           # Description
+                exp_date or None,                      # Expiry_date
+                batch_no or None,                      # Batch_Number
+                scenario,                              # Scenario
+                kit if kit and kit != "-----" else None,     # Kit
+                module if module and module != "-----" else None,  # Module
+                actual_qty_in,                         # Qty_IN (0 for kits/modules, actual for items)
+                in_type,                               # IN_Type
+                0,                                     # Qty_Out (always 0 for IN transaction)
+                None,                                  # Out_Type
+                None,                                  # Third_Party
+                None,                                  # End_User
+                None,                                  # Discrepancy
+                f"Break operation: {item_type} to on-shelf", # Remarks
+                movement_type,                         # Movement_Type
+                doc_num,                               # document_number
+                comment_text                           # comments (simple)
             ))
-            logging.debug(f"[IN_TRANSACTION] Logged IN: {code} qty={qty_in} kit={kit} module={module}")
+            
+            logging.info(
+                f"[MIRROR_IN] Inserted: {code} | qty_in={actual_qty_in} | "
+                f"type={item_type} | comment={comment_text or 'NULL'}"
+            )
+            
         except sqlite3.Error as e:
-            logging.error(f"[IN_TRANSACTION] Failed: {e}")
+            logging.error(f"[MIRROR_IN] Failed to insert transaction: {e}")
             raise
 
     # -------------------- Document Number --------------------
@@ -3524,8 +3616,12 @@ class StockOutKit(tk.Frame):
                 )
                 return
             
-            # ✅ Convert in-box unique_id to on-shelf unique_id
-            unique_id_onshelf = self.convert_inbox_to_onshelf(unique_id)
+            # ✅ Generate proper on-shelf unique_id based on item type
+            unique_id_onshelf = self.generate_onshelf_unique_id(
+                unique_id,
+                tfield,  # item type (Kit, Module, or Item)
+                exp_date  # use edited expiry if changed
+            )
             
             # Parse qty_in (mirror quantity)
             try:
@@ -3740,25 +3836,24 @@ class StockOutKit(tk.Frame):
                             in_comment = f"IN to on-shelf (updated existing) from {r['kit_number']}/{r['module_number']}"
                         
                         # Log IN transaction (on-shelf)
+                        # ✅ Pass item type to determine qty_in (0 for kits/modules)
                         self._insert_transaction_in_mirror(
                             cur,
                             unique_id=r["unique_id_onshelf"],
                             code=r["code"],
                             description=r["desc"],
-                            expiry_date=onshelf_exp_date if not onshelf_existing else r["exp_date"],
-                            batch_number=r["batch_no"],
+                            exp_date=onshelf_exp_date if not onshelf_existing else r["exp_date"],
+                            batch_no=r["batch_no"],
                             scenario=scenario_name,
                             kit=r["kit"],
                             module=r["module"],
                             qty_in=r["qty_in"],
-                            out_type_as_in_type="Internal move to on-shelf",
-                            ts_date=now_date,
-                            ts_time=now_time,
+                            in_type="Internal move to on-shelf",
                             movement_type=movement_canonical,
-                            document_number=doc_number,
-                            comment=in_comment  # ✅ PASS SMART COMMENT
+                            doc_num=doc_number,
+                            item_type=r["type"],
+                            is_adopted=r["exp_date_adopted"]  # ✅ ADD THIS
                         )
-                        
                         logging.info(f"[OUT_KIT] IN processed: {r['code']} qty={r['qty_in']} to on-shelf")
                 
                 # Commit transaction
