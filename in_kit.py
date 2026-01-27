@@ -1,3 +1,4 @@
+from py_compile import main
 import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog
 from datetime import datetime
@@ -317,6 +318,110 @@ class StockInKit(tk.Frame):
         else:
             logging.error("Parent window missing at initialization")
 
+
+    # ---------------------------------------------------------
+    # Localization & Code Extraction Helpers
+    # ---------------------------------------------------------
+    def _all_label(self):
+        """Return localized 'All' label for dropdowns."""
+        return lang.t("in_kit.all", "All")
+    
+    def _norm_all(self, val):
+        """Normalize 'All' variants to English 'All' for internal use."""
+        all_lbl = self._all_label()
+        return "All" if (val is None or val == "" or val == all_lbl) else val
+    
+    def _extract_code_from_display(self, display_string: str) -> str:
+        """
+        Extract code from "CODE - Description" format.
+        Handles prefixes like "● CODE - Description".
+        
+        Args:
+            display_string: Either "CODE" or "CODE - Description"
+        
+        Returns:
+            Just the code part, or None if empty/invalid
+        """
+        if not display_string:
+            return None
+        
+        display_string = display_string.strip()
+        
+        if display_string == "-----":
+            return None
+        
+        # Strip visual indicators
+        prefixes = ["●", "■", "◆", "►", "[S]", "[Primary]", "[Standalone]"]
+        for prefix in prefixes:
+            if display_string.startswith(prefix):
+                display_string = display_string[len(prefix):].strip()
+                break
+        
+        # Extract code from "CODE - Description"
+        if " - " in display_string:
+            code = display_string.split(" - ", 1)[0].strip()
+            return code if code else None
+        
+        return display_string
+
+    def _canon_movement_type(self, display_label: str) -> str:
+        """
+        Convert localized movement type to canonical English for database storage.
+        
+        Args:
+            display_label: Localized label from dropdown
+        
+        Returns:
+            Canonical English movement type
+        """
+        internal_key = self.mode_label_to_key.get(display_label)
+        
+        if not internal_key:
+            logging.warning(f"[IN_KIT] Unknown movement type label: {display_label}")
+            return display_label
+        
+        # Map internal keys to canonical English
+        canon_map = {
+            "receive_kit": "Receive Kit",
+            "receive_standalone": "Receive standalone items",
+            "receive_module_scenario": "Receive module from scenario",
+            "receive_module_kit": "Receive module from Kit",
+            "receive_items_kit": "Receive items from Kit",
+            "receive_items_module": "Receive items from module"
+        }
+        
+        canonical = canon_map.get(internal_key, internal_key)
+        logging.debug(f"[IN_KIT] Movement type: '{display_label}' → '{canonical}'")
+        return canonical
+
+    def _display_for_movement_type(self, canonical_value: str) -> str:
+        """
+        Convert canonical English movement type to localized display label.
+        
+        Args:
+            canonical_value: English movement type from database
+        
+        Returns:
+            Localized display label
+        """
+        reverse_canon_map = {
+            "Receive Kit": "receive_kit",
+            "Receive standalone items": "receive_standalone",
+            "Receive module from scenario": "receive_module_scenario",
+            "Receive module from Kit": "receive_module_kit",
+            "Receive items from Kit": "receive_items_kit",
+            "Receive items from module": "receive_items_module"
+        }
+        
+        internal_key = reverse_canon_map.get(canonical_value, "receive_kit")
+        
+        for label, key in self.mode_label_to_key.items():
+            if key == internal_key:
+                return label
+        
+        return canonical_value
+
+
     # ------------- Ensure Vars ----------------
     def ensure_vars_ready(self):
         needed = {
@@ -443,28 +548,29 @@ class StockInKit(tk.Frame):
 
         tk.Label(main, text=lang.t("receive_kit.select_kit","Select Kit:"), bg="#F0F4F8")\
             .grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=40)
+        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=80)
         self.kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
 
-        tk.Label(main, text=lang.t("receive_kit.select_kit_number","Select Kit Number:"), bg="#F0F4F8")\
+        # ✅ Kit Number - DISPLAY ONLY (popup sets value in load_hierarchy)
+        tk.Label(main, text=lang.t("in_kit.kit_number","Kit Number:"), bg="#F0F4F8")\
             .grid(row=2, column=2, padx=5, pady=5, sticky="w")
-        self.kit_number_cb = ttk.Combobox(main, textvariable=self.kit_number_var, state="disabled", width=20)
-        self.kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        self.kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
+        tk.Label(main, textvariable=self.kit_number_var, 
+                bg="#E8F4F8", relief="sunken", width=22, anchor="w")\
+            .grid(row=2, column=3, padx=5, pady=5, sticky="w")
 
         tk.Label(main, text=lang.t("receive_kit.select_module","Select Module:"), bg="#F0F4F8")\
             .grid(row=3, column=0, padx=5, pady=5, sticky="w")
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=40)
+        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=80)
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
 
-        tk.Label(main, text=lang.t("receive_kit.select_module_number","Select Module Number:"), bg="#F0F4F8")\
+        # ✅ Module Number - DISPLAY ONLY (popup sets value in ask_module_number)
+        tk.Label(main, text=lang.t("in_kit.module_number","Module Number:"), bg="#F0F4F8")\
             .grid(row=3, column=2, padx=5, pady=5, sticky="w")
-        self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, state="disabled", width=20)
-        self.module_number_cb.grid(row=3, column=3, padx=5, pady=5, sticky="w")
-        self.module_number_cb.bind("<<ComboboxSelected>>", self.on_module_number_selected)
-
+        tk.Label(main, textvariable=self.module_number_var, 
+                bg="#E8F4F8", relief="sunken", width=22, anchor="w")\
+            .grid(row=3, column=3, padx=5, pady=5, sticky="w")  
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
         tk.Label(type_frame, text=lang.t("receive_kit.in_type","IN Type:"), bg="#F0F4F8")\
@@ -597,110 +703,196 @@ class StockInKit(tk.Frame):
         self.clear_search()
 
     def update_mode(self, event=None):
-        if self.tree:
-            self.tree.delete(*self.tree.get_children())
-        self.row_data.clear()
-        self.code_to_iid.clear()
-        self.suggested_usage.clear()
-        if self.search_listbox:
-            self.search_listbox.delete(0, tk.END)
-        if self.search_var:
-            self.search_var.set("")
-        mk = self.current_mode_key()
-        for cb in (self.kit_cb, self.kit_number_cb, self.module_cb, self.module_number_cb):
-            cb.config(state="disabled")
-        if mk in ["add_module_kit","add_items_kit","add_items_module"]:
-            self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
-            self.kit_number_cb.config(state="readonly")
-            self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id)
-            if mk == "add_items_module":
-                self.module_cb.config(state="readonly")
-                self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
-                self.module_number_cb.config(state="readonly")
-                self.module_number_cb['values'] = self.fetch_module_numbers(self.selected_scenario_id)
-        results = self.fetch_search_results("", self.selected_scenario_id, mk)
-        for r in results:
-            self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
+        """
+        Called when movement type changes.
+        Enables/disables appropriate selectors based on mode.
+        """
+        self.ensure_vars_ready()
+        mode_key = self.current_mode_key()
+    
+        logging.debug(f"[IN_KIT] Mode changed to: {mode_key}")
 
-    # ------------- Kit / Module selection handlers -------------
-    def on_kit_selected(self, event=None):
-        kit_code = self.kit_var.get() or ""
+        # Disable all selectors initially
+        for cb in [self.kit_cb, self.module_cb]:
+            if cb:
+                cb.config(state="disabled")
+
+        # Clear selections and displayed values
+        self.kit_var.set("")
         self.kit_number_var.set("")
         self.module_var.set("")
         self.module_number_var.set("")
-        mk = self.current_mode_key()
-        if mk in ["add_module_kit", "add_items_kit", "add_items_module"]:
-            self.kit_number_cb.config(state="readonly")
-            self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id, kit_code or None)
-        else:
-            self.kit_number_cb.config(state="disabled")
-        if mk == "add_items_module":
-            if kit_code:
+    
+        # Clear dropdown values
+        if self.kit_cb:
+            self.kit_cb['values'] = []
+        if self.module_cb:
+            self.module_cb['values'] = []
+
+        if not self.selected_scenario_id:
+            return
+
+        # ===== Mode-specific logic (MATCHES receive_kit.py pattern) =====
+    
+        if mode_key == "receive_kit":
+            # ✅ Enable kit selector - user will select kit, then popup asks for NEW kit number
+            self.kit_cb.config(state="readonly")
+            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            logging.debug(f"[IN_KIT] receive_kit: Populated {len(self.kit_cb['values'])} primary kits")
+    
+        elif mode_key == "add_standalone":
+            # ✅ No dropdowns needed - user searches for items
+            self.status_var.set(
+                lang.t("in_kit.search_standalone", "Search for standalone items to receive")
+            )
+            logging.debug(f"[IN_KIT] add_standalone: Search enabled")
+    
+        elif mode_key == "add_module_scenario":
+            # ✅ Enable module selector - user selects module, then popup asks for NEW module number
+            self.module_cb.config(state="readonly")
+            modules = self.fetch_all_modules(self.selected_scenario_id)
+            self.module_cb['values'] = modules
+            logging.debug(f"[IN_KIT] add_module_scenario: Populated {len(modules)} primary modules")
+    
+        elif mode_key == "add_module_kit":
+            # ✅ Enable kit selector first
+            # Flow: Select kit → popup for kit number → enable module dropdown → select module → popup for module number
+            self.kit_cb.config(state="readonly")
+            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            logging.debug(f"[IN_KIT] add_module_kit: Populated {len(self.kit_cb['values'])} primary kits")
+    
+        elif mode_key == "add_items_kit":
+            # ✅ Enable kit selector
+            self.kit_cb.config(state="readonly")
+            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            logging.debug(f"[IN_KIT] add_items_kit: Populated {len(self.kit_cb['values'])} primary kits")
+    
+        elif mode_key == "add_items_module":
+            # ✅ Enable both kit and module selectors
+            # User can choose either path
+            self.kit_cb.config(state="readonly")
+            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+        
+            self.module_cb.config(state="readonly")
+            self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
+        
+            logging.debug(f"[IN_KIT] add_items_module: Kits and modules both enabled")
+
+    # ------------- Kit / Module selection handlers -------------
+    def on_kit_selected(self, event=None):
+        """
+        Handle kit selection.
+        Flow:
+        1. Extract kit code from display
+        2. If mode is receive_kit → load_hierarchy() will handle popup for kit number
+        3. If mode is add_module_kit → enable module dropdown (popup happens when module selected)
+        4. Other modes → ready for next action
+        """
+        self.ensure_vars_ready()
+        kit_display = self.kit_var.get()
+    
+        if not kit_display:
+            return
+    
+        # Extract code from "CODE - Description"
+        kit_code = self._extract_code_from_display(kit_display)
+    
+        logging.debug(f"[IN_KIT] Kit selected: '{kit_display}' -> Code: '{kit_code}'")
+    
+        # Clear dependent fields (but don't clear kit_number if already set)
+        self.module_var.set("")
+        self.module_number_var.set("")
+    
+        if not kit_code:
+            return
+    
+        mode_key = self.current_mode_key()
+    
+        if mode_key == "receive_kit":
+            # ✅ Load hierarchy will trigger popup for kit number
+            self.load_hierarchy(kit_code)
+    
+        elif mode_key == "add_module_kit":
+            # ✅ Enable module dropdown (user will select module, then popup for module number)
+            modules = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
+        
+            if modules:
                 self.module_cb.config(state="readonly")
-                self.module_cb['values'] = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
+                self.module_cb['values'] = modules
+                self.status_var.set(
+                    lang.t("in_kit.select_module_from_kit",
+                        "Select a module from the kit ({count} available)",
+                        count=len(modules))
+                )
+                logging.debug(f"[IN_KIT] Enabled {len(modules)} modules for kit {kit_code}")
             else:
                 self.module_cb.config(state="disabled")
                 self.module_cb['values'] = []
-            self.module_number_cb.config(state="disabled")
-            self.module_number_cb['values'] = []
-            self.module_number_var.set("")
-        self.tree.delete(*self.tree.get_children())
-        self.row_data.clear()
-        self.code_to_iid.clear()
-        self.suggested_usage.clear()
-        self.search_listbox.delete(0, tk.END)
-        res = self.fetch_search_results("", self.selected_scenario_id, mk)
-        for r in res:
-            self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
+                self.status_var.set(
+                    lang.t("in_kit.no_modules_in_kit", "No modules found in this kit")
+                )
+    
+        elif mode_key in ("add_items_kit", "add_items_module"):
+            # ✅ Ready for item selection (via search)
+            self.status_var.set(
+                lang.t("in_kit.ready_for_items", "Kit selected. Search for items to add.")
+            )
+    
+        else:
+            # Default fallback
+            self.status_var.set(
+                lang.t("in_kit.kit_selected", "Kit selected: {code}", code=kit_code)
+            )
 
     def on_kit_number_selected(self, event=None):
-        mk = self.current_mode_key()
-        if mk not in ["add_module_kit", "add_items_kit", "add_items_module"]:
-            return
-        self.tree.delete(*self.tree.get_children())
-        self.row_data.clear()
-        self.code_to_iid.clear()
-        self.suggested_usage.clear()
-        self.status_var.set(lang.t("receive_kit.ready", "Ready"))
-        self.search_listbox.delete(0, tk.END)
-        res = self.fetch_search_results("", self.selected_scenario_id, mk)
-        for r in res:
-            self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
+        """NOT USED - kit_number is set by popup in load_hierarchy()."""
+        pass
 
     def on_module_selected(self, event=None):
-        mk = self.current_mode_key()
-        if mk != "add_items_module":
+        """
+        Handle module selection.
+        Triggers popup to ask for NEW module number.
+        """
+        self.ensure_vars_ready()
+        module_display = self.module_var.get()
+    
+        if not module_display:
             return
-        kit_code = self.kit_var.get()
-        module_code = self.module_var.get()
-        self.module_number_var.set("")
-        self.module_number_cb['values'] = self.fetch_module_numbers(
-            self.selected_scenario_id,
-            kit_code=kit_code or None,
-            module_code=module_code or None
-        )
-        self.module_number_cb.config(
-            state="readonly" if self.module_number_cb['values'] else "disabled"
-        )
-        self.tree.delete(*self.tree.get_children())
-        self.row_data.clear()
-        self.code_to_iid.clear()
-        self.suggested_usage.clear()
-        self.status_var.set(lang.t("receive_kit.ready","Ready"))
+    
+        module_code = self._extract_code_from_display(module_display)
+    
+        logging.debug(f"[IN_KIT] Module selected: '{module_display}' -> Code: '{module_code}'")
+    
+        if not module_code:
+            return
+    
+        mode_key = self.current_mode_key()
+        kit_number = self.kit_number_var.get().strip() or None
+    
+        # ✅ Trigger popup to ask for NEW module number
+        module_number = self.ask_module_number(kit_number, module_code)
+    
+        if module_number:
+            self.module_number_var.set(module_number)
+            self.status_var.set(
+                lang.t("in_kit.module_number_set", 
+                    "Module number set: {num}. Ready to add items.", 
+                    num=module_number)
+            )
+            logging.info(f"[IN_KIT] Module number entered: {module_number}")
+        else:
+            # User cancelled
+            self.module_var.set("")
+            self.module_number_var.set("")
+            self.status_var.set(
+                lang.t("in_kit.module_cancelled", "Module selection cancelled")
+            )
+
+
 
     def on_module_number_selected(self, event=None):
-        mk = self.current_mode_key()
-        if mk != "add_items_module":
-            return
-        self.tree.delete(*self.tree.get_children())
-        self.row_data.clear()
-        self.code_to_iid.clear()
-        self.suggested_usage.clear()
-        self.status_var.set(lang.t("receive_kit.ready","Ready"))
+        """NOT USED - module_number is set by popup in ask_module_number()."""
+        pass
 
     # ------------- Clear & Search -------------
     def clear_search(self):
@@ -768,61 +960,174 @@ class StockInKit(tk.Frame):
 
     # ------------- Fetch domain data -------------
     def fetch_kits(self, scenario_id):
-        if not scenario_id:
-            return []
+        """
+        Fetch PRIMARY kits from kit_items (level='primary').
+        Only includes items with type='Kit' (language-independent).
+        
+        Returns:
+            List of formatted strings: "CODE - Description"
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[IN_KIT] DB connection failed in fetch_kits")
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get primary kits from kit_items
             cur.execute("""
                 SELECT DISTINCT code
-                  FROM kit_items
-                 WHERE scenario_id=? AND level='primary'
-                 ORDER BY code
-            """,(scenario_id,))
-            return [r[0] for r in cur.fetchall()]
+                FROM kit_items
+                WHERE scenario_id=? 
+                  AND level='primary'
+                  AND code IS NOT NULL 
+                  AND code != ''
+                ORDER BY code
+            """, (scenario_id,))
+            
+            kit_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not kit_codes:
+                logging.debug(f"[IN_KIT] No primary kits found for scenario {scenario_id}")
+                return []
+            
+            # Get descriptions and filter by type
+            result = []
+            for kit_code in kit_codes:
+                desc = get_item_description(kit_code)
+                item_type = detect_type(kit_code, desc).upper()
+                
+                # Only include if type is KIT
+                if item_type == "KIT":
+                    display = f"{kit_code} - {desc}" if desc else kit_code
+                    result.append(display)
+            
+            logging.info(f"[IN_KIT] Found {len(result)} primary kits for scenario {scenario_id}")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[fetch_kits] {e}")
+            logging.error(f"[IN_KIT] fetch_kits error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
     def fetch_all_modules(self, scenario_id):
-        if not scenario_id: return []
+        """
+        Fetch PRIMARY modules from kit_items (level='primary', standalone modules).
+        Only includes items with type='Module' (language-independent).
+        
+        Returns:
+            List of formatted strings: "CODE - Description"
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[IN_KIT] DB connection failed in fetch_all_modules")
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get primary standalone modules
             cur.execute("""
                 SELECT DISTINCT code
-                  FROM kit_items
-                 WHERE scenario_id=? AND level='secondary'
-                 ORDER BY code
-            """,(scenario_id,))
-            return [r[0] for r in cur.fetchall()]
+                FROM kit_items
+                WHERE scenario_id=? 
+                  AND level='primary'
+                  AND module IS NOT NULL 
+                  AND module != ''
+                  AND module != 'None'
+                  AND (kit IS NULL OR kit = '' OR kit = 'None')
+                  AND code IS NOT NULL 
+                  AND code != ''
+                ORDER BY code
+            """, (scenario_id,))
+            
+            module_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not module_codes:
+                logging.debug(f"[IN_KIT] No primary modules found for scenario {scenario_id}")
+                return []
+            
+            # Get descriptions and filter by type
+            result = []
+            for module_code in module_codes:
+                desc = get_item_description(module_code)
+                item_type = detect_type(module_code, desc).upper()
+                
+                # Only include if type is MODULE
+                if item_type == "MODULE":
+                    display = f"{module_code} - {desc}" if desc else module_code
+                    result.append(display)
+            
+            logging.info(f"[IN_KIT] Found {len(result)} primary modules for scenario {scenario_id}")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[fetch_all_modules] {e}")
+            logging.error(f"[IN_KIT] fetch_all_modules error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
 
+
     def fetch_modules_for_kit(self, scenario_id, kit_code):
-        if not scenario_id or not kit_code: return []
+        """
+        Fetch SECONDARY modules inside a specific kit from kit_items.
+        Only includes items with type='Module'.
+        
+        Args:
+            scenario_id: Scenario ID
+            kit_code: Kit code (extracted from dropdown)
+        
+        Returns:
+            List of formatted strings: "CODE - Description"
+        """
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            logging.error("[IN_KIT] DB connection failed in fetch_modules_for_kit")
+            return []
+        
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        
         try:
+            # Get secondary modules inside this kit
             cur.execute("""
                 SELECT DISTINCT code
-                  FROM kit_items
-                 WHERE scenario_id=? AND kit=? AND level='secondary'
-                 ORDER BY code
-            """,(scenario_id, kit_code))
-            return [r[0] for r in cur.fetchall()]
+                FROM kit_items
+                WHERE scenario_id=? 
+                  AND kit=?
+                  AND level='secondary'
+                  AND code IS NOT NULL 
+                  AND code != ''
+                ORDER BY code
+            """, (scenario_id, kit_code))
+            
+            module_codes = [r['code'] for r in cur.fetchall()]
+            
+            if not module_codes:
+                logging.debug(f"[IN_KIT] No modules found in kit {kit_code}")
+                return []
+            
+            # Get descriptions and filter by type
+            result = []
+            for module_code in module_codes:
+                desc = get_item_description(module_code)
+                item_type = detect_type(module_code, desc).upper()
+                
+                if item_type == "MODULE":
+                    display = f"{module_code} - {desc}" if desc else module_code
+                    result.append(display)
+            
+            logging.debug(f"[IN_KIT] Found {len(result)} modules in kit {kit_code}")
+            return result
+            
         except sqlite3.Error as e:
-            logging.error(f"[fetch_modules_for_kit] {e}")
+            logging.error(f"[IN_KIT] fetch_modules_for_kit error: {e}")
             return []
         finally:
             cur.close()

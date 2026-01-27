@@ -107,6 +107,8 @@ def check_expiry_required(code):
         cur.close()
         conn.close()
 
+
+
 def fetch_project_details():
     """
     Returns (project_name, project_code).
@@ -200,6 +202,105 @@ class StockIn(tk.Frame):
     def ask_yes_no(self, msg_key_default, default_text, **fmt):
         return custom_askyesno(self, lang.t("dialog_titles.confirm", "Confirm"),
                                lang.t(msg_key_default, default_text, **fmt)) == "yes"
+
+
+    #-----------Helpers for Expiry date column and popups---------#
+
+    def _validate_date_format(self, date_str):
+        """Validate date format (YYYY-MM-DD)."""
+        if not date_str:
+            return True
+        import re
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            return False
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            return True
+        except ValueError:
+            return False
+    
+    def _is_date_in_future(self, date_str):
+        """Check if date is in the future (or today)."""
+        if not date_str:
+            return True
+        try:
+            exp_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            today = datetime.today().date()
+            return exp_date >= today
+        except ValueError:
+            return False
+
+    def _last_day_of_month(self, year, month):
+        """Get last day of month in YYYY-MM-DD format."""
+        from calendar import monthrange
+        if not (1 <= month <= 12):
+            raise ValueError(f"Invalid month: {month}")
+        last_day = monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-{last_day:02d}"
+    
+    def _parse_ambiguous_slash_date(self, groups):
+        """Parse DD/MM/YYYY vs MM/DD/YYYY."""
+        first = int(groups[0])
+        second = int(groups[1])
+        year = groups[2]
+        if first > 12:
+            return f"{year}-{second:02d}-{first:02d}"
+        if second > 12:
+            return f"{year}-{first:02d}-{second:02d}"
+        return f"{year}-{second:02d}-{first:02d}"
+
+    def _parse_flexible_date(self, date_input):
+        """
+        Parse flexible date formats and convert to YYYY-MM-DD.
+        Returns: (success: bool, parsed_date: str or None, error_msg: str)
+        """
+        if not date_input:
+            return True, None, ""
+        
+        import re
+        date_input = date_input.strip()
+        
+        patterns = [
+            (r'^(\d{4})-(\d{2})-(\d{2})$', 'YYYY-MM-DD', 
+             lambda m: f"{m[0]}-{m[1]}-{m[2]}"),
+            (r'^(\d{4})-(\d{2})$', 'YYYY-MM', 
+             lambda m: self._last_day_of_month(int(m[0]), int(m[1]))),
+            (r'^(\d{4})$', 'YYYY', 
+             lambda m: f"{m[0]}-12-31"),
+            (r'^(\d{1,2})/(\d{4})$', 'MM/YYYY', 
+             lambda m: self._last_day_of_month(int(m[1]), int(m[0]))),
+            (r'^(\d{2})-(\d{2})-(\d{4})$', 'DD-MM-YYYY', 
+             lambda m: f"{m[2]}-{m[1]}-{m[0]}"),
+            (r'^(\d{1,2})/(\d{1,2})/(\d{4})$', 'DD/MM/YYYY or MM/DD/YYYY', 
+             self._parse_ambiguous_slash_date),
+        ]
+        
+        for pattern, format_name, converter in patterns:
+            match = re.match(pattern, date_input)
+            if match:
+                try:
+                    groups = match.groups()
+                    result = converter(groups)
+                    if result is None:
+                        continue
+                    datetime.strptime(result, '%Y-%m-%d')
+                    return True, result, ""
+                except (ValueError, IndexError):
+                    continue
+        
+        error_msg = (
+            f"Cannot parse date: '{date_input}'\n\n"
+            f"Supported formats:\n"
+            f"  • YYYY-MM-DD    (e.g., 2027-12-31)\n"
+            f"  • YYYY-MM       (e.g., 2027-12 → 2027-12-31)\n"
+            f"  • YYYY          (e.g., 2027 → 2027-12-31)\n"
+            f"  • MM/YYYY       (e.g., 12/2029 → 2029-12-31)\n"
+            f"  • DD-MM-YYYY    (e.g., 31-12-2027)\n"
+            f"  • DD/MM/YYYY    (e.g., 31/12/2027)\n"
+            f"  • MM/DD/YYYY    (e.g., 12/31/2027)"
+        )
+        return False, None, error_msg    
+
 
     # ---------- Helpers for canonical IN types ----------
     def get_canonical_in_type(self) -> str:
@@ -364,8 +465,8 @@ class StockIn(tk.Frame):
                 code = r['code']
                 scenario_name = r['scenario_name']
                 out.append({
-                    'unique_id': f"{scenario_name}/None/-----/{code}",
-                    'unique_id_2': f"{scenario_name}/None/-----/{code}",
+                    'unique_id': f"{r['scenario_id']}/None/-----/{code}",
+                    'unique_id_2': f"{r['scenario_id']}/None/-----/{code}",
                     'scenario_id': r['scenario_id'],
                     'scenario_name': scenario_name,
                     'kit_code': '-----',
@@ -402,8 +503,8 @@ class StockIn(tk.Frame):
             out = []
             for r in rows:
                 out.append({
-                    'unique_id': f"{r['scenario_name']}/None/-----/{r['code']}",
-                    'unique_id_2': f"{r['scenario_name']}/None/-----/{r['code']}",
+                    'unique_id': f"{r['scenario_id']}/None/-----/{r['code']}",
+                    'unique_id_2': f"{r['scenario_id']}/None/-----/{r['code']}",
                     'scenario_id': r['scenario_id'],
                     'scenario_name': r['scenario_name'],
                     'kit_code': '-----',
@@ -602,18 +703,29 @@ class StockIn(tk.Frame):
         kit_code = vals[3]
         module_code = vals[4]
         std_qty = int(vals[5]) if vals[5] and str(vals[5]).isdigit() else 0
+    
+        # ✅ Get scenario_id
         scenario_id = self.reverse_scenario_map.get(scenario_name)
+    
         qty_needed = fetch_qty_needed(self, code, scenario_name, scenario_id, std_qty)
-        new_unique_id = f"{scenario_name}/None/-----/{code}/None"
+    
+        # ✅ Use scenario_id in unique_id (correct!)
+        new_unique_id = f"{scenario_id}/None/-----/{code}/None"
+    
+        # ✅ User input key uses scenario_name (for UI consistency)
         input_key = f"{scenario_name}/{code}/{std_qty}"
         user_input = self.user_inputs.get(input_key, {"qty_in": "", "expiry_date": "", "batch_no": ""})
+    
         index = self.tree.index(self.context_menu_row) + 1
         new_item_id = self.tree.insert("", index, values=(
             code, description, scenario_name, kit_code, module_code,
             std_qty, qty_needed, user_input["qty_in"], user_input["expiry_date"], user_input["batch_no"]
         ))
+    
         self.row_data[new_item_id] = {'unique_id': new_unique_id, 'unique_id_2': unique_id_2}
         self.status_var.set(lang.t("stock_in.added_line", "Added new line for {code}").format(code=code))
+    
+        # Update qty_needed for all matching items
         for item_id in self.tree.get_children():
             item_vals = self.tree.item(item_id, "values")
             if item_vals[0] == code and item_vals[2] == scenario_name:
@@ -621,6 +733,8 @@ class StockIn(tk.Frame):
                 new_qty_needed = fetch_qty_needed(self, code, scenario_name, scenario_id, item_std_qty)
                 self.tree.set(item_id, "qty_needed", new_qty_needed)
 
+
+            
     def update_tree_columns(self, event=None):
         for c in self.cols:
             self.tree.heading(c, text=self.headers[c])
@@ -659,7 +773,7 @@ class StockIn(tk.Frame):
             display = f"{r['code']} - {r['description'] or lang.t('stock_in.no_description', 'No Description')}"
             self.search_listbox.insert(tk.END, display)
         self.status_var.set(
-            lang.t("stock_in.found_items", "Found {size} items").format(size=self.search_listbox.size())
+            lang.t("stock_in.found_items", "Found {count} items", count=self.search_listbox.size())
         )
 
     def clear_search(self):
@@ -792,225 +906,439 @@ class StockIn(tk.Frame):
 
     # -------- Editing (Cell) -------- #
     def start_edit(self, event):
+        """
+        Edit a cell inline.
+        ✅ Single popup on error, clear cell, keep editor open
+        ✅ Flexible date parsing for expiry column
+        """
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
+        
         row_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not row_id or not col:
             return
+        
         col_index = int(col.replace("#", "")) - 1
+        
+        # Only allow editing columns 7 (qty_in), 8 (expiry_date), 9 (batch_no)
         if col_index not in [7, 8, 9]:
             return
+        
+        # Destroy existing editor
         if self.editing_cell:
-            self.editing_cell.destroy()
+            try:
+                self.editing_cell.destroy()
+            except:
+                pass
             self.editing_cell = None
+        
         bbox = self.tree.bbox(row_id, col)
         if not bbox:
             return
+        
         x, y, w, h = bbox
         value = self.tree.set(row_id, self.cols[col_index])
         code = self.tree.set(row_id, "code")
         scenario_name = self.tree.set(row_id, "scenario_name")
         scenario_id = self.reverse_scenario_map.get(scenario_name)
+        
         try:
             std_qty = int(self.tree.set(row_id, "std_qty"))
         except:
             std_qty = 0
+        
         expiry_required = check_expiry_required(code)
 
-        entry = tk.Entry(self.tree, font=("Helvetica", 10))
+        # Create entry widget
+        entry = tk.Entry(
+            self.tree,
+            font=("Helvetica", 10),
+            background="#FFFBE0"  # Light yellow
+        )
         entry.place(x=x, y=y, width=w, height=h)
         entry.insert(0, value)
         entry.focus()
         self.editing_cell = entry
 
-        def save_edit(event=None, row_id=row_id, col_index=col_index, code=code,
-                      scenario_name=scenario_name, scenario_id=scenario_id,
-                      std_qty=std_qty, expiry_required=expiry_required):
-            if row_id not in self.tree.get_children():
-                entry.destroy()
-                self.editing_cell = None
-                return
-            new_val = entry.get().strip()
+        def cleanup():
+            """Safely cleanup editor widget."""
+            try:
+                if entry.winfo_exists():
+                    entry.destroy()
+            except:
+                pass
+            self.editing_cell = None
 
+        def save_edit(event=None):
+            """Save edited value with validation."""
+            if row_id not in self.tree.get_children():
+                cleanup()
+                return
+            
+            new_val = entry.get().strip()
+            
+            # ===== COLUMN 7: QTY IN =====
             if col_index == 7:
                 if new_val and not new_val.isdigit():
-                    custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("stock_in.invalid_qty", "Qty In must be an integer"), "error")
-                    entry.focus_set()
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("stock_in.invalid_qty_detail",
+                               "Invalid quantity for item: {code}\n\n"
+                               "Quantity must be a positive integer.\n\n"
+                               "Examples: 1, 10, 100",
+                               code=code),
+                        "error"
+                    )
+                    entry.focus()
                     return
-            if col_index == 8:
+            
+            # ===== COLUMN 8: EXPIRY DATE =====
+            elif col_index == 8:
                 if new_val:
-                    parsed = parse_expiry(new_val)
-                    if not parsed:
-                        custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                     lang.t("stock_in.invalid_expiry_format", "Invalid expiry date format"), "error")
-                        entry.focus_set()
+                    # ✅ Parse flexible date format
+                    success, parsed_date, parse_error = self._parse_flexible_date(new_val)
+                    
+                    if not success:
+                        # ✅ SINGLE POPUP: Clear cell, show error, keep editor open
+                        entry.delete(0, tk.END)
+                        entry.configure(background="#FFCCCC")
+                        custom_popup(
+                            self,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t("stock_in.invalid_expiry_format_detail",
+                                   "Invalid expiry date format for item: {code}\n\n"
+                                   "Entered: '{date}'\n\n"
+                                   "Supported formats:\n"
+                                   "  • YYYY-MM-DD    (e.g., 2027-12-31)\n"
+                                   "  • YYYY-MM       (e.g., 2027-12 → 2027-12-31)\n"
+                                   "  • YYYY          (e.g., 2027 → 2027-12-31)\n"
+                                   "  • MM/YYYY       (e.g., 12/2029 → 2029-12-31)\n"
+                                   "  • DD-MM-YYYY    (e.g., 31-12-2027)\n"
+                                   "  • DD/MM/YYYY    (e.g., 31/12/2027)",
+                                   code=code,
+                                   date=new_val),
+                            "error"
+                        )
+                        entry.focus()
                         return
-                    if parsed <= datetime.now().date():
-                        custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                     lang.t("stock_in.expiry_future", "Expiry date must be in the future"), "error")
-                        entry.focus_set()
+                    
+                    # ✅ Validate date is in future
+                    if not self._is_date_in_future(parsed_date):
+                        entry.delete(0, tk.END)
+                        entry.configure(background="#FFCCCC")
+                        custom_popup(
+                            self,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t("stock_in.expiry_future_detail",
+                                   "Expiry date must be in the future.\n\n"
+                                   "Item: {code}\n"
+                                   "Entered date: {date}\n"
+                                   "Today: {today}\n\n"
+                                   "Please enter a future date.",
+                                   code=code,
+                                   date=parsed_date,
+                                   today=datetime.now().strftime("%Y-%m-%d")),
+                            "error"
+                        )
+                        entry.focus()
                         return
-                    new_val = parsed.strftime("%Y-%m-%d")
-            if col_index == 9:
+                    
+                    # Format as YYYY-MM-DD
+                    new_val = parsed_date
+            
+            # ===== COLUMN 9: BATCH NO =====
+            elif col_index == 9:
                 if new_val and len(new_val) > 30:
-                    custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("stock_in.batch_no_length", "Batch No must be 30 characters or less"), "error")
-                    entry.focus_set()
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("stock_in.batch_no_length_detail",
+                               "Batch number is too long.\n\n"
+                               "Maximum length: 30 characters\n"
+                               "Entered length: {length} characters\n\n"
+                               "Please shorten the batch number.",
+                               length=len(new_val)),
+                        "error"
+                    )
+                    entry.focus()
                     return
-
+            
+            # ===== ALL VALIDATIONS PASSED - SAVE =====
             self.tree.set(row_id, self.cols[col_index], new_val)
+            
+            # Update unique_id_2 if expiry date changed
             if col_index == 8:
                 unique_id_2_base = self.row_data[row_id]['unique_id_2'].rsplit('/', 1)[0]
                 new_unique_id_2 = f"{unique_id_2_base}/{new_val or 'None'}"
                 self.row_data[row_id]['unique_id_2'] = new_unique_id_2
                 self.row_data[row_id]['unique_id'] = new_unique_id_2
 
+            # Validate expiry requirement and apply tags
             qty_in = self.tree.set(row_id, "qty_in")
             expiry_date = self.tree.set(row_id, "expiry_date")
+            
             if qty_in and qty_in.isdigit() and expiry_required and not self.validate_expiry_for_save(code, qty_in, expiry_date):
                 self.tree.item(row_id, tags=("light_red",))
             else:
                 self.tree.item(row_id, tags=())
 
-            scenario_name2 = self.tree.set(row_id, "scenario_name")
-            code2 = self.tree.set(row_id, "code")
-            std_qty2 = int(self.tree.set(row_id, "std_qty")) if self.tree.set(row_id, "std_qty") and self.tree.set(row_id, "std_qty").isdigit() else 0
-            input_key = f"{scenario_name2}/{code2}/{std_qty2}"
+            # Save user inputs
+            input_key = f"{scenario_name}/{code}/{std_qty}"
             self.user_inputs[input_key] = {
                 "qty_in": self.tree.set(row_id, "qty_in"),
                 "expiry_date": self.tree.set(row_id, "expiry_date"),
                 "batch_no": self.tree.set(row_id, "batch_no")
             }
-
+            
+            # Update qty_needed for all matching items
             for item_id in self.tree.get_children():
                 item_vals = self.tree.item(item_id, "values")
-                if item_vals[0] == code2 and item_vals[2] == scenario_name2:
+                if item_vals[0] == code and item_vals[2] == scenario_name:
                     item_std_qty = int(item_vals[5]) if item_vals[5] and str(item_vals[5]).isdigit() else 0
-                    new_qty_needed = fetch_qty_needed(self, code2, scenario_name2, scenario_id, item_std_qty)
+                    new_qty_needed = fetch_qty_needed(self, code, scenario_name, scenario_id, item_std_qty)
                     self.tree.set(item_id, "qty_needed", new_qty_needed)
+            
+            cleanup()
 
-            entry.destroy()
-            self.editing_cell = None
-            self.tree.update_idletasks()
-            if event and event.keysym == "Tab":
-                self.move_to_next_editable_cell(row_id, col_index)
-
+        # Bind events
         entry.bind("<Return>", save_edit)
-        entry.bind("<Tab>", lambda e: save_edit(e, row_id, col_index, code, scenario_name, scenario_id, std_qty, expiry_required))
-        entry.bind("<FocusOut>", lambda e: save_edit(e, row_id, col_index, code, scenario_name, scenario_id, std_qty, expiry_required))
-
-    def move_to_next_editable_cell(self, current_row, current_col_index):
-        editable_columns = [7, 8, 9]
-        rows = self.tree.get_children()
-        if not rows:
-            return
-        current_row_index = list(rows).index(current_row)
-        for col_index in editable_columns:
-            if col_index > current_col_index:
-                if self.start_edit_cell(current_row, col_index):
-                    return
-        next_row_index = (current_row_index + 1) % len(rows)
-        next_row = rows[next_row_index]
-        self.start_edit_cell(next_row, editable_columns[0])
+        entry.bind("<KP_Enter>", save_edit)
+        entry.bind("<Tab>", save_edit)
+        entry.bind("<FocusOut>", save_edit)
+        entry.bind("<Escape>", lambda e: cleanup())
 
     def start_edit_cell(self, row_id, col_index):
+        """
+        Edit a cell inline.
+        ✅ Single popup on error, clear cell, keep editor open
+        ✅ Detailed error messages like out_kit.py
+        """
         col = f"#{col_index + 1}"
         bbox = self.tree.bbox(row_id, col)
         if not bbox:
             return False
+        
         x, y, width, height = bbox
         value = self.tree.set(row_id, self.cols[col_index])
         code = self.tree.set(row_id, "code")
         scenario_name = self.tree.set(row_id, "scenario_name")
         scenario_id = self.reverse_scenario_map.get(scenario_name)
+        
         try:
             std_qty = int(self.tree.set(row_id, "std_qty"))
         except:
             std_qty = 0
+        
         expiry_required = check_expiry_required(code)
 
+        # Destroy existing editor
         if self.editing_cell:
             self.editing_cell.destroy()
             self.editing_cell = None
 
-        entry = tk.Entry(self.tree, font=("Helvetica", 10))
+        # Create entry widget
+        entry = tk.Entry(
+            self.tree,
+            font=("Helvetica", 10),
+            background="#FFFBE0"  # Light yellow background
+        )
         entry.place(x=x, y=y, width=width, height=height)
         entry.insert(0, value)
         entry.focus()
         self.editing_cell = entry
 
+        def cleanup():
+            """Safely cleanup editor widget."""
+            try:
+                if entry.winfo_exists():
+                    entry.destroy()
+            except:
+                pass
+            self.editing_cell = None
+
         def save_edit(event=None, row_id=row_id, col_index=col_index, code=code,
                       scenario_name=scenario_name, scenario_id=scenario_id,
                       std_qty=std_qty, expiry_required=expiry_required):
+            """Save edited value with validation."""
+            
+            # Check if row still exists
             if row_id not in self.tree.get_children():
-                entry.destroy()
-                self.editing_cell = None
+                cleanup()
                 return
+            
             new_val = entry.get().strip()
-            if col_index == 7 and new_val and not new_val.isdigit():
-                custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                             lang.t("stock_in.invalid_qty", "Qty In must be an integer"), "error")
-                entry.focus_set()
-                return
-            if col_index == 8 and new_val:
-                parsed = parse_expiry(new_val)
-                if not parsed:
-                    custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("stock_in.invalid_expiry_format", "Invalid expiry date format"), "error")
+            
+            # ===== COLUMN 7: QTY IN (Integer Validation) =====
+            if col_index == 7:
+                if new_val and not new_val.isdigit():
+                    # ✅ Clear cell, red background, single popup
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("stock_in.invalid_qty_detail",
+                               "Invalid quantity for item: {code}\n\n"
+                               "Quantity must be a positive integer.\n\n"
+                               "Examples: 1, 10, 100",
+                               code=code),
+                        "error"
+                    )
                     entry.focus_set()
                     return
-                if parsed <= datetime.now().date():
-                    custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                                 lang.t("stock_in.expiry_future", "Expiry date must be in the future"), "error")
+                
+                if new_val and int(new_val) <= 0:
+                    # ✅ Clear cell, red background, single popup
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("stock_in.qty_must_be_positive",
+                               "Quantity must be greater than zero.\n\n"
+                               "Entered: {qty}",
+                               qty=new_val),
+                        "error"
+                    )
                     entry.focus_set()
                     return
-                new_val = parsed.strftime("%Y-%m-%d")
-            if col_index == 9 and new_val and len(new_val) > 30:
-                custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                             lang.t("stock_in.batch_no_length", "Batch No must be 30 characters or less"), "error")
-                entry.focus_set()
-                return
+            
+            # ===== COLUMN 8: EXPIRY DATE (Date Validation) =====
+            if col_index == 8:
+                if new_val:
+                    # Parse the date
+                    parsed = parse_expiry(new_val)
+                    
+                    if not parsed:
+                        # ✅ Clear cell, red background, single popup
+                        entry.delete(0, tk.END)
+                        entry.configure(background="#FFCCCC")
+                        custom_popup(
+                            self,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t("stock_in.invalid_expiry_format_detail",
+                                   "Invalid expiry date format for item: {code}\n\n"
+                                   "Entered: '{date}'\n\n"
+                                   "Supported formats:\n"
+                                   "  • YYYY-MM-DD    (e.g., 2027-12-31)\n"
+                                   "  • YYYY-MM       (e.g., 2027-12 → 2027-12-31)\n"
+                                   "  • YYYY          (e.g., 2027 → 2027-12-31)\n"
+                                   "  • MM/YYYY       (e.g., 12/2029 → 2029-12-31)\n"
+                                   "  • DD-MM-YYYY    (e.g., 31-12-2027)\n"
+                                   "  • DD/MM/YYYY    (e.g., 31/12/2027)",
+                                   code=code,
+                                   date=new_val),
+                            "error"
+                        )
+                        entry.focus_set()
+                        return
+                    
+                    # Check if in future
+                    if parsed <= datetime.now().date():
+                        # ✅ Clear cell, red background, single popup
+                        entry.delete(0, tk.END)
+                        entry.configure(background="#FFCCCC")
+                        custom_popup(
+                            self,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t("stock_in.expiry_future_detail",
+                                   "Expiry date must be in the future.\n\n"
+                                   "Item: {code}\n"
+                                   "Entered date: {date}\n"
+                                   "Today: {today}\n\n"
+                                   "Please enter a future date.",
+                                   code=code,
+                                   date=parsed.strftime("%Y-%m-%d"),
+                                   today=datetime.now().strftime("%Y-%m-%d")),
+                            "error"
+                        )
+                        entry.focus_set()
+                        return
+                    
+                    # Format as YYYY-MM-DD
+                    new_val = parsed.strftime("%Y-%m-%d")
+            
+            # ===== COLUMN 9: BATCH NO (Length Validation) =====
+            if col_index == 9:
+                if new_val and len(new_val) > 30:
+                    # ✅ Clear cell, red background, single popup
+                    entry.delete(0, tk.END)
+                    entry.configure(background="#FFCCCC")
+                    custom_popup(
+                        self,
+                        lang.t("dialog_titles.error", "Error"),
+                        lang.t("stock_in.batch_no_length_detail",
+                               "Batch number is too long.\n\n"
+                               "Maximum length: 30 characters\n"
+                               "Entered length: {length} characters\n\n"
+                               "Please shorten the batch number.",
+                               length=len(new_val)),
+                        "error"
+                    )
+                    entry.focus_set()
+                    return
+            
+            # ===== ALL VALIDATIONS PASSED - SAVE =====
             self.tree.set(row_id, self.cols[col_index], new_val)
+            
+            # Update unique_id_2 if expiry date changed
             if col_index == 8:
                 unique_id_2_base = self.row_data[row_id]['unique_id_2'].rsplit('/', 1)[0]
                 new_unique_id_2 = f"{unique_id_2_base}/{new_val or 'None'}"
                 self.row_data[row_id]['unique_id_2'] = new_unique_id_2
                 self.row_data[row_id]['unique_id'] = new_unique_id_2
 
+            # Validate expiry requirement and apply tags
             qty_in = self.tree.set(row_id, "qty_in")
             expiry_date = self.tree.set(row_id, "expiry_date")
+            
             if qty_in and qty_in.isdigit() and expiry_required and not self.validate_expiry_for_save(code, qty_in, expiry_date):
                 self.tree.item(row_id, tags=("light_red",))
             else:
                 self.tree.item(row_id, tags=())
 
+            # Save user inputs
             scenario_name2 = self.tree.set(row_id, "scenario_name")
             code2 = self.tree.set(row_id, "code")
             std_qty2 = int(self.tree.set(row_id, "std_qty")) if self.tree.set(row_id, "std_qty") and self.tree.set(row_id, "std_qty").isdigit() else 0
             input_key = f"{scenario_name2}/{code2}/{std_qty2}"
+            
             self.user_inputs[input_key] = {
                 "qty_in": self.tree.set(row_id, "qty_in"),
                 "expiry_date": self.tree.set(row_id, "expiry_date"),
                 "batch_no": self.tree.set(row_id, "batch_no")
             }
+            
+            # Update qty_needed for all matching items
             for item_id in self.tree.get_children():
                 item_vals = self.tree.item(item_id, "values")
                 if item_vals[0] == code2 and item_vals[2] == scenario_name2:
                     item_std_qty = int(item_vals[5]) if item_vals[5] and str(item_vals[5]).isdigit() else 0
                     new_qty_needed = fetch_qty_needed(self, code2, scenario_name2, scenario_id, item_std_qty)
                     self.tree.set(item_id, "qty_needed", new_qty_needed)
-            entry.destroy()
-            self.editing_cell = None
+            
+            cleanup()
+            
+            # Move to next cell if Tab was pressed
             if event and event.keysym == "Tab":
                 self.move_to_next_editable_cell(row_id, col_index)
+        
+        # Bind events
         entry.bind("<Return>", save_edit)
         entry.bind("<Tab>", save_edit)
         entry.bind("<FocusOut>", save_edit)
+        entry.bind("<Escape>", lambda e: cleanup())
+        
         return True
 
+        
     # -------- Save / Persist -------- #
     def save_all(self):
         if self.role.lower() not in ["admin", "manager"]:
@@ -1023,13 +1351,17 @@ class StockIn(tk.Frame):
 
         # ALWAYS use canonical English for DB/logging
         ttype_canonical = self.get_canonical_in_type()
+    
+        # Guard: ensure the canonical value is one of the supported enums
+        if not ttype_canonical or ttype_canonical not in self.IN_TYPE_CANONICAL:
+            self.show_error("stock_in.no_in_type", "IN Type is required.")
+            return
+
         remarks = self.remarks_entry.get().strip()
         end_user = self.end_user_var.get().strip()
         third_party = self.third_party_var.get().strip()
 
-        if not ttype_canonical:
-            self.show_error("stock_in.no_in_type", "IN Type is required.")
-            return
+        # Validate specific IN types
         if ttype_canonical == "In Donation":
             if not third_party or third_party not in self.third_party_cb['values']:
                 self.show_error("stock_in.invalid_third_party", "A valid Third Party must be selected for In Donation.")
@@ -1042,15 +1374,6 @@ class StockIn(tk.Frame):
             if len(remarks) < 10 or len(remarks) > 300:
                 self.show_error("stock_in.remarks_length", "Remarks must be between 10 and 300 characters for In Correction of Previous Transaction.")
                 return
-            
-         # Guard: ensure the canonical value is one of the supported enums
-        if not ttype_canonical or ttype_canonical not in self.IN_TYPE_CANONICAL:
-            self.show_error("stock_in.no_in_type", "IN Type is required.")
-            return
-
-        remarks = self.remarks_entry.get().strip()
-        end_user = self.end_user_var.get().strip()
-        third_party = self.third_party_var.get().strip()    
 
         # Generate Document Number from CANONICAL type
         doc_number = self.generate_document_number(ttype_canonical)
@@ -1060,6 +1383,7 @@ class StockIn(tk.Frame):
 
         invalid_items = []
         exported_rows = []
+    
         for iid in rows:
             vals = self.tree.item(iid, "values")
             code = vals[0]
@@ -1075,6 +1399,7 @@ class StockIn(tk.Frame):
 
             if not qty_in or not qty_in.isdigit():
                 continue
+        
             qty_in_int = int(qty_in)
             parsed_exp = parse_expiry(expiry_date)
             expiry_fmt = parsed_exp.strftime("%Y-%m-%d") if parsed_exp else None
@@ -1084,22 +1409,36 @@ class StockIn(tk.Frame):
                 self.tree.item(iid, tags=("light_red",))
                 continue
 
+            # ✅ Convert scenario_name to scenario_id
+            scenario_id = self.reverse_scenario_map.get(scenario_name)
+        
+            if not scenario_id:
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("stock_in.invalid_scenario", "Invalid scenario: {scenario}").format(scenario=scenario_name),
+                    "error"
+                )
+                continue
+
             exp_part = expiry_fmt or "None"
-            six_layer_unique_id = f"{scenario_name}/{kit_code if kit_code != '-----' else 'None'}/{module_code if module_code != '-----' else 'None'}/{code}/{std_qty}/{exp_part}"
+
+            # ✅ Use scenario_id in unique_id (6-layer format)
+            six_layer_unique_id = f"{scenario_id}/{kit_code if kit_code != '-----' else 'None'}/{module_code if module_code != '-----' else 'None'}/{code}/{std_qty}/{exp_part}"
 
             try:
-                # Store canonical English in DB
+                # ✅ Store canonical English + scenario_id in DB
                 log_transaction(
                     unique_id=six_layer_unique_id,
                     code=code,
                     Description=description,
                     Expiry_date=expiry_fmt,
                     Batch_Number=batch_no,
-                    Scenario=scenario_name,
+                    Scenario=str(scenario_id),          # ✅ Use scenario_id (as string)
                     Kit=kit_code if kit_code != "-----" else None,
                     Module=module_code if module_code != "-----" else None,
                     Qty_IN=qty_in_int,
-                    IN_Type=ttype_canonical,            # <--- canonical English
+                    IN_Type=ttype_canonical,            # ✅ Canonical English
                     Third_Party=third_party if third_party else None,
                     End_User=end_user if end_user else None,
                     Remarks=remarks,
@@ -1107,11 +1446,19 @@ class StockIn(tk.Frame):
                     document_number=doc_number
                 )
 
-                StockData.add_or_update(unique_id=six_layer_unique_id, qty_in=qty_in_int, qty_out=0, exp_date=expiry_fmt)
+                # ✅ Pass scenario_id to StockData
+                StockData.add_or_update(
+                    unique_id=six_layer_unique_id,
+                    qty_in=qty_in_int,
+                    qty_out=0,
+                    exp_date=expiry_fmt
+                )
+                
+            
                 exported_rows.append({
                     'code': code,
                     'description': description,
-                    'scenario_name': scenario_name,
+                    'scenario_name': scenario_name,     # Keep for Excel export
                     'kit_code': kit_code,
                     'module_code': module_code,
                     'std_qty': std_qty,
@@ -1120,19 +1467,27 @@ class StockIn(tk.Frame):
                     'expiry_date': expiry_fmt,
                     'batch_no': batch_no
                 })
+
             except Exception as e:
-                custom_popup(self, lang.t("dialog_titles.error", "Error"),
-                             lang.t("stock_in.save_failed", "Failed to save row: {error}").format(error=str(e)), "error")
+                custom_popup(
+                    self,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("stock_in.save_failed", "Failed to save row: {error}").format(error=str(e)),
+                    "error"
+                )
                 continue
 
         if invalid_items:
-            self.show_error("stock_in.invalid_expiry",
-                            "Valid future expiry dates are required for items: {items}",
-                            items=', '.join(invalid_items))
+            self.show_error(
+                "stock_in.invalid_expiry",
+                "Valid future expiry dates are required for items: {items}",
+                items=', '.join(invalid_items)
+            )
             return
 
         self.show_info("stock_in.saved", "Stock IN saved successfully.")
-        # Offer export; export can keep localized display if preferred
+    
+        # Offer export
         if exported_rows and self.ask_yes_no("stock_in.save_excel_prompt", "Do you want to save the stock issuance to Excel?"):
             self.export_data(exported_rows)
 

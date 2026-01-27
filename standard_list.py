@@ -20,10 +20,10 @@ def validate_code(code):
         return code
     return None
 
-def generate_unique_id_2(scenario_name, code, quantity):
-    """Generate unique_id_2: scenario_name/None/None/code/std_qty."""
+def generate_unique_id_2(scenario_id, code, quantity):
+    """Generate unique_id_2: scenario_id/None/None/code/std_qty."""
     cleaned_code = validate_code(code) or code.replace(" ", "").upper()
-    return f"{scenario_name}/None/None/{cleaned_code}/{int(quantity or 0)}"
+    return f"{scenario_id}/None/None/{cleaned_code}/{int(quantity or 0)}"
 
 def scenario_to_column_letter(index):
     """Map scenario index (0-based) to unique_id_2a ..  unique_id_2o."""
@@ -459,7 +459,7 @@ class StandardList(tk.Frame):
                     )
                     return
 
-                unique_id_2 = generate_unique_id_2(scenario_name, cleaned_code, qty)
+                unique_id_2 = generate_unique_id_2(scenario_id, cleaned_code, qty)
                 if qty > 0:
                     cursor.execute(f"""
                         INSERT INTO compositions (code, scenario_id, quantity, unique_id_2, {col_letter})
@@ -602,7 +602,7 @@ class StandardList(tk.Frame):
                     scenario_index = next(i for i, s in enumerate(self.scenarios) if s["scenario_id"] == scenario_id)
                     col_letter = scenario_to_column_letter(scenario_index)
 
-                    unique_id_2 = generate_unique_id_2(scen_name, cleaned_code, qty)
+                    unique_id_2 = generate_unique_id_2(scenario_id, cleaned_code, qty)
                     if qty > 0:
                         cursor.execute(f"""
                             INSERT INTO compositions (code, scenario_id, quantity, unique_id_2, {col_letter})
