@@ -1300,8 +1300,8 @@ class StockInKit(tk.Frame):
         Handle module selection.
 
         ✅ Workflows:
-        - add_module_scenario: Module CODE selected → Popup for NEW module number
-        - add_module_kit: Module CODE selected → Popup for NEW module number
+        - add_module_scenario: Module CODE selected → Popup for NEW module number → Load items
+        - add_module_kit: Module CODE selected → Popup for NEW module number → Load items
         - add_items_module: Module CODE selected → Enable module NUMBER dropdown (existing)
         """
         self.ensure_vars_ready()
@@ -1321,14 +1321,19 @@ class StockInKit(tk.Frame):
 
         mode_key = self.current_mode_key()
         kit_number = self.kit_number_var.get().strip() or None
+        kit_code = (
+            self._extract_code_from_display(self.kit_var.get())
+            if self.kit_var.get()
+            else None
+        )
 
         # ===== WORKFLOW: Add Items to Module =====
         if mode_key == "add_items_module":
-            # ✅ FIXED: Pass module_code to filter module numbers
+            # ✅ Enable module NUMBER dropdown (existing modules)
             module_numbers = self.fetch_existing_module_numbers(
                 self.selected_scenario_id,
                 kit_number,
-                module_code,  # ✅ NEW: Filter by selected module code
+                module_code,
             )
 
             if module_numbers:
@@ -1341,38 +1346,80 @@ class StockInKit(tk.Frame):
                         count=len(module_numbers),
                     )
                 )
-                logging.debug(
-                    f"[IN_KIT] Enabled {len(module_numbers)} module numbers for {module_code}"
+                logging.info(
+                    f"[IN_KIT] ✅ Enabled {len(module_numbers)} module numbers for {module_code}"
                 )
             else:
-                self.status_var.set(
+                # ✅ FIX: Keep dropdown enabled but show helpful message
+                self.module_number_cb.config(
+                    state="readonly"
+                )  # ← Changed from "disabled"
+                self.module_number_cb["values"] = []
+
+                # ✅ Provide actionable feedback
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.info", "Information"),
                     lang.t(
-                        "in_kit.no_module_numbers",
-                        f"No module numbers found for {module_code}",
-                    )
+                        "in_kit.no_existing_modules_tip",
+                        "No existing {module} modules found in kit {kit}.\n\n"
+                        "Tip: First add the module using 'Add module to a kit' mode.",
+                        module=module_code,
+                        kit=kit_number,
+                    ),
+                    "info",
                 )
 
-        # ===== WORKFLOW: Add Module (new module number via popup) =====
+            self.status_var.set(
+                lang.t(
+                    "in_kit.no_module_numbers_create_first",
+                    "No {code} modules exist. Create one first.",
+                    code=module_code,
+                )
+            )
+
+            logging.warning(
+                f"[IN_KIT] No module numbers for {module_code} in kit {kit_number}. "
+                f"SQL params: scenario={self.selected_scenario_id}, "
+                f"kit_number={kit_number}, module={module_code}"
+            )
+        # ===== WORKFLOW: Add Module (new module number + load items) =====
         else:
-            # ✅ Trigger popup for NEW module number
+            # ✅ Ask for NEW module number
+            logging.info(f"[IN_KIT] Asking for module number for {module_code}")
             module_number = self.ask_module_number(kit_number, module_code)
 
             if module_number:
                 self.module_number_var.set(module_number)
+                logging.info(f"[IN_KIT] Module number entered: {module_number}")
+
+                # ✅ CRITICAL FIX: Load module with its child items
+                logging.info(
+                    f"[IN_KIT] Loading module {module_code} with items (kit={kit_code})"
+                )
+                self.load_module_with_items(
+                    module_code=module_code,
+                    kit_number=kit_number,
+                    module_number=module_number,
+                    kit_code=kit_code,
+                )
+
                 self.status_var.set(
                     lang.t(
-                        "in_kit.module_number_set",
-                        "Module number set: {num}. Ready to add items.",
-                        num=module_number,
+                        "in_kit.module_loaded_success",
+                        "Module {code} loaded successfully",
+                        code=module_code,
                     )
                 )
-                logging.info(f"[IN_KIT] Module number entered: {module_number}")
             else:
                 # User cancelled
                 self.module_var.set("")
                 self.module_number_var.set("")
                 self.status_var.set(
                     lang.t("in_kit.module_cancelled", "Module selection cancelled")
+                )
+                logging.warning(
+                    f"[IN_KIT] Module number entry cancelled for {module_code}"
                 )
 
     def on_module_number_selected(self, event=None):
@@ -1843,12 +1890,13 @@ class StockInKit(tk.Frame):
         Args:
             scenario_id: Scenario ID
             kit_number: Optional kit number filter
-            module_code: Optional module code filter (NEW)
+            module_code: Optional module code filter
 
         Returns:
-        List of module numbers (strings), sorted
+            List of module numbers (strings), sorted
         """
         if not scenario_id:
+            logging.warning("[IN_KIT] No scenario_id in fetch_existing_module_numbers")
             return []
 
         conn = connect_db()
@@ -1861,30 +1909,49 @@ class StockInKit(tk.Frame):
                 SELECT DISTINCT module_number
                 FROM stock_data
                 WHERE scenario = ?
-                AND module_number IS NOT NULL
-                AND module_number != 'None'
-                AND module_number != ''
-                AND (qty_in - COALESCE(qty_out, 0)) > 0
+                  AND module_number IS NOT NULL
+                  AND module_number != 'None'
+                  AND module_number != ''
+                  AND (qty_in - COALESCE(qty_out, 0)) > 0
             """
             params = [str(scenario_id)]
 
             if kit_number:
                 sql += " AND kit_number = ?"
                 params.append(kit_number)
+                logging.debug(
+                    f"[IN_KIT] Filtering module numbers by kit_number={kit_number}"
+                )
 
-            # ✅ NEW: Filter by module code
+            # ✅ Filter by module code
             if module_code:
                 sql += " AND module = ?"
                 params.append(module_code)
+                logging.debug(
+                    f"[IN_KIT] Filtering module numbers by module_code={module_code}"
+                )
 
             sql += " ORDER BY module_number"
+
+            logging.debug(f"[IN_KIT] SQL: {sql}")
+            logging.debug(f"[IN_KIT] Params: {params}")
 
             cur.execute(sql, params)
 
             results = [r[0] for r in cur.fetchall()]
-            logging.debug(
-                f"[IN_KIT] Found {len(results)} existing module numbers (module={module_code})"
-            )
+
+            if results:
+                logging.info(
+                    f"[IN_KIT] ✅ Found {len(results)} module numbers (module={module_code}, kit={kit_number})"
+                )
+            else:
+                logging.warning(
+                    f"[IN_KIT] ❌ No module numbers found (module={module_code}, kit={kit_number})"
+                )
+                logging.warning(
+                    f"[IN_KIT] Check stock_data: scenario={scenario_id}, module={module_code}"
+                )
+
             return results
 
         except sqlite3.Error as e:
@@ -2280,8 +2347,9 @@ class StockInKit(tk.Frame):
 
         try:
             # ✅ Build query - filter by kit if provided
+            # ✅ FIXED: Use MAX(std_qty) to handle duplicates
             sql = """
-                SELECT code, std_qty, level
+                SELECT code, MAX(std_qty) as std_qty, level
                 FROM kit_items
                 WHERE scenario_id = ?
                   AND module = ?
@@ -2300,7 +2368,10 @@ class StockInKit(tk.Frame):
                 # Standalone module - no kit filter
                 logging.debug(f"[IN_KIT] Loading standalone module {module_code}")
 
-            sql += " ORDER BY code"
+            sql += " GROUP BY code ORDER BY code"
+
+            logging.debug(f"[IN_KIT] SQL: {sql}")
+            logging.debug(f"[IN_KIT] Params: {params}")
 
             cur.execute(sql, params)
             items = cur.fetchall()
@@ -2309,16 +2380,21 @@ class StockInKit(tk.Frame):
                 logging.warning(
                     f"[IN_KIT] No items found for module {module_code} (kit={kit_code})"
                 )
-                self.status_var.set(
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.warning", "Warning"),
                     lang.t(
                         "in_kit.no_items_in_module",
                         "No items found in module {code}",
                         code=module_code,
-                    )
+                    ),
+                    "warning",
                 )
                 return
 
-            logging.info(f"[IN_KIT] Found {len(items)} items for module {module_code}")
+            logging.info(
+                f"[IN_KIT] Found {len(items)} unique items for module {module_code}"
+            )
 
             # ✅ Check for duplicate module_code in tree - only populate once
             existing_modules = set()
@@ -2326,10 +2402,23 @@ class StockInKit(tk.Frame):
                 vals = self.tree.item(iid, "values")
                 if vals and vals[0] == module_code and vals[2].upper() == "MODULE":
                     existing_modules.add(module_code)
+                    logging.info(
+                        f"[IN_KIT] Module {module_code} already exists in tree at {iid}"
+                    )
 
             if module_code in existing_modules:
-                logging.info(
+                logging.warning(
                     f"[IN_KIT] Module {module_code} already in tree, skipping duplicate"
+                )
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.info", "Information"),
+                    lang.t(
+                        "in_kit.module_already_exists",
+                        "Module {code} is already in the tree",
+                        code=module_code,
+                    ),
+                    "info",
                 )
                 return
 
@@ -2360,7 +2449,9 @@ class StockInKit(tk.Frame):
                 "treecode": None,
             }
 
-            logging.debug(f"[IN_KIT] Inserted module header for {module_code}")
+            logging.info(
+                f"[IN_KIT] Inserted module header for {module_code} at iid={module_iid}"
+            )
 
             # Insert child items with batches
             inserted_count = 0
@@ -2369,12 +2460,12 @@ class StockInKit(tk.Frame):
                 std_qty = item_row["std_qty"] or 0
 
                 logging.debug(
-                    f"[IN_KIT] Inserting item {item_code} (std_qty={std_qty}) into module {module_code}"
+                    f"[IN_KIT] Processing item {item_code} (std_qty={std_qty}) for module {module_code}"
                 )
 
                 self.insert_item_batches(
                     code=item_code,
-                    parent_iid=module_iid,
+                    parent_iid=module_iid,  # ✅ CRITICAL: Insert as child of module
                     kit_number=kit_number,
                     module_number=module_number,
                     structural_kit=kit_code,
@@ -2387,25 +2478,40 @@ class StockInKit(tk.Frame):
                 f"[IN_KIT] Inserted {inserted_count} items into module {module_code}"
             )
 
+            # ✅ CRITICAL FIX: Expand the module to show children
+            self.tree.item(module_iid, open=True)
+            logging.debug(f"[IN_KIT] Expanded module {module_code} in tree")
+
+            # ✅ Scroll to make module visible
+            self.tree.see(module_iid)
+
             # Update parent quantities and expiries
             self.update_child_quantities()
             self.update_parent_expiry()
 
+            # ✅ Final status update
+            child_count = len(self.tree.get_children(module_iid))
             self.status_var.set(
                 lang.t(
-                    "in_kit.module_loaded",
-                    "Module {code} loaded with {count} items",
+                    "in_kit.module_loaded_with_children",
+                    "Module {code} loaded with {count} items (visible in tree)",
                     code=module_code,
-                    count=len(items),
+                    count=child_count,
                 )
             )
 
             logging.info(
-                f"[IN_KIT] ✅ Successfully loaded module {module_code} with {len(items)} items"
+                f"[IN_KIT] ✅ Successfully loaded module {module_code} with {child_count} child items visible"
             )
 
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] load_module_with_items error: {e}")
+            custom_popup(
+                self.parent,
+                lang.t("dialog_titles.error", "Error"),
+                f"Failed to load module: {e}",
+                "error",
+            )
         finally:
             cur.close()
             conn.close()
@@ -3207,29 +3313,11 @@ class StockInKit(tk.Frame):
         if item_type in ["KIT", "MODULE"]:
             logging.info(f"[IN_KIT] Handling {item_type} type: {code}")
 
-            if item_type == "MODULE" and mk in [
-                "add_module_kit",
-                "add_module_scenario",
-            ]:
-                logging.info(f"[IN_KIT] Asking for module number for {code}")
-                mn = self.ask_module_number(kit_number, code)
-                if mn is None:
-                    self.status_var.set(
-                        lang.t("receive_kit.module_number_cancelled", "Cancelled")
-                    )
-                    logging.warning(
-                        f"[IN_KIT] Module number entry cancelled for {code}"
-                    )
-                    return
-                module_number = mn
-                logging.info(f"[IN_KIT] Module number entered: {module_number}")
+            # ✅ REMOVED: Duplicate module handling
+            # Module selection is now handled entirely in on_module_selected()
+            # This method is only called for search results, not dropdown selections
 
-                # ✅ After getting module number, load module's child items
-                logging.info(f"[IN_KIT] Loading module {code} with items")
-                self.load_module_with_items(code, kit_number, module_number, kit_code)
-                return
-
-            # Insert KIT or MODULE without children (for non-add_module modes)
+            # Insert KIT or MODULE without children (for search results only)
             logging.info(f"[IN_KIT] Inserting {item_type} header: {code}")
             iid = self.tree.insert(
                 "",
@@ -3294,7 +3382,7 @@ class StockInKit(tk.Frame):
             module_number=module_number,
             structural_kit=structural_kit,
             structural_module=structural_module,
-            std_qty=std_qty,  # ✅ NOW USING ACTUAL STD_QTY
+            std_qty=std_qty,
         )
 
         self.status_var.set(
