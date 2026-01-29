@@ -363,7 +363,7 @@ class StockInKit(tk.Frame):
         self.module_number_var = _sv("")
         self.end_user_var = _sv("")
         self.third_party_var = _sv("")
-        self.status_var = _sv(lang.t("receive_kit.ready", "Ready"))
+        self.status_var = _sv(lang.t("in_kit.ready", "Ready"))
 
         self.tree = None
         self.search_var = None
@@ -512,7 +512,7 @@ class StockInKit(tk.Frame):
             "module_number_var": "",
             "end_user_var": "",
             "third_party_var": "",
-            "status_var": lang.t("receive_kit.ready", "Ready"),
+            "status_var": lang.t("in_kit.ready", "Ready"),
         }
         for name, default in needed.items():
             cur = getattr(self, name, None)
@@ -570,7 +570,7 @@ class StockInKit(tk.Frame):
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
-            ("receive_kit", lang.t("receive_kit.mode_generate_kit", "Generate Kit")),
+            ("receive_kit", lang.t("in_kit.mode_generate_kit", "Generate Kit")),
             (
                 "add_standalone",
                 lang.t(
@@ -589,15 +589,15 @@ class StockInKit(tk.Frame):
             ),
             (
                 "add_module_kit",
-                lang.t("receive_kit.mode_add_module_kit", "Add module to a kit"),
+                lang.t("in_kit.mode_add_module_kit", "Add module to a kit"),
             ),
             (
                 "add_items_kit",
-                lang.t("receive_kit.mode_add_items_kit", "Add items to a kit"),
+                lang.t("in_kit.mode_add_items_kit", "Add items to a kit"),
             ),
             (
                 "add_items_module",
-                lang.t("receive_kit.mode_add_items_module", "Add items to a module"),
+                lang.t("in_kit.mode_add_items_module", "Add items to a module"),
             ),
         ]
         self.mode_label_to_key = {lbl: key for key, lbl in self.mode_definitions}
@@ -640,7 +640,7 @@ class StockInKit(tk.Frame):
 
         title_lbl = tk.Label(
             self.parent,
-            text=lang.t("receive_kit.title", "Receive Kit-Module"),
+            text=lang.t("in_kit.title", "Receive Kit-Module"),
             font=("Helvetica", 20, "bold"),
             bg="#F0F4F8",
         )
@@ -649,9 +649,9 @@ class StockInKit(tk.Frame):
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tk.Label(
-            main, text=lang.t("receive_kit.scenario", "Scenario:"), bg="#F0F4F8"
-        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(main, text=lang.t("in_kit.scenario", "Scenario:"), bg="#F0F4F8").grid(
+            row=0, column=0, padx=5, pady=5, sticky="w"
+        )
         self.scenario_cb = ttk.Combobox(
             main, textvariable=self.scenario_var, state="readonly", width=40
         )
@@ -660,7 +660,7 @@ class StockInKit(tk.Frame):
 
         tk.Label(
             main,
-            text=lang.t("receive_kit.movement_type", "Movement Type:"),
+            text=lang.t("in_kit.movement_type", "Movement Type:"),
             bg="#F0F4F8",
         ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.mode_cb = ttk.Combobox(
@@ -670,7 +670,7 @@ class StockInKit(tk.Frame):
         self.mode_cb.bind("<<ComboboxSelected>>", self.update_mode)
 
         tk.Label(
-            main, text=lang.t("receive_kit.select_kit", "Select Kit:"), bg="#F0F4F8"
+            main, text=lang.t("in_kit.select_kit", "Select Kit:"), bg="#F0F4F8"
         ).grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.kit_cb = ttk.Combobox(
             main, textvariable=self.kit_var, state="disabled", width=80
@@ -690,7 +690,7 @@ class StockInKit(tk.Frame):
 
         tk.Label(
             main,
-            text=lang.t("receive_kit.select_module", "Select Module:"),
+            text=lang.t("in_kit.select_module", "Select Module:"),
             bg="#F0F4F8",
         ).grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_cb = ttk.Combobox(
@@ -714,7 +714,7 @@ class StockInKit(tk.Frame):
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
         tk.Label(
-            type_frame, text=lang.t("receive_kit.in_type", "IN Type:"), bg="#F0F4F8"
+            type_frame, text=lang.t("in_kit.in_type", "IN Type:"), bg="#F0F4F8"
         ).grid(row=0, column=0, padx=5, sticky="w")
         tk.Label(
             type_frame,
@@ -727,7 +727,7 @@ class StockInKit(tk.Frame):
         ).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         tk.Label(
-            type_frame, text=lang.t("receive_kit.end_user", "End User:"), bg="#F0F4F8"
+            type_frame, text=lang.t("in_kit.end_user", "End User:"), bg="#F0F4F8"
         ).grid(row=0, column=2, padx=5, sticky="w")
         self.end_user_cb = ttk.Combobox(
             type_frame, textvariable=self.end_user_var, state="disabled", width=30
@@ -737,7 +737,7 @@ class StockInKit(tk.Frame):
 
         tk.Label(
             type_frame,
-            text=lang.t("receive_kit.third_party", "Third Party:"),
+            text=lang.t("in_kit.third_party", "Third Party:"),
             bg="#F0F4F8",
         ).grid(row=0, column=4, padx=5, sticky="w")
         self.third_party_cb = ttk.Combobox(
@@ -747,14 +747,14 @@ class StockInKit(tk.Frame):
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
 
         tk.Label(
-            type_frame, text=lang.t("receive_kit.remarks", "Remarks:"), bg="#F0F4F8"
+            type_frame, text=lang.t("in_kit.remarks", "Remarks:"), bg="#F0F4F8"
         ).grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
 
         tk.Label(
             main,
-            text=lang.t("receive_kit.search_item", "Search Kit/Module/Item:"),
+            text=lang.t("in_kit.search_item", "Search Kit/Module/Item:"),
             bg="#F0F4F8",
         ).grid(row=5, column=0, padx=5, pady=(10, 0), sticky="w")
         self.search_var = tk.StringVar()
@@ -791,15 +791,15 @@ class StockInKit(tk.Frame):
         self.tree.tag_configure("module", background="#ADD8E6")
 
         headers = {
-            "code": lang.t("receive_kit.code", "Code"),
-            "description": lang.t("receive_kit.description", "Description"),
-            "type": lang.t("receive_kit.type", "Type"),
-            "kit": lang.t("receive_kit.kit", "Kit"),
-            "module": lang.t("receive_kit.module", "Module"),
-            "std_qty": lang.t("receive_kit.std_qty", "Std Qty"),
-            "qty_to_receive": lang.t("receive_kit.qty_to_receive", "Qty to Receive"),
-            "expiry_date": lang.t("receive_kit.expiry_date", "Expiry Date"),
-            "batch_no": lang.t("receive_kit.batch_no", "Batch No"),
+            "code": lang.t("in_kit.code", "Code"),
+            "description": lang.t("in_kit.description", "Description"),
+            "type": lang.t("in_kit.type", "Type"),
+            "kit": lang.t("in_kit.kit", "Kit"),
+            "module": lang.t("in_kit.module", "Module"),
+            "std_qty": lang.t("in_kit.std_qty", "Std Qty"),
+            "qty_to_receive": lang.t("in_kit.qty_to_receive", "Qty to Receive"),
+            "expiry_date": lang.t("in_kit.expiry_date", "Expiry Date"),
+            "batch_no": lang.t("in_kit.batch_no", "Batch No"),
             "line_id": "line_id (hidden)",
             "qty_out": "qty_out (hidden)",
         }
@@ -861,14 +861,14 @@ class StockInKit(tk.Frame):
         btn_frame.grid(row=9, column=0, columnspan=4, pady=5)
         tk.Button(
             btn_frame,
-            text=lang.t("receive_kit.add_missing", "Add Missing Item"),
+            text=lang.t("in_kit.add_missing", "Add Missing Item"),
             bg="#FFA500",
             fg="white",
             command=self.add_missing_item,
         ).pack(side="left", padx=5)
         tk.Button(
             btn_frame,
-            text=lang.t("receive_kit.save", "Save"),
+            text=lang.t("in_kit.save", "Save"),
             bg="#27AE60",
             fg="white",
             state="normal" if self.role in ["admin", "manager"] else "disabled",
@@ -876,14 +876,14 @@ class StockInKit(tk.Frame):
         ).pack(side="left", padx=5)
         tk.Button(
             btn_frame,
-            text=lang.t("receive_kit.clear", "Clear"),
+            text=lang.t("in_kit.clear", "Clear"),
             bg="#7F8C8D",
             fg="white",
             command=self.clear_form,
         ).pack(side="left", padx=5)
         tk.Button(
             btn_frame,
-            text=lang.t("receive_kit.export", "Export"),
+            text=lang.t("in_kit.export", "Export"),
             bg="#2980B9",
             fg="white",
             command=self.export_data,
@@ -1513,7 +1513,7 @@ class StockInKit(tk.Frame):
         self.row_data.clear()
         self.code_to_iid.clear()
         self.suggested_usage.clear()
-        self.status_var.set(lang.t("receive_kit.ready", "Ready"))
+        self.status_var.set(lang.t("in_kit.ready", "Ready"))
 
     def clear_form(self):
         self.ensure_vars_ready()
@@ -2566,20 +2566,24 @@ class StockInKit(tk.Frame):
         Fetch on-shelf stock for a given item code, sorted by LONGEST expiry first.
 
         Returns list of dicts:
-            - code: item code
-            - expiry: parsed YYYY-MM-DD or original string
-         - management_mode: 'on_shelf'
+            - line_id: stock_data.line_id (for consumption tracking)
+            - unique_id: original on-shelf unique_id
+            - expiry: parsed YYYY-MM-DD or None
             - final_qty: available quantity
-            - line_id: stock_data.line_id
+            - management_mode: 'on_shelf'
 
         ✅ Filters:
             - Same scenario (using scenario_id)
-            - On-shelf items only (≤6 slashes in unique_id OR management_mode='on-shelf')
+            - On-shelf items only (management_mode='on_shelf')
             - final_qty > 0
 
         ✅ Sorting:
             - Longest expiry first (DESC)
             - NULL/empty expiry last
+
+        ✅ Multi-batch support:
+            - If first batch insufficient, caller can use next batches
+            - Expiry date from batch is preserved in composition
         """
         if not code:
             return []
@@ -2604,31 +2608,34 @@ class StockInKit(tk.Frame):
             cur.execute(
                 """
                 SELECT 
+                    line_id,
                     unique_id,
+                    item,
                     exp_date,
                     qty_in,
                     qty_out,
-                    management_mode,
-                    line_id
+                    management_mode
                 FROM stock_data
-                WHERE item = ?
-                AND scenario = ?
-                AND (qty_in - COALESCE(qty_out, 0)) > 0
-                AND (
-                    management_mode = 'on-shelf' 
-                    OR LENGTH(unique_id) - LENGTH(REPLACE(unique_id, '/', '')) <= 6
-                )
+                WHERE scenario = ?
+                  AND (item = ? OR unique_id LIKE ?)
+                  AND (qty_in - COALESCE(qty_out, 0)) > 0
+                  AND management_mode = 'on_shelf'
                 ORDER BY 
-                CASE WHEN exp_date IS NULL OR exp_date = '' OR exp_date = 'None' THEN 1 ELSE 0 END,
-                exp_date DESC
+                    CASE 
+                        WHEN exp_date IS NULL OR exp_date = '' OR exp_date = 'None' 
+                        THEN 1 
+                        ELSE 0 
+                    END,
+                    exp_date DESC,
+                    line_id ASC
             """,
-                (code, scenario_id),
+                (str(scenario_id), code, f"%/{code}/%"),
             )
 
             rows = cur.fetchall()
 
             if not rows:
-                logging.info(
+                logging.warning(
                     f"[IN_KIT] No on-shelf stock found for {code} in scenario {scenario_id}"
                 )
                 return []
@@ -2636,7 +2643,7 @@ class StockInKit(tk.Frame):
             batches = []
 
             for r in rows:
-                # Calculate final_qty
+                # Calculate available quantity
                 qty_in = r["qty_in"] or 0
                 qty_out = r["qty_out"] or 0
                 final_qty = qty_in - qty_out
@@ -2644,41 +2651,59 @@ class StockInKit(tk.Frame):
                 if final_qty <= 0:
                     continue
 
-                # Parse expiry date
+                # Get expiry date (prefer exp_date column)
                 exp_date = r["exp_date"]
 
-                # If exp_date column is empty, try extracting from unique_id
-                if not exp_date or exp_date == "None":
+                # If exp_date column is empty/None, try extracting from unique_id
+                if not exp_date or exp_date in ("None", ""):
                     parts = r["unique_id"].split("/")
+                    # On-shelf format: scenario/None/None/code/std_qty/expiry
                     if len(parts) >= 6:
                         exp_part = parts[5]
-                        if exp_part and exp_part != "None":
+                        if exp_part and exp_part not in ("None", ""):
                             exp_date = exp_part
 
-                # Parse to standard format if possible
-                if exp_date and exp_date != "None":
-                    parsed = parse_expiry(exp_date)
-                    if parsed:
-                        exp_date = parsed
-                else:
-                    exp_date = None
+                # Parse to standard YYYY-MM-DD format
+                parsed_exp = None
+                if exp_date and exp_date not in ("None", ""):
+                    parsed_exp = parse_expiry(exp_date)
+
+                # ✅ Validate this is truly on-shelf format
+                unique_id = r["unique_id"]
+                slash_count = unique_id.count("/")
+
+                if slash_count > 6:
+                    logging.warning(
+                        f"[IN_KIT] ⚠️ Skipping line_id {r['line_id']}: "
+                        f"unique_id has {slash_count} slashes (not on-shelf): {unique_id}"
+                    )
+                    continue
 
                 batches.append(
                     {
-                        "code": code,
-                        "expiry": exp_date,
-                        "management_mode": "on_shelf",
-                        "final_qty": final_qty,
                         "line_id": r["line_id"],
+                        "unique_id": unique_id,
+                        "expiry": parsed_exp,  # YYYY-MM-DD or None
+                        "final_qty": final_qty,
+                        "management_mode": "on_shelf",
                     }
                 )
 
-            # ✅ Log results
+                logging.debug(
+                    f"[IN_KIT] Found batch: line_id={r['line_id']}, "
+                    f"unique_id={unique_id}, qty={final_qty}, expiry={parsed_exp}"
+                )
+
+            # ✅ Log summary
             if batches:
-                longest_exp = batches[0]["expiry"]
+                longest_exp = batches[0]["expiry"] or "None"
                 logging.info(
                     f"[IN_KIT] Found {len(batches)} on-shelf batches for {code}, "
                     f"longest expiry: {longest_exp}"
+                )
+            else:
+                logging.warning(
+                    f"[IN_KIT] No valid on-shelf batches for {code} after validation"
                 )
 
             return batches
@@ -2744,7 +2769,7 @@ class StockInKit(tk.Frame):
         while True:
             # ✅ Use custom dialog with pre-filled suggestion
             entered = self.ask_custom_text(
-                title=lang.t("receive_kit.module_number", "Module Number"),
+                title=lang.t("in_kit.module_number", "Module Number"),
                 prompt=lang.t(
                     "in_kit.enter_module_number",
                     "Enter a unique Module Number.\n\n"
@@ -2903,9 +2928,7 @@ class StockInKit(tk.Frame):
         self.suggested_usage.clear()
         comps = self.fetch_kit_items(self.selected_scenario_id, kit_code)
         if not comps:
-            self.status_var.set(
-                lang.t("receive_kit.no_items", f"No items for {kit_code}")
-            )
+            self.status_var.set(lang.t("in_kit.no_items", f"No items for {kit_code}"))
             return
         kit_number = (
             self.kit_number_var.get().strip() if self.kit_number_var.get() else None
@@ -2917,7 +2940,7 @@ class StockInKit(tk.Frame):
             while True:
                 # ✅ Use custom dialog with pre-filled suggestion
                 kn = self.ask_custom_text(
-                    title=lang.t("receive_kit.kit_number", "Kit Number"),
+                    title=lang.t("in_kit.kit_number", "Kit Number"),
                     prompt=lang.t(
                         "in_kit.enter_kit_number",
                         "Enter a unique Kit Number for: {kit_code}\n\n"
@@ -2985,7 +3008,7 @@ class StockInKit(tk.Frame):
                 module_number = self.ask_module_number(kit_number, comp["code"])
                 if module_number is None:
                     self.status_var.set(
-                        lang.t("receive_kit.module_number_cancelled", "Cancelled")
+                        lang.t("in_kit.module_number_cancelled", "Cancelled")
                     )
                     return
                 module_number_map[comp["code"]] = module_number
@@ -3037,7 +3060,7 @@ class StockInKit(tk.Frame):
         self.update_child_quantities()
         self.update_parent_expiry()
         self.status_var.set(
-            lang.t("receive_kit.loaded_records", f"Loaded hierarchy for {kit_code}")
+            lang.t("in_kit.loaded_records", f"Loaded hierarchy for {kit_code}")
         )
 
     # ------------- Insert batch rows (with line_id & hidden qty_out) -------------
@@ -3239,6 +3262,13 @@ class StockInKit(tk.Frame):
                 "line_id": None,
             }
 
+            # ✅ Verify insertion (debugging aid)
+        if parent_iid:
+            child_count = len(self.tree.get_children(parent_iid))
+            logging.debug(
+                f"[IN_KIT] Parent {parent_iid} now has {child_count} children after inserting {code}"
+            )
+
     # ------------- Add single code -------------
     def add_to_tree(self, code):
         """Add a single item/module to tree based on current mode."""
@@ -3290,7 +3320,7 @@ class StockInKit(tk.Frame):
                 custom_popup(
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
-                    lang.t("receive_kit.no_kit_number", "Please select a Kit Number"),
+                    lang.t("in_kit.no_kit_number", "Please select a Kit Number"),
                     "error",
                 )
                 return
@@ -3347,7 +3377,7 @@ class StockInKit(tk.Frame):
                 "treecode": None,
             }
             self.status_var.set(
-                lang.t("receive_kit.added_item", f"Added {item_type} {code}")
+                lang.t("in_kit.added_item", f"Added {item_type} {code}")
             )
             logging.info(f"[IN_KIT] ✅ Successfully added {item_type} {code}")
             return
@@ -3385,9 +3415,7 @@ class StockInKit(tk.Frame):
             std_qty=std_qty,
         )
 
-        self.status_var.set(
-            lang.t("receive_kit.added_item", f"Added ITEM {code} (batches)")
-        )
+        self.status_var.set(lang.t("in_kit.added_item", f"Added ITEM {code} (batches)"))
         logging.info(f"[IN_KIT] ✅ Successfully added ITEM {code}")
 
     # ------------- Add missing item dialog -------------
@@ -3396,18 +3424,18 @@ class StockInKit(tk.Frame):
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
-                lang.t("receive_kit.no_scenario", "Please select a scenario"),
+                lang.t("in_kit.no_scenario", "Please select a scenario"),
                 "error",
             )
             return
         dlg = tk.Toplevel(self.parent)
-        dlg.title(lang.t("receive_kit.add_missing", "Add Missing Item"))
+        dlg.title(lang.t("in_kit.add_missing", "Add Missing Item"))
         dlg.geometry("560x360")
         dlg.transient(self.parent)
         dlg.grab_set()
         tk.Label(
             dlg,
-            text=lang.t("receive_kit.search_item", "Search Kit/Module/Item"),
+            text=lang.t("in_kit.search_item", "Search Kit/Module/Item"),
             font=("Helvetica", 10, "bold"),
         ).pack(pady=6)
         sv = tk.StringVar()
@@ -3431,9 +3459,7 @@ class StockInKit(tk.Frame):
             for r in res:
                 lb.insert(tk.END, f"{r['code']} - {r['description']}")
             if not res:
-                lb.insert(
-                    tk.END, lang.t("receive_kit.no_items_found", "No items found")
-                )
+                lb.insert(tk.END, lang.t("in_kit.no_items_found", "No items found"))
 
         sv.trace_add("write", refresh)
         refresh()
@@ -3635,7 +3661,7 @@ class StockInKit(tk.Frame):
     def show_context_menu(self, event):
         menu = tk.Menu(self.tree, tearoff=0)
         menu.add_command(
-            label=lang.t("receive_kit.add_new_row", "Add New Row"), command=lambda: None
+            label=lang.t("in_kit.add_new_row", "Add New Row"), command=lambda: None
         )
         menu.post(event.x_root, event.y_root)
 
@@ -3848,7 +3874,7 @@ class StockInKit(tk.Frame):
             for iid in iids[1:]:
                 while True:
                     new_kn = simpledialog.askstring(
-                        lang.t("receive_kit.kit_number", "Kit Number"),
+                        lang.t("in_kit.kit_number", "Kit Number"),
                         f"Duplicate Kit Number '{kit_number}'. Enter a new Kit Number:",
                         parent=self.parent,
                     )
@@ -3876,7 +3902,7 @@ class StockInKit(tk.Frame):
             for iid in iids[1:]:
                 while True:
                     new_mn = simpledialog.askstring(
-                        lang.t("receive_kit.module_number", "Module Number"),
+                        lang.t("in_kit.module_number", "Module Number"),
                         f"Duplicate Module Number '{mod_number}'. Enter a new Module Number:",
                         parent=self.parent,
                     )
@@ -3970,9 +3996,8 @@ class StockInKit(tk.Frame):
           - Adds new stock_data lines for built kit/module/item composition (qty_in)
           - Uses scenario_id (not scenario_name) for database storage
           - Logs TWO transaction rows per ITEM with qty_to_receive > 0:
-              1) Incoming:  Qty_IN = qty_to_receive, IN_Type = trans_type_var value
-              2) Outgoing mirror: Qty_Out = hidden 'qty_out' column value,
-                 Out_Type = original IN_Type value, Qty_IN = NULL
+              1) OUT: Uses ORIGINAL unique_id (≤6 slashes) from stock_data
+              2) IN:  Uses NEW unique_id (7+ slashes) for kit/module composition
         """
         self.ensure_vars_ready()
 
@@ -3994,7 +4019,7 @@ class StockInKit(tk.Frame):
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
-                lang.t("receive_kit.no_rows", "No rows to save."),
+                lang.t("in_kit.no_rows", "No rows to save."),
                 "error",
             )
             return
@@ -4048,260 +4073,411 @@ class StockInKit(tk.Frame):
 
         collect()
 
-        # ===== STEP 1: CONSUME EXISTING STOCK LINES =====
-        consumed_lines = set()
-
-        for iid in all_iids:
-            vals = self.tree.item(iid, "values")
-            if not vals:
-                continue
-
-            (
-                code,
-                description,
-                t,
-                kit_col,
-                module_col,
-                std_qty,
-                qty_to_receive,
-                expiry_date,
-                batch_no,
-                line_id,
-                qty_out_hidden,
-            ) = vals
-
-            if (t or "").upper() != "ITEM":
-                continue
-
-            if not line_id or not line_id.isdigit():
-                continue
-
-            if not qty_out_hidden or not qty_out_hidden.isdigit():
-                continue
-
-            consume_qty = int(qty_out_hidden)
-
-            if consume_qty <= 0:
-                continue
-
-            if line_id in consumed_lines:
-                continue
-
-            # ✅ Update existing stock_data line's qty_out
-            try:
-                StockData.consume_by_line_id(int(line_id), consume_qty)
-                consumed_lines.add(line_id)
-                logging.info(
-                    f"[IN_KIT] Consumed {consume_qty} from line_id {line_id} for {code}"
-                )
-            except Exception as e:
-                logging.error(f"[IN_KIT] Failed to consume line_id {line_id}: {e}")
-
-        # ===== STEP 2: INSERT NEW LINES & LOG TRANSACTIONS =====
-        for iid in all_iids:
-            vals = self.tree.item(iid, "values")
-            if not vals:
-                continue
-
-            (
-                code,
-                description,
-                t,
-                kit_col,
-                module_col,
-                std_qty,
-                qty_to_receive,
-                expiry_date,
-                batch_no,
-                line_id,
-                qty_out_hidden,
-            ) = vals
-
-            if not qty_to_receive or not str(qty_to_receive).isdigit():
-                continue
-
-            qty_to_receive = int(qty_to_receive)
-
-            if qty_to_receive <= 0:
-                continue
-
-            # ===== PARSE EXPIRY DATE =====
-            parsed_exp = parse_expiry(expiry_date) if expiry_date else None
-
-            # ===== VALIDATE EXPIRY IF REQUIRED =====
-            if (t or "").upper() == "ITEM" and check_expiry_required(code):
-                if not parsed_exp:
-                    self.tree.item(iid, tags=("light_red",))
-                    errors.append(code)
-                    logging.warning(f"[IN_KIT] Missing expiry for {code} (required)")
-                    continue
-
-            # ===== GET METADATA =====
-            meta = self.row_data.get(iid, {})
-            kit_number = meta.get("kit_number")
-            module_number = meta.get("module_number")
-
-            # ===== BUILD UNIQUE_ID COMPONENTS =====
-            kit_struct = kit_col if kit_col and kit_col != "-----" else None
-            module_struct = module_col if module_col and module_col != "-----" else None
-            item_part = code if (t or "").upper() == "ITEM" else None
-            std_numeric = int(std_qty) if str(std_qty).isdigit() else 0
-
-            # ===== GENERATE UNIQUE_ID (8-PART FORMAT) =====
-            unique_id = self.generate_unique_id(
-                scenario_id,
-                kit_struct,
-                module_struct,
-                item_part,
-                std_numeric,
-                parsed_exp,
-                kit_number,
-                module_number,
-            )
-
-            # ===== ADD/UPDATE STOCK_DATA (NEW COMPOSITION LINE) =====
-            try:
-                StockData.add_or_update(
-                    unique_id,
-                    scenario=str(scenario_id),
-                    qty_in=qty_to_receive,
-                    exp_date=parsed_exp,
-                    kit_number=kit_number,
-                    module_number=module_number,
-                )
-                logging.info(
-                    f"[IN_KIT] Added stock_data: {unique_id}, "
-                    f"qty_in={qty_to_receive}, scenario={scenario_id}"
-                )
-            except Exception as e:
-                logging.error(f"[IN_KIT] Failed to add stock_data for {code}: {e}")
-                custom_popup(
-                    self.parent,
-                    lang.t("dialog_titles.error", "Error"),
-                    f"Failed to save {code}: {str(e)}",
-                    "error",
-                )
-                continue
-
-            # ===== LOG TRANSACTION 1: INCOMING (QTY_IN) =====
-            try:
-                self.log_transaction(
-                    unique_id=unique_id,
-                    code=code,
-                    description=description,
-                    expiry_date=parsed_exp,
-                    batch_number=batch_no or None,
-                    scenario=str(scenario_id),
-                    kit=kit_number,
-                    module=module_number,
-                    qty_in=qty_to_receive,
-                    in_type=in_type,
-                    qty_out=None,
-                    out_type=None,
-                    third_party=self.third_party_var.get() or None,
-                    end_user=self.end_user_var.get() or None,
-                    remarks=(
-                        self.remarks_entry.get().strip() if self.remarks_entry else None
-                    ),
-                    movement_type=self.mode_var.get() or "stock_in_kit",
-                    document_number=doc,
-                )
-                logging.debug(f"[IN_KIT] Logged incoming transaction for {code}")
-            except Exception as e:
-                logging.error(
-                    f"[IN_KIT] Failed to log incoming transaction for {code}: {e}"
-                )
-
-            # ===== LOG TRANSACTION 2: OUTGOING MIRROR (QTY_OUT) =====
-            if qty_out_hidden and str(qty_out_hidden).isdigit():
-                out_q = int(qty_out_hidden)
-
-                if out_q > 0:
-                    try:
-                        self.log_transaction(
-                            unique_id=unique_id,
-                            code=code,
-                            description=description,
-                            expiry_date=parsed_exp,
-                            batch_number=batch_no or None,
-                            scenario=str(scenario_id),
-                            kit=kit_number,
-                            module=module_number,
-                            qty_in=None,
-                            in_type=None,
-                            qty_out=out_q,
-                            out_type=in_type,
-                            third_party=self.third_party_var.get() or None,
-                            end_user=self.end_user_var.get() or None,
-                            remarks=(
-                                self.remarks_entry.get().strip()
-                                if self.remarks_entry
-                                else None
-                            ),
-                            movement_type=self.mode_var.get() or "stock_in_kit",
-                            document_number=doc,
-                        )
-                        logging.debug(
-                            f"[IN_KIT] Logged outgoing mirror transaction for {code}"
-                        )
-                    except Exception as e:
-                        logging.error(
-                            f"[IN_KIT] Failed to log outgoing transaction for {code}: {e}"
-                        )
-
-            saved += 1
-
-        # ===== HANDLE ERRORS =====
-        if errors:
-            error_list = ", ".join(set(errors))
+        # ===== DATABASE CONNECTION =====
+        conn = connect_db()
+        if conn is None:
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
-                lang.t(
-                    "receive_kit.invalid_expiry",
-                    "Valid expiry dates are required for these items:\n{items}",
-                    items=error_list,
-                ),
+                "Database connection failed.",
                 "error",
             )
             return
 
-        # ===== SUCCESS MESSAGE =====
-        custom_popup(
-            self.parent,
-            lang.t("dialog_titles.success", "Success"),
-            lang.t(
-                "receive_kit.save_success",
-                "Kit/Module received successfully.\n\n"
-                "Items saved: {saved}\n"
-                "Transactions logged: {transactions}\n"
-                "Document Number: {doc}",
-                saved=saved,
-                transactions=saved * 2,
-                doc=doc,
-            ),
-            "info",
-        )
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
 
-        self.status_var.set(
-            lang.t(
-                "receive_kit.document_number_generated",
-                "Saved {saved} items ({transactions} transactions). Doc: {doc}",
-                saved=saved,
-                transactions=saved * 2,
-                doc=doc,
+        try:
+            # ===== STEP 1: CONSUME EXISTING STOCK LINES =====
+            consumed_lines = set()
+
+            for iid in all_iids:
+                vals = self.tree.item(iid, "values")
+                if not vals or len(vals) < 11:
+                    continue
+
+                (
+                    code,
+                    description,
+                    t,
+                    kit_col,
+                    module_col,
+                    std_qty,
+                    qty_to_receive,
+                    expiry_date,
+                    batch_no,
+                    line_id,
+                    qty_out_hidden,
+                ) = vals
+
+                if (t or "").upper() != "ITEM":
+                    continue
+
+                if (
+                    not line_id
+                    or not str(line_id).strip()
+                    or str(line_id).strip() == ""
+                ):
+                    continue
+
+                line_id_str = str(line_id).strip()
+                if not line_id_str.isdigit() or line_id_str == "0":
+                    continue
+
+                if not qty_out_hidden or not str(qty_out_hidden).isdigit():
+                    continue
+
+                consume_qty = int(qty_out_hidden)
+
+                if consume_qty <= 0:
+                    continue
+
+                if line_id_str in consumed_lines:
+                    continue
+
+                # ✅ Update existing stock_data line's qty_out
+                try:
+                    StockData.consume_by_line_id(int(line_id_str), consume_qty)
+                    consumed_lines.add(line_id_str)
+                    logging.info(
+                        f"[IN_KIT] Consumed {consume_qty} from line_id {line_id_str} for {code}"
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"[IN_KIT] Failed to consume line_id {line_id_str}: {e}"
+                    )
+
+            # ===== STEP 2: INSERT NEW LINES & LOG TRANSACTIONS =====
+            for iid in all_iids:
+                vals = self.tree.item(iid, "values")
+                if not vals or len(vals) < 11:
+                    continue
+
+                (
+                    code,
+                    description,
+                    t,
+                    kit_col,
+                    module_col,
+                    std_qty,
+                    qty_to_receive,
+                    expiry_date,
+                    batch_no,
+                    line_id,
+                    qty_out_hidden,
+                ) = vals
+
+                # Skip non-items
+                if (t or "").upper() != "ITEM":
+                    continue
+
+                if not qty_to_receive or not str(qty_to_receive).isdigit():
+                    continue
+
+                qty_to_receive = int(qty_to_receive)
+
+                if qty_to_receive <= 0:
+                    continue
+
+                # ===== PARSE EXPIRY DATE =====
+                parsed_exp = parse_expiry(expiry_date) if expiry_date else None
+
+                # ===== VALIDATE EXPIRY IF REQUIRED =====
+                if check_expiry_required(code):
+                    if not parsed_exp:
+                        self.tree.item(iid, tags=("light_red",))
+                        errors.append(code)
+                        logging.warning(
+                            f"[IN_KIT] Missing expiry for {code} (required)"
+                        )
+                        continue
+
+                # ===== GET METADATA =====
+                meta = self.row_data.get(iid, {})
+                kit_number = meta.get("kit_number")
+                module_number = meta.get("module_number")
+
+                # ===== DEBUG: Log line_id value =====
+                logging.info(
+                    f"[IN_KIT] 🔍 Processing {code}: line_id='{line_id}' "
+                    f"(type: {type(line_id).__name__})"
+                )
+
+                # ===== FETCH ORIGINAL UNIQUE_ID FOR OUT TRANSACTION =====
+                original_unique_id = None
+
+                # Validate and clean line_id
+                if line_id:
+                    line_id_str = str(line_id).strip()
+
+                    if line_id_str and line_id_str.isdigit() and line_id_str != "0":
+                        try:
+                            line_id_int = int(line_id_str)
+                            logging.info(
+                                f"[IN_KIT] 🔍 Querying stock_data for line_id={line_id_int}"
+                            )
+
+                            cur.execute(
+                                "SELECT unique_id FROM stock_data WHERE line_id = ?",
+                                (line_id_int,),
+                            )
+                            result = cur.fetchone()
+
+                            if result:
+                                original_unique_id = result["unique_id"]
+                                slash_count = original_unique_id.count("/")
+
+                                logging.info(
+                                    f"[IN_KIT] ✅ Found original unique_id: {original_unique_id}"
+                                )
+                                logging.info(
+                                    f"[IN_KIT]    Slash count: {slash_count} "
+                                    f"(expected ≤6)"
+                                )
+
+                                # Validate format
+                                if slash_count > 6:
+                                    logging.error(
+                                        f"[IN_KIT] ❌ INVALID FORMAT! Original unique_id "
+                                        f"has {slash_count} slashes (expected ≤6). "
+                                        f"This looks like a composition ID, not on-shelf stock!"
+                                    )
+                                    original_unique_id = None
+                            else:
+                                logging.warning(
+                                    f"[IN_KIT] ❌ No row found in stock_data for "
+                                    f"line_id={line_id_int}"
+                                )
+                        except sqlite3.Error as e:
+                            logging.error(
+                                f"[IN_KIT] ❌ SQL Error fetching original unique_id: {e}"
+                            )
+                        except Exception as e:
+                            logging.error(
+                                f"[IN_KIT] ❌ Exception processing line_id: {e}"
+                            )
+                    else:
+                        logging.warning(
+                            f"[IN_KIT] ❌ Invalid line_id format: '{line_id_str}' for {code}"
+                        )
+                else:
+                    logging.warning(f"[IN_KIT] ❌ No line_id provided for {code}")
+
+                # ===== CRITICAL: Stop if no original_unique_id =====
+                if not original_unique_id:
+                    logging.error(
+                        f"[IN_KIT] ❌ CANNOT SAVE {code}: No valid original unique_id found!"
+                    )
+                    errors.append(
+                        f"{code}: Missing original stock reference (line_id: {line_id})"
+                    )
+                    continue
+
+                # ===== BUILD NEW UNIQUE_ID FOR COMPOSITION =====
+                kit_struct = kit_col if kit_col and kit_col != "-----" else None
+                module_struct = (
+                    module_col if module_col and module_col != "-----" else None
+                )
+                item_part = code
+                std_numeric = int(std_qty) if str(std_qty).isdigit() else 0
+
+                # Generate new unique_id (8-part format)
+                new_unique_id = self.generate_unique_id(
+                    scenario_id,
+                    kit_struct,
+                    module_struct,
+                    item_part,
+                    std_numeric,
+                    parsed_exp,
+                    kit_number,
+                    module_number,
+                )
+
+                new_slash_count = new_unique_id.count("/")
+                logging.info(f"[IN_KIT] ✅ Generated new unique_id: {new_unique_id}")
+                logging.info(
+                    f"[IN_KIT]    Slash count: {new_slash_count} (expected >6)"
+                )
+
+                # ===== VALIDATE: Must be different =====
+                if original_unique_id == new_unique_id:
+                    logging.error(
+                        f"[IN_KIT] ❌ FATAL ERROR: Original and new unique_ids are "
+                        f"IDENTICAL! unique_id: {original_unique_id}"
+                    )
+                    errors.append(f"{code}: unique_id conflict")
+                    continue
+
+                # ===== LOG COMPARISON =====
+                logging.info(f"[IN_KIT] 📊 Comparison for {code}:")
+                logging.info(f"[IN_KIT]    OUT will use: {original_unique_id}")
+                logging.info(f"[IN_KIT]    IN  will use: {new_unique_id}")
+
+                # ===== ADD/UPDATE STOCK_DATA (NEW COMPOSITION LINE) =====
+                try:
+                    StockData.add_or_update(
+                        new_unique_id,
+                        scenario=str(scenario_id),
+                        qty_in=qty_to_receive,
+                        exp_date=parsed_exp,
+                        kit_number=kit_number,
+                        module_number=module_number,
+                    )
+                    logging.info(
+                        f"[IN_KIT] ✅ Added stock_data with new unique_id, qty_in={qty_to_receive}"
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"[IN_KIT] ❌ Failed to add stock_data for {code}: {e}"
+                    )
+                    errors.append(f"{code}: {str(e)}")
+                    continue
+
+                # ===== LOG TRANSACTION 1: OUTGOING (FROM ORIGINAL STOCK) =====
+                if qty_out_hidden and str(qty_out_hidden).isdigit():
+                    out_q = int(qty_out_hidden)
+                    if out_q > 0:
+                        logging.info(f"[IN_KIT] 📤 Logging OUT transaction for {code}")
+                        logging.info(
+                            f"[IN_KIT]    Using unique_id: {original_unique_id}"
+                        )
+
+                        try:
+                            self.log_transaction(
+                                unique_id=original_unique_id,  # ✅ ORIGINAL (≤6 slashes)
+                                code=code,
+                                description=description,
+                                expiry_date=parsed_exp,
+                                batch_number=batch_no or None,
+                                scenario=scenario_name,
+                                kit=kit_number,
+                                module=module_number,
+                                qty_in=None,
+                                in_type=None,
+                                qty_out=out_q,
+                                out_type=in_type,
+                                third_party=self.third_party_var.get() or None,
+                                end_user=self.end_user_var.get() or None,
+                                remarks=(
+                                    self.remarks_entry.get().strip()
+                                    if self.remarks_entry
+                                    else None
+                                ),
+                                movement_type="Stock Consumption",
+                                document_number=doc,
+                            )
+                            logging.info(
+                                f"[IN_KIT] ✅ OUT transaction logged: {code} qty={out_q}"
+                            )
+                        except Exception as e:
+                            logging.error(
+                                f"[IN_KIT] ❌ Failed to log OUT transaction for {code}: {e}"
+                            )
+                            errors.append(f"{code} OUT: {str(e)}")
+
+                # ===== LOG TRANSACTION 2: INCOMING (NEW COMPOSITION) =====
+                logging.info(f"[IN_KIT] 📥 Logging IN transaction for {code}")
+                logging.info(f"[IN_KIT]    Using unique_id: {new_unique_id}")
+
+                try:
+                    self.log_transaction(
+                        unique_id=new_unique_id,  # ✅ NEW (7+ slashes)
+                        code=code,
+                        description=description,
+                        expiry_date=parsed_exp,
+                        batch_number=batch_no or None,
+                        scenario=scenario_name,
+                        kit=kit_number,
+                        module=module_number,
+                        qty_in=qty_to_receive,
+                        in_type=in_type,
+                        qty_out=None,
+                        out_type=None,
+                        third_party=self.third_party_var.get() or None,
+                        end_user=self.end_user_var.get() or None,
+                        remarks=(
+                            self.remarks_entry.get().strip()
+                            if self.remarks_entry
+                            else None
+                        ),
+                        movement_type="Kit/Module Generation",
+                        document_number=doc,
+                    )
+                    logging.info(
+                        f"[IN_KIT] ✅ IN transaction logged: {code} qty={qty_to_receive}"
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"[IN_KIT] ❌ Failed to log IN transaction for {code}: {e}"
+                    )
+                    errors.append(f"{code} IN: {str(e)}")
+
+                saved += 1
+
+            conn.commit()
+
+            # ===== HANDLE ERRORS =====
+            if errors:
+                error_list = "\n".join(set(errors[:10]))
+                if len(errors) > 10:
+                    error_list += f"\n... and {len(errors) - 10} more errors"
+
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.warning", "Warning"),
+                    lang.t(
+                        "receive_kit.save_with_errors",
+                        "Saved {saved} items, but some had errors:\n\n{errors}",
+                        saved=saved,
+                        errors=error_list,
+                    ),
+                    "warning",
+                )
+            else:
+                # ===== SUCCESS MESSAGE =====
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.success", "Success"),
+                    lang.t(
+                        "receive_kit.save_complete",
+                        "Kit/Module received successfully!\n\n"
+                        "Items saved: {saved}\n"
+                        "Document: {doc}",
+                        saved=saved,
+                        doc=doc,
+                    ),
+                    "success",
+                )
+
+            self.status_var.set(
+                lang.t(
+                    "receive_kit.save_status",
+                    "Saved {saved} items. Document: {doc}",
+                    saved=saved,
+                    doc=doc,
+                )
             )
-        )
 
-        # ===== CLEAR FORM =====
-        self.clear_form()
+            # ===== CLEAR FORM =====
+            self.clear_form()
+
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"[IN_KIT] Save error: {e}")
+            custom_popup(
+                self.parent,
+                lang.t("dialog_titles.error", "Error"),
+                f"Failed to save:\n\n{str(e)}",
+                "error",
+            )
+        finally:
+            cur.close()
+            conn.close()
 
     # ------------- Export -------------
     def export_data(self, rows_to_export=None):
         if not self.tree.get_children():
-            self.status_var.set(
-                lang.t("receive_kit.export_cancelled", "Export cancelled")
-            )
+            self.status_var.set(lang.t("in_kit.export_cancelled", "Export cancelled"))
             return
         default_dir = "D:/ISEPREP"
         if not os.path.exists(default_dir):
@@ -4330,13 +4506,11 @@ class StockInKit(tk.Frame):
             initialdir=default_dir,
         )
         if not path:
-            self.status_var.set(
-                lang.t("receive_kit.export_cancelled", "Export cancelled")
-            )
+            self.status_var.set(lang.t("in_kit.export_cancelled", "Export cancelled"))
             return
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws_title = lang.t("receive_kit.title", "Receive Kit-Module")
+        ws_title = lang.t("in_kit.title", "Receive Kit-Module")
         ws.title = ws_title[:31]
         project_name, project_code = fetch_project_details()
         ws["A1"] = (
@@ -4350,15 +4524,15 @@ class StockInKit(tk.Frame):
         )
         ws.append([])
         headers = [
-            lang.t("receive_kit.code", "Code"),
-            lang.t("receive_kit.description", "Description"),
-            lang.t("receive_kit.type", "Type"),
-            lang.t("receive_kit.kit", "Kit"),
-            lang.t("receive_kit.module", "Module"),
-            lang.t("receive_kit.std_qty", "Std Qty"),
-            lang.t("receive_kit.qty_to_receive", "Qty to Receive"),
-            lang.t("receive_kit.expiry_date", "Expiry Date"),
-            lang.t("receive_kit.batch_no", "Batch No"),
+            lang.t("in_kit.code", "Code"),
+            lang.t("in_kit.description", "Description"),
+            lang.t("in_kit.type", "Type"),
+            lang.t("in_kit.kit", "Kit"),
+            lang.t("in_kit.module", "Module"),
+            lang.t("in_kit.std_qty", "Std Qty"),
+            lang.t("in_kit.qty_to_receive", "Qty to Receive"),
+            lang.t("in_kit.expiry_date", "Expiry Date"),
+            lang.t("in_kit.batch_no", "Batch No"),
             "line_id",
             "qty_out_consumed",
         ]
@@ -4391,11 +4565,11 @@ class StockInKit(tk.Frame):
         custom_popup(
             self.parent,
             lang.t("dialog_titles.success", "Success"),
-            lang.t("receive_kit.export_success", f"Export successful: {path}"),
+            lang.t("in_kit.export_success", f"Export successful: {path}"),
             "info",
         )
         self.status_var.set(
-            lang.t("receive_kit.export_success", f"Export successful: {path}")
+            lang.t("in_kit.export_success", f"Export successful: {path}")
         )
 
 
