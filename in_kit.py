@@ -18,8 +18,10 @@ from manage_items import get_item_description, detect_type
 from language_manager import lang
 from popup_utils import custom_popup
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 # ---------------------------------------------------------------
 # Dialog centering helper
@@ -44,16 +46,21 @@ def _center_child(win: tk.Toplevel, parent: tk.Widget):
     except Exception:
         pass
 
+
 # Center tkinter.simpledialog (monkey patch once)
 import tkinter.simpledialog as _sd
+
 if not hasattr(_sd, "_CenteredQueryString"):
     _OrigQS = _sd._QueryString
+
     class _CenteredQueryString(_OrigQS):
         def body(self, master):
             res = super().body(master)
             _center_child(self, self.parent)
             return res
+
     _sd._QueryString = _CenteredQueryString
+
 
 # ---------------------------------------------------------------
 # Parsing / DB helper functions
@@ -64,12 +71,12 @@ def parse_expiry(date_str: str) -> str:
     ds = str(date_str).strip()
     if ds.lower() == "none":
         return None
-    ds = re.sub(r'[-.\s]+', '/', ds)
+    ds = re.sub(r"[-.\s]+", "/", ds)
     patterns = [
-        r'^(\d{1,2})/(\d{1,2})/(\d{4})$',
-        r'^(\d{4})/(\d{1,2})/(\d{1,2})$',
-        r'^(\d{1,2})/(\d{4})$',
-        r'^(\d{4})/(\d{1,2})$'
+        r"^(\d{1,2})/(\d{1,2})/(\d{4})$",
+        r"^(\d{4})/(\d{1,2})/(\d{1,2})$",
+        r"^(\d{1,2})/(\d{4})$",
+        r"^(\d{4})/(\d{1,2})$",
     ]
     for idx, pat in enumerate(patterns):
         m = re.match(pat, ds)
@@ -96,6 +103,7 @@ def parse_expiry(date_str: str) -> str:
             return None
     return None
 
+
 def check_expiry_required(code: str) -> bool:
     if not code:
         return False
@@ -109,7 +117,7 @@ def check_expiry_required(code: str) -> bool:
         cols = {r[1].lower() for r in cur.fetchall()}
         if "remarks" not in cols or "code" not in cols:
             return False
-        cur.execute("SELECT remarks FROM items_management WHERE code=?",(code,))
+        cur.execute("SELECT remarks FROM items_management WHERE code=?", (code,))
         row = cur.fetchone()
         if not row or not row["remarks"]:
             return False
@@ -121,26 +129,31 @@ def check_expiry_required(code: str) -> bool:
         cur.close()
         conn.close()
 
+
 def fetch_project_details():
     conn = connect_db()
     if conn is None:
-        return ("Unknown Project","PRJ")
+        return ("Unknown Project", "PRJ")
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         r = cur.fetchone()
-        return (r[0] if r and r[0] else "Unknown Project",
-                r[1] if r and r[1] else "PRJ")
+        return (
+            r[0] if r and r[0] else "Unknown Project",
+            r[1] if r and r[1] else "PRJ",
+        )
     except sqlite3.Error as e:
         logging.error(f"[fetch_project_details] {e}")
-        return ("Unknown Project","PRJ")
+        return ("Unknown Project", "PRJ")
     finally:
         cur.close()
         conn.close()
 
+
 def fetch_third_parties():
     conn = connect_db()
-    if conn is None: return []
+    if conn is None:
+        return []
     cur = conn.cursor()
     try:
         cur.execute("SELECT name FROM third_parties ORDER BY name")
@@ -152,9 +165,11 @@ def fetch_third_parties():
         cur.close()
         conn.close()
 
+
 def fetch_end_users():
     conn = connect_db()
-    if conn is None: return []
+    if conn is None:
+        return []
     cur = conn.cursor()
     try:
         cur.execute("SELECT name FROM end_users ORDER BY name")
@@ -166,13 +181,21 @@ def fetch_end_users():
         cur.close()
         conn.close()
 
+
 # ---------------------------------------------------------------
 # stock_data manipulator
 # ---------------------------------------------------------------
 class StockData:
     @staticmethod
-    def add_or_update(unique_id, scenario, qty_in=0, qty_out=0,
-                      exp_date=None, kit_number=None, module_number=None):
+    def add_or_update(
+        unique_id,
+        scenario,
+        qty_in=0,
+        qty_out=0,
+        exp_date=None,
+        kit_number=None,
+        module_number=None,
+    ):
         conn = connect_db()
         if conn is None:
             raise ValueError("DB connection failed")
@@ -181,37 +204,81 @@ class StockData:
             cur.execute("PRAGMA table_info(stock_data)")
             cols = {row[1].lower() for row in cur.fetchall()}
             has_scenario = "scenario" in cols
-            cur.execute("SELECT qty_in, qty_out FROM stock_data WHERE unique_id=?",(unique_id,))
+            cur.execute(
+                "SELECT qty_in, qty_out FROM stock_data WHERE unique_id=?", (unique_id,)
+            )
             row = cur.fetchone()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if row:
                 new_in = (row[0] or 0) + qty_in
                 new_out = (row[1] or 0) + qty_out
                 if has_scenario:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         UPDATE stock_data
                            SET qty_in=?, qty_out=?, exp_date=?, kit_number=?, module_number=?, scenario=?, updated_at=?
                          WHERE unique_id=?""",
-                        (new_in, new_out, exp_date, kit_number, module_number, scenario, now, unique_id))
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            scenario,
+                            now,
+                            unique_id,
+                        ),
+                    )
                 else:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         UPDATE stock_data
                            SET qty_in=?, qty_out=?, exp_date=?, kit_number=?, module_number=?, updated_at=?
                          WHERE unique_id=?""",
-                        (new_in, new_out, exp_date, kit_number, module_number, now, unique_id))
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            now,
+                            unique_id,
+                        ),
+                    )
             else:
                 if has_scenario:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT INTO stock_data
                             (unique_id, qty_in, qty_out, exp_date, kit_number, module_number, scenario, updated_at)
                         VALUES (?,?,?,?,?,?,?,?)""",
-                        (unique_id, qty_in, qty_out, exp_date, kit_number, module_number, scenario, now))
+                        (
+                            unique_id,
+                            qty_in,
+                            qty_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            scenario,
+                            now,
+                        ),
+                    )
                 else:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT INTO stock_data
                             (unique_id, qty_in, qty_out, exp_date, kit_number, module_number, updated_at)
                         VALUES (?,?,?,?,?,?,?)""",
-                        (unique_id, qty_in, qty_out, exp_date, kit_number, module_number, now))
+                        (
+                            unique_id,
+                            qty_in,
+                            qty_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            now,
+                        ),
+                    )
             conn.commit()
         except sqlite3.Error as e:
             conn.rollback()
@@ -233,17 +300,22 @@ class StockData:
             raise ValueError("DB connection failed")
         cur = conn.cursor()
         try:
-            cur.execute("SELECT qty_in, qty_out FROM stock_data WHERE line_id=?", (line_id,))
+            cur.execute(
+                "SELECT qty_in, qty_out FROM stock_data WHERE line_id=?", (line_id,)
+            )
             row = cur.fetchone()
             if not row:
                 logging.warning(f"[consume_by_line_id] line_id {line_id} not found")
                 return
             new_out = (row[1] or 0) + qty_out_add
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE stock_data
                    SET qty_out = ?, updated_at = CURRENT_TIMESTAMP
                  WHERE line_id = ?
-            """, (new_out, line_id))
+            """,
+                (new_out, line_id),
+            )
             conn.commit()
         except sqlite3.Error as e:
             conn.rollback()
@@ -251,6 +323,7 @@ class StockData:
         finally:
             cur.close()
             conn.close()
+
 
 # ---------------------------------------------------------------
 # Main UI class
@@ -268,22 +341,29 @@ class StockInKit(tk.Frame):
             try:
                 return tk.StringVar(value=default)
             except Exception:
+
                 class DummyVar:
-                    def __init__(self, v): self._v = v
-                    def set(self, v): self._v = v
-                    def get(self): return self._v
+                    def __init__(self, v):
+                        self._v = v
+
+                    def set(self, v):
+                        self._v = v
+
+                    def get(self):
+                        return self._v
+
                 return DummyVar(default)
 
-        self.trans_type_var    = _sv(self.FIXED_IN_TYPE)
-        self.scenario_var      = _sv("")
-        self.mode_var          = _sv("")
-        self.kit_var           = _sv("")
-        self.kit_number_var    = _sv("")
-        self.module_var        = _sv("")
+        self.trans_type_var = _sv(self.FIXED_IN_TYPE)
+        self.scenario_var = _sv("")
+        self.mode_var = _sv("")
+        self.kit_var = _sv("")
+        self.kit_number_var = _sv("")
+        self.module_var = _sv("")
         self.module_number_var = _sv("")
-        self.end_user_var      = _sv("")
-        self.third_party_var   = _sv("")
-        self.status_var        = _sv(lang.t("receive_kit.ready","Ready"))
+        self.end_user_var = _sv("")
+        self.third_party_var = _sv("")
+        self.status_var = _sv(lang.t("receive_kit.ready", "Ready"))
 
         self.tree = None
         self.search_var = None
@@ -318,68 +398,67 @@ class StockInKit(tk.Frame):
         else:
             logging.error("Parent window missing at initialization")
 
-
     # ---------------------------------------------------------
     # Localization & Code Extraction Helpers
     # ---------------------------------------------------------
     def _all_label(self):
         """Return localized 'All' label for dropdowns."""
         return lang.t("in_kit.all", "All")
-    
+
     def _norm_all(self, val):
         """Normalize 'All' variants to English 'All' for internal use."""
         all_lbl = self._all_label()
         return "All" if (val is None or val == "" or val == all_lbl) else val
-    
+
     def _extract_code_from_display(self, display_string: str) -> str:
         """
         Extract code from "CODE - Description" format.
         Handles prefixes like "● CODE - Description".
-        
+
         Args:
             display_string: Either "CODE" or "CODE - Description"
-        
+
         Returns:
             Just the code part, or None if empty/invalid
         """
         if not display_string:
             return None
-        
+
         display_string = display_string.strip()
-        
+
         if display_string == "-----":
             return None
-        
+
         # Strip visual indicators
         prefixes = ["●", "■", "◆", "►", "[S]", "[Primary]", "[Standalone]"]
         for prefix in prefixes:
             if display_string.startswith(prefix):
-                display_string = display_string[len(prefix):].strip()
+                display_string = display_string[len(prefix) :].strip()
                 break
-        
+
         # Extract code from "CODE - Description"
         if " - " in display_string:
             code = display_string.split(" - ", 1)[0].strip()
             return code if code else None
-        
+
         return display_string
 
     def _canon_movement_type(self, display_label: str) -> str:
         """
         Convert localized movement type to canonical English for database storage.
-        
+
         Args:
             display_label: Localized label from dropdown
-        
+
         Returns:
             Canonical English movement type
         """
         internal_key = self.mode_label_to_key.get(display_label)
-        
+
         if not internal_key:
             logging.warning(f"[IN_KIT] Unknown movement type label: {display_label}")
             return display_label
-        
+
         # Map internal keys to canonical English
         canon_map = {
             "receive_kit": "Receive Kit",
@@ -387,9 +466,9 @@ class StockInKit(tk.Frame):
             "receive_module_scenario": "Receive module from scenario",
             "receive_module_kit": "Receive module from Kit",
             "receive_items_kit": "Receive items from Kit",
-            "receive_items_module": "Receive items from module"
+            "receive_items_module": "Receive items from module",
         }
-        
+
         canonical = canon_map.get(internal_key, internal_key)
         logging.debug(f"[IN_KIT] Movement type: '{display_label}' → '{canonical}'")
         return canonical
@@ -397,10 +476,10 @@ class StockInKit(tk.Frame):
     def _display_for_movement_type(self, canonical_value: str) -> str:
         """
         Convert canonical English movement type to localized display label.
-        
+
         Args:
             canonical_value: English movement type from database
-        
+
         Returns:
             Localized display label
         """
@@ -410,17 +489,16 @@ class StockInKit(tk.Frame):
             "Receive module from scenario": "receive_module_scenario",
             "Receive module from Kit": "receive_module_kit",
             "Receive items from Kit": "receive_items_kit",
-            "Receive items from module": "receive_items_module"
+            "Receive items from module": "receive_items_module",
         }
-        
+
         internal_key = reverse_canon_map.get(canonical_value, "receive_kit")
-        
+
         for label, key in self.mode_label_to_key.items():
             if key == internal_key:
                 return label
-        
-        return canonical_value
 
+        return canonical_value
 
     # ------------- Ensure Vars ----------------
     def ensure_vars_ready(self):
@@ -434,7 +512,7 @@ class StockInKit(tk.Frame):
             "module_number_var": "",
             "end_user_var": "",
             "third_party_var": "",
-            "status_var": lang.t("receive_kit.ready","Ready")
+            "status_var": lang.t("receive_kit.ready", "Ready"),
         }
         for name, default in needed.items():
             cur = getattr(self, name, None)
@@ -442,10 +520,17 @@ class StockInKit(tk.Frame):
                 try:
                     setattr(self, name, tk.StringVar(value=default))
                 except Exception:
+
                     class DummyVar:
-                        def __init__(self,v): self._v=v
-                        def set(self,v): self._v=v
-                        def get(self): return self._v
+                        def __init__(self, v):
+                            self._v = v
+
+                        def set(self, v):
+                            self._v = v
+
+                        def get(self):
+                            return self._v
+
                     setattr(self, name, DummyVar(default))
 
     # ------------- Scenario helpers ------------
@@ -457,7 +542,7 @@ class StockInKit(tk.Frame):
         cur = conn.cursor()
         try:
             cur.execute("SELECT scenario_id, name FROM scenarios ORDER BY name")
-            return {str(r['scenario_id']): r['name'] for r in cur.fetchall()}
+            return {str(r["scenario_id"]): r["name"] for r in cur.fetchall()}
         except sqlite3.Error as e:
             logging.error(f"[fetch_scenario_map] {e}")
             return {}
@@ -467,12 +552,13 @@ class StockInKit(tk.Frame):
 
     def fetch_scenarios(self):
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
             cur.execute("SELECT scenario_id, name FROM scenarios ORDER BY name")
-            return [{"id": r['scenario_id'], "name": r['name']} for r in cur.fetchall()]
+            return [{"id": r["scenario_id"], "name": r["name"]} for r in cur.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"[fetch_scenarios] {e}")
             return []
@@ -484,12 +570,35 @@ class StockInKit(tk.Frame):
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
-            ("receive_kit",        lang.t("receive_kit.mode_generate_kit", "Generate Kit")),
-            ("add_standalone",     lang.t("receive_kit.mode_add_standalone",     "Add standalone item/s in {scenario}", scenario=scenario)),
-            ("add_module_scenario",lang.t("receive_kit.mode_add_module_scenario","Add module to {scenario}", scenario=scenario)),
-            ("add_module_kit",     lang.t("receive_kit.mode_add_module_kit",     "Add module to a kit")),
-            ("add_items_kit",      lang.t("receive_kit.mode_add_items_kit",      "Add items to a kit")),
-            ("add_items_module",   lang.t("receive_kit.mode_add_items_module",   "Add items to a module"))
+            ("receive_kit", lang.t("receive_kit.mode_generate_kit", "Generate Kit")),
+            (
+                "add_standalone",
+                lang.t(
+                    "receive_kit.mode_add_standalone",
+                    "Add standalone item/s in {scenario}",
+                    scenario=scenario,
+                ),
+            ),
+            (
+                "add_module_scenario",
+                lang.t(
+                    "receive_kit.mode_add_module_scenario",
+                    "Add module to {scenario}",
+                    scenario=scenario,
+                ),
+            ),
+            (
+                "add_module_kit",
+                lang.t("receive_kit.mode_add_module_kit", "Add module to a kit"),
+            ),
+            (
+                "add_items_kit",
+                lang.t("receive_kit.mode_add_items_kit", "Add items to a kit"),
+            ),
+            (
+                "add_items_module",
+                lang.t("receive_kit.mode_add_items_module", "Add items to a module"),
+            ),
         ]
         self.mode_label_to_key = {lbl: key for key, lbl in self.mode_definitions}
 
@@ -514,139 +623,220 @@ class StockInKit(tk.Frame):
             self.render_ui()
         except tk.TclError as e:
             logging.error(f"[initialize_ui] {e}")
-            custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                         f"Failed to render UI: {e}", "error")
+            custom_popup(
+                self.parent,
+                lang.t("dialog_titles.error", "Error"),
+                f"Failed to render UI: {e}",
+                "error",
+            )
 
     def render_ui(self):
         self.ensure_vars_ready()
         for w in list(self.parent.winfo_children()):
-            try: w.destroy()
-            except: pass
+            try:
+                w.destroy()
+            except:
+                pass
 
-        title_lbl = tk.Label(self.parent,
-                             text=lang.t("receive_kit.title", "Receive Kit-Module"),
-                             font=("Helvetica", 20, "bold"),
-                             bg="#F0F4F8")
+        title_lbl = tk.Label(
+            self.parent,
+            text=lang.t("receive_kit.title", "Receive Kit-Module"),
+            font=("Helvetica", 20, "bold"),
+            bg="#F0F4F8",
+        )
         title_lbl.pack(pady=10, fill="x")
 
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tk.Label(main, text=lang.t("receive_kit.scenario","Scenario:"), bg="#F0F4F8")\
-            .grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.scenario_cb = ttk.Combobox(main, textvariable=self.scenario_var,
-                                        state="readonly", width=40)
+        tk.Label(
+            main, text=lang.t("receive_kit.scenario", "Scenario:"), bg="#F0F4F8"
+        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.scenario_cb = ttk.Combobox(
+            main, textvariable=self.scenario_var, state="readonly", width=40
+        )
         self.scenario_cb.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_scenario_selected)
 
-        tk.Label(main, text=lang.t("receive_kit.movement_type","Movement Type:"), bg="#F0F4F8")\
-            .grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.mode_cb = ttk.Combobox(main, textvariable=self.mode_var,
-                                    state="readonly", width=40)
+        tk.Label(
+            main,
+            text=lang.t("receive_kit.movement_type", "Movement Type:"),
+            bg="#F0F4F8",
+        ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.mode_cb = ttk.Combobox(
+            main, textvariable=self.mode_var, state="readonly", width=40
+        )
         self.mode_cb.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.mode_cb.bind("<<ComboboxSelected>>", self.update_mode)
 
-        tk.Label(main, text=lang.t("receive_kit.select_kit","Select Kit:"), bg="#F0F4F8")\
-            .grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=80)
+        tk.Label(
+            main, text=lang.t("receive_kit.select_kit", "Select Kit:"), bg="#F0F4F8"
+        ).grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.kit_cb = ttk.Combobox(
+            main, textvariable=self.kit_var, state="disabled", width=80
+        )
         self.kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
 
         # ✅ Kit Number - Combobox (enabled conditionally for selecting EXISTING kits)
-        tk.Label(main, text=lang.t("in_kit.kit_number","Kit Number:"), bg="#F0F4F8")\
-            .grid(row=2, column=2, padx=5, pady=5, sticky="w")
-        self.kit_number_cb = ttk.Combobox(main, textvariable=self.kit_number_var, 
-                                          state="disabled", width=22)
+        tk.Label(
+            main, text=lang.t("in_kit.kit_number", "Kit Number:"), bg="#F0F4F8"
+        ).grid(row=2, column=2, padx=5, pady=5, sticky="w")
+        self.kit_number_cb = ttk.Combobox(
+            main, textvariable=self.kit_number_var, state="disabled", width=22
+        )
         self.kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
 
-        tk.Label(main, text=lang.t("receive_kit.select_module","Select Module:"), bg="#F0F4F8")\
-            .grid(row=3, column=0, padx=5, pady=5, sticky="w")
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=80)
+        tk.Label(
+            main,
+            text=lang.t("receive_kit.select_module", "Select Module:"),
+            bg="#F0F4F8",
+        ).grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.module_cb = ttk.Combobox(
+            main, textvariable=self.module_var, state="disabled", width=80
+        )
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
 
         # ✅ Module Number - Combobox (enabled conditionally for selecting EXISTING modules)
-        tk.Label(main, text=lang.t("in_kit.module_number","Module Number:"), bg="#F0F4F8")\
-            .grid(row=3, column=2, padx=5, pady=5, sticky="w")
-        self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, 
-                                             state="disabled", width=22)
+        tk.Label(
+            main, text=lang.t("in_kit.module_number", "Module Number:"), bg="#F0F4F8"
+        ).grid(row=3, column=2, padx=5, pady=5, sticky="w")
+        self.module_number_cb = ttk.Combobox(
+            main, textvariable=self.module_number_var, state="disabled", width=22
+        )
         self.module_number_cb.grid(row=3, column=3, padx=5, pady=5, sticky="w")
-        self.module_number_cb.bind("<<ComboboxSelected>>", self.on_module_number_selected)
-        
+        self.module_number_cb.bind(
+            "<<ComboboxSelected>>", self.on_module_number_selected
+        )
+
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
-        tk.Label(type_frame, text=lang.t("receive_kit.in_type","IN Type:"), bg="#F0F4F8")\
-            .grid(row=0, column=0, padx=5, sticky="w")
-        tk.Label(type_frame, textvariable=self.trans_type_var,
-                 bg="#E0E0E0", fg="#000", relief="sunken", width=30, anchor="w")\
-            .grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.in_type", "IN Type:"), bg="#F0F4F8"
+        ).grid(row=0, column=0, padx=5, sticky="w")
+        tk.Label(
+            type_frame,
+            textvariable=self.trans_type_var,
+            bg="#E0E0E0",
+            fg="#000",
+            relief="sunken",
+            width=30,
+            anchor="w",
+        ).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        tk.Label(type_frame, text=lang.t("receive_kit.end_user","End User:"), bg="#F0F4F8")\
-            .grid(row=0, column=2, padx=5, sticky="w")
-        self.end_user_cb = ttk.Combobox(type_frame, textvariable=self.end_user_var,
-                                        state="disabled", width=30)
-        self.end_user_cb['values'] = fetch_end_users()
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.end_user", "End User:"), bg="#F0F4F8"
+        ).grid(row=0, column=2, padx=5, sticky="w")
+        self.end_user_cb = ttk.Combobox(
+            type_frame, textvariable=self.end_user_var, state="disabled", width=30
+        )
+        self.end_user_cb["values"] = fetch_end_users()
         self.end_user_cb.grid(row=0, column=3, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("receive_kit.third_party","Third Party:"), bg="#F0F4F8")\
-            .grid(row=0, column=4, padx=5, sticky="w")
-        self.third_party_cb = ttk.Combobox(type_frame, textvariable=self.third_party_var,
-                                           state="disabled", width=30)
-        self.third_party_cb['values'] = fetch_third_parties()
+        tk.Label(
+            type_frame,
+            text=lang.t("receive_kit.third_party", "Third Party:"),
+            bg="#F0F4F8",
+        ).grid(row=0, column=4, padx=5, sticky="w")
+        self.third_party_cb = ttk.Combobox(
+            type_frame, textvariable=self.third_party_var, state="disabled", width=30
+        )
+        self.third_party_cb["values"] = fetch_third_parties()
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
 
-        tk.Label(type_frame, text=lang.t("receive_kit.remarks","Remarks:"), bg="#F0F4F8")\
-            .grid(row=0, column=6, padx=5, sticky="w")
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.remarks", "Remarks:"), bg="#F0F4F8"
+        ).grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
 
-        tk.Label(main, text=lang.t("receive_kit.search_item","Search Kit/Module/Item:"), bg="#F0F4F8")\
-            .grid(row=5, column=0, padx=5, pady=(10,0), sticky="w")
+        tk.Label(
+            main,
+            text=lang.t("receive_kit.search_item", "Search Kit/Module/Item:"),
+            bg="#F0F4F8",
+        ).grid(row=5, column=0, padx=5, pady=(10, 0), sticky="w")
         self.search_var = tk.StringVar()
         search_entry = tk.Entry(main, textvariable=self.search_var, width=50)
-        search_entry.grid(row=5, column=1, columnspan=3, padx=5, pady=(10,0), sticky="w")
+        search_entry.grid(
+            row=5, column=1, columnspan=3, padx=5, pady=(10, 0), sticky="w"
+        )
         search_entry.bind("<KeyRelease>", self.search_items)
         search_entry.bind("<Return>", self.select_first_result)
 
         self.search_listbox = tk.Listbox(main, height=5, width=60)
-        self.search_listbox.grid(row=6, column=0, columnspan=4, padx=5, pady=5, sticky="we")
+        self.search_listbox.grid(
+            row=6, column=0, columnspan=4, padx=5, pady=5, sticky="we"
+        )
         self.search_listbox.bind("<<ListboxSelect>>", self.fill_from_search)
 
         # Columns + hidden line_id & qty_out (last two)
-        cols = ("code","description","type","kit","module",
-                "std_qty","qty_to_receive","expiry_date","batch_no","line_id","qty_out")
+        cols = (
+            "code",
+            "description",
+            "type",
+            "kit",
+            "module",
+            "std_qty",
+            "qty_to_receive",
+            "expiry_date",
+            "batch_no",
+            "line_id",
+            "qty_out",
+        )
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=22)
         self.tree.tag_configure("light_red", background="#FF9999")
         self.tree.tag_configure("kit", background="#228B22", foreground="white")
         self.tree.tag_configure("module", background="#ADD8E6")
 
         headers = {
-            "code": lang.t("receive_kit.code","Code"),
-            "description": lang.t("receive_kit.description","Description"),
-            "type": lang.t("receive_kit.type","Type"),
-            "kit": lang.t("receive_kit.kit","Kit"),
-            "module": lang.t("receive_kit.module","Module"),
-            "std_qty": lang.t("receive_kit.std_qty","Std Qty"),
-            "qty_to_receive": lang.t("receive_kit.qty_to_receive","Qty to Receive"),
-            "expiry_date": lang.t("receive_kit.expiry_date","Expiry Date"),
-            "batch_no": lang.t("receive_kit.batch_no","Batch No"),
+            "code": lang.t("receive_kit.code", "Code"),
+            "description": lang.t("receive_kit.description", "Description"),
+            "type": lang.t("receive_kit.type", "Type"),
+            "kit": lang.t("receive_kit.kit", "Kit"),
+            "module": lang.t("receive_kit.module", "Module"),
+            "std_qty": lang.t("receive_kit.std_qty", "Std Qty"),
+            "qty_to_receive": lang.t("receive_kit.qty_to_receive", "Qty to Receive"),
+            "expiry_date": lang.t("receive_kit.expiry_date", "Expiry Date"),
+            "batch_no": lang.t("receive_kit.batch_no", "Batch No"),
             "line_id": "line_id (hidden)",
-            "qty_out": "qty_out (hidden)"
+            "qty_out": "qty_out (hidden)",
         }
         widths = {
-            "code":130,"description":380,"type":110,"kit":120,
-            "module":120,"std_qty":90,"qty_to_receive":120,
-            "expiry_date":120,"batch_no":120,"line_id":1,"qty_out":1
+            "code": 130,
+            "description": 380,
+            "type": 110,
+            "kit": 120,
+            "module": 120,
+            "std_qty": 90,
+            "qty_to_receive": 120,
+            "expiry_date": 120,
+            "batch_no": 120,
+            "line_id": 1,
+            "qty_out": 1,
         }
         aligns = {
-            "code":"w","description":"w","type":"w","kit":"w","module":"w",
-            "std_qty":"e","qty_to_receive":"e","expiry_date":"w",
-            "batch_no":"w","line_id":"w","qty_out":"e"
+            "code": "w",
+            "description": "w",
+            "type": "w",
+            "kit": "w",
+            "module": "w",
+            "std_qty": "e",
+            "qty_to_receive": "e",
+            "expiry_date": "w",
+            "batch_no": "w",
+            "line_id": "w",
+            "qty_out": "e",
         }
         for c in cols:
             self.tree.heading(c, text=headers[c])
-            self.tree.column(c, width=widths[c], anchor=aligns[c], stretch=False if c in ("line_id","qty_out") else True)
+            self.tree.column(
+                c,
+                width=widths[c],
+                anchor=aligns[c],
+                stretch=False if c in ("line_id", "qty_out") else True,
+            )
         vsb = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(main, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -658,25 +848,54 @@ class StockInKit(tk.Frame):
 
         for ev in ("<Double-1>", "<KeyPress-Return>", "<KeyPress-Tab>"):
             self.tree.bind(ev, self.start_edit)
-        for ev in ("<KeyPress-Up>", "<KeyPress-Down>", "<KeyPress-Left>", "<KeyPress-Right>"):
+        for ev in (
+            "<KeyPress-Up>",
+            "<KeyPress-Down>",
+            "<KeyPress-Left>",
+            "<KeyPress-Right>",
+        ):
             self.tree.bind(ev, self.navigate_tree)
         self.tree.bind("<Button-3>", self.show_context_menu)
 
         btn_frame = tk.Frame(main, bg="#F0F4F8")
         btn_frame.grid(row=9, column=0, columnspan=4, pady=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.add_missing","Add Missing Item"),
-                  bg="#FFA500", fg="white", command=self.add_missing_item).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.save","Save"),
-                  bg="#27AE60", fg="white",
-                  state="normal" if self.role in ["admin","manager"] else "disabled",
-                  command=self.save_all).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.clear","Clear"),
-                  bg="#7F8C8D", fg="white", command=self.clear_form).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.export","Export"),
-                  bg="#2980B9", fg="white", command=self.export_data).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.add_missing", "Add Missing Item"),
+            bg="#FFA500",
+            fg="white",
+            command=self.add_missing_item,
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.save", "Save"),
+            bg="#27AE60",
+            fg="white",
+            state="normal" if self.role in ["admin", "manager"] else "disabled",
+            command=self.save_all,
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.clear", "Clear"),
+            bg="#7F8C8D",
+            fg="white",
+            command=self.clear_form,
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.export", "Export"),
+            bg="#2980B9",
+            fg="white",
+            command=self.export_data,
+        ).pack(side="left", padx=5)
 
-        tk.Label(main, textvariable=self.status_var, relief="sunken",
-                 anchor="w", bg="#F0F4F8").grid(row=10, column=0, columnspan=4, sticky="ew")
+        tk.Label(
+            main,
+            textvariable=self.status_var,
+            relief="sunken",
+            anchor="w",
+            bg="#F0F4F8",
+        ).grid(row=10, column=0, columnspan=4, sticky="ew")
 
         self.load_scenarios()
 
@@ -685,46 +904,87 @@ class StockInKit(tk.Frame):
         self.ensure_vars_ready()
         scenarios = self.fetch_scenarios()
         names = [f"{s['id']} - {s['name']}" for s in scenarios]
-        self.scenario_cb['values'] = names
+        self.scenario_cb["values"] = names
         if names:
             self.scenario_cb.current(0)
             self.on_scenario_selected()
 
     def on_scenario_selected(self, event=None):
+        """Handle scenario selection. Clear form if data exists (with confirmation)."""
         scen = self.scenario_var.get()
         if not scen:
             self.selected_scenario_id = None
             self.selected_scenario_name = None
             self.clear_search()
             return
+
+        # ✅ Check if tree has data - ask for confirmation
+        if self.tree and self.tree.get_children():
+            result = custom_askyesno(
+                self.parent,
+                lang.t("dialog_titles.warning", "Warning"),
+                lang.t(
+                    "in_kit.confirm_scenario_change",
+                    "Changing scenario will clear all current data.\n\n"
+                    "Do you want to continue?",
+                ),
+            )
+            if result != "yes":
+                # User cancelled - revert scenario selection
+                if self.selected_scenario_id:
+                    old_display = (
+                        f"{self.selected_scenario_id} - {self.selected_scenario_name}"
+                    )
+                    self.scenario_var.set(old_display)
+                return
+
+        # Parse scenario selection
         self.selected_scenario_id, self.selected_scenario_name = scen.split(" - ", 1)
+
+        # Clear and rebuild
+        self.clear_search()
         self.build_mode_definitions()
-        self.mode_cb['values'] = [lbl for _, lbl in self.mode_definitions]
+        self.mode_cb["values"] = [lbl for _, lbl in self.mode_definitions]
         if self.mode_definitions:
             self.mode_var.set(self.mode_definitions[0][1])
-        self.update_mode()
-        self.clear_search()
+            self.update_mode()
 
     def update_mode(self, event=None):
         """
         Called when movement type changes.
-        Enables/disables appropriate selectors based on mode.
-        
-        ✅ Workflows:
-        1. receive_kit: Kit CODE → Popup for NEW kit number
-        2. add_standalone: Search only (no kit/module)
-        3. add_module_scenario: Module CODE → Popup for NEW module number (NO KIT)
-        4. add_module_kit: Kit NUMBER (existing) → Module CODE → Popup for module number
-        5. add_items_kit: Kit NUMBER (existing) → Search
-        6. add_items_module: Kit NUMBER (existing) → Module NUMBER (existing) → Search
+        Clears page if data exists (with confirmation).
         """
         self.ensure_vars_ready()
+
+        # ✅ Check if tree has data - ask for confirmation
+        if event and self.tree and self.tree.get_children():
+            result = custom_askyesno(
+                self.parent,
+                lang.t("dialog_titles.warning", "Warning"),
+                lang.t(
+                    "in_kit.confirm_mode_change",
+                    "Changing movement type will clear all current data.\n\n"
+                    "Do you want to continue?",
+                ),
+            )
+            if result != "yes":
+                # User cancelled - don't proceed
+                return
+
+            # Clear tree
+            self.clear_search()
+
         mode_key = self.current_mode_key()
-        
+
         logging.debug(f"[IN_KIT] Mode changed to: {mode_key}")
 
         # ===== DISABLE ALL SELECTORS =====
-        for cb in [self.kit_cb, self.kit_number_cb, self.module_cb, self.module_number_cb]:
+        for cb in [
+            self.kit_cb,
+            self.kit_number_cb,
+            self.module_cb,
+            self.module_number_cb,
+        ]:
             if cb:
                 cb.config(state="disabled")
 
@@ -733,87 +993,95 @@ class StockInKit(tk.Frame):
         self.kit_number_var.set("")
         self.module_var.set("")
         self.module_number_var.set("")
-        
+
         # Clear dropdown values
         if self.kit_cb:
-            self.kit_cb['values'] = []
+            self.kit_cb["values"] = []
         if self.kit_number_cb:
-            self.kit_number_cb['values'] = []
+            self.kit_number_cb["values"] = []
         if self.module_cb:
-            self.module_cb['values'] = []
+            self.module_cb["values"] = []
         if self.module_number_cb:
-            self.module_number_cb['values'] = []
+            self.module_number_cb["values"] = []
 
         if not self.selected_scenario_id:
             return
 
         # ===== MODE-SPECIFIC LOGIC =====
-        
+
         if mode_key == "receive_kit":
-            # ✅ Workflow: Kit CODE → Popup for kit number
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.status_var.set(
                 lang.t("in_kit.select_kit_to_generate", "Select a kit to generate")
             )
-            logging.debug(f"[IN_KIT] receive_kit: {len(self.kit_cb['values'])} kits available")
-        
+            logging.debug(
+                f"[IN_KIT] receive_kit: {len(self.kit_cb['values'])} kits available"
+            )
+
         elif mode_key == "add_standalone":
-            # ✅ Workflow: Search only (no kit/module) - AUTO-POPULATE
             self.status_var.set(
                 lang.t("in_kit.search_standalone", "Search for standalone items")
             )
             logging.debug(f"[IN_KIT] add_standalone: Search enabled")
-            
-            # ✅ AUTO-POPULATE search results
             self.after(100, self.auto_populate_search)
-        
+
         elif mode_key == "add_module_scenario":
-            # ✅ Workflow: Module CODE → Popup for module number (NO KIT NEEDED)
             self.module_cb.config(state="readonly")
             modules = self.fetch_all_modules(self.selected_scenario_id)
-            self.module_cb['values'] = modules
+            self.module_cb["values"] = modules
             self.status_var.set(
-                lang.t("in_kit.select_primary_module", 
-                       "Select a primary module to add (no kit needed)")
+                lang.t(
+                    "in_kit.select_primary_module",
+                    "Select a primary module to add (no kit needed)",
+                )
             )
-            logging.debug(f"[IN_KIT] add_module_scenario: {len(modules)} primary modules")
-        
-        elif mode_key == "add_module_kit":
-            # ✅ Workflow: Kit CODE → Kit NUMBER → Module CODE → Popup for module number
-            self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
-            self.status_var.set(
-                lang.t("in_kit.select_kit_code_first",
-                       "Step 1: Select kit type ({count} available)",
-                       count=len(self.kit_cb['values']))
+            logging.debug(
+                f"[IN_KIT] add_module_scenario: {len(modules)} primary modules"
             )
-            logging.debug(f"[IN_KIT] add_module_kit: {len(self.kit_cb['values'])} kit types")
-            
 
-        
+        elif mode_key == "add_module_kit":
+            self.kit_cb.config(state="readonly")
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
+            self.status_var.set(
+                lang.t(
+                    "in_kit.select_kit_code_first",
+                    "Step 1: Select kit type ({count} available)",
+                    count=len(self.kit_cb["values"]),
+                )
+            )
+            logging.debug(
+                f"[IN_KIT] add_module_kit: {len(self.kit_cb['values'])} kit types"
+            )
+
         elif mode_key == "add_items_kit":
-            # ✅ Workflow: Kit CODE → Kit NUMBER → Search
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.status_var.set(
-                lang.t("in_kit.select_kit_code_first",
-                       "Step 1: Select kit type ({count} available)",
-                       count=len(self.kit_cb['values']))
+                lang.t(
+                    "in_kit.select_kit_code_first",
+                    "Step 1: Select kit type ({count} available)",
+                    count=len(self.kit_cb["values"]),
+                )
             )
-            logging.debug(f"[IN_KIT] add_items_kit: {len(self.kit_cb['values'])} kit types")
-        
+            logging.debug(
+                f"[IN_KIT] add_items_kit: {len(self.kit_cb['values'])} kit types"
+            )
+
         elif mode_key == "add_items_module":
-            # ✅ Workflow: Kit CODE → Kit NUMBER → Module CODE → Module NUMBER → Search
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.status_var.set(
-                lang.t("in_kit.select_kit_code_for_module",
-                       "Step 1: Select kit type ({count} available)",
-                       count=len(self.kit_cb['values']))
+                lang.t(
+                    "in_kit.select_kit_code_for_module",
+                    "Step 1: Select kit type ({count} available)",
+                    count=len(self.kit_cb["values"]),
+                )
             )
-            logging.debug(f"[IN_KIT] add_items_module: {len(self.kit_cb['values'])} kit types")
-            
+            logging.debug(
+                f"[IN_KIT] add_items_module: {len(self.kit_cb['values'])} kit types"
+            )
+
     def on_kit_selected(self, event=None):
         """
         Handle kit selection.
@@ -825,94 +1093,109 @@ class StockInKit(tk.Frame):
         """
         self.ensure_vars_ready()
         kit_display = self.kit_var.get()
-    
+
         if not kit_display:
             return
-    
+
         # Extract code from "CODE - Description"
         kit_code = self._extract_code_from_display(kit_display)
-    
+
         logging.debug(f"[IN_KIT] Kit selected: '{kit_display}' -> Code: '{kit_code}'")
-    
+
         # Clear dependent fields (but don't clear kit_number if already set)
         self.module_var.set("")
         self.module_number_var.set("")
-    
+
         if not kit_code:
             return
-    
+
         mode_key = self.current_mode_key()
-    
+
         if mode_key == "receive_kit":
             # ✅ Load hierarchy will trigger popup for kit number
             self.load_hierarchy(kit_code)
-    
+
         elif mode_key == "add_module_kit":
             # ✅ Step 2: Enable kit NUMBER dropdown (filtered by kit code)
             kit_numbers = self.fetch_existing_kit_numbers_for_code(
-                self.selected_scenario_id,
-                kit_code
+                self.selected_scenario_id, kit_code
             )
-            
+
             if kit_numbers:
                 self.kit_number_cb.config(state="readonly")
-                self.kit_number_cb['values'] = kit_numbers
+                self.kit_number_cb["values"] = kit_numbers
                 self.status_var.set(
-                    lang.t("in_kit.select_kit_number_for_module",
-                           "Step 2: Select kit number ({count} of this kit type)",
-                           count=len(kit_numbers))
+                    lang.t(
+                        "in_kit.select_kit_number_for_module",
+                        "Step 2: Select kit number ({count} of this kit type)",
+                        count=len(kit_numbers),
+                    )
                 )
-                logging.debug(f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}")
+                logging.debug(
+                    f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}"
+                )
             else:
                 self.status_var.set(
-                    lang.t("in_kit.no_kit_numbers_for_type",
-                           "No kit numbers found for this kit type")
+                    lang.t(
+                        "in_kit.no_kit_numbers_for_type",
+                        "No kit numbers found for this kit type",
+                    )
                 )
-    
+
         elif mode_key == "add_items_kit":
             # ✅ Step 2: Enable kit NUMBER dropdown (filtered by selected kit CODE)
             kit_numbers = self.fetch_existing_kit_numbers_for_code(
-                self.selected_scenario_id, 
-                kit_code
+                self.selected_scenario_id, kit_code
             )
-            
+
             if kit_numbers:
                 self.kit_number_cb.config(state="readonly")
-                self.kit_number_cb['values'] = kit_numbers
+                self.kit_number_cb["values"] = kit_numbers
                 self.status_var.set(
-                    lang.t("in_kit.select_kit_number_then_search",
-                           "Step 2: Select kit number ({count} of this kit type)",
-                           count=len(kit_numbers))
+                    lang.t(
+                        "in_kit.select_kit_number_then_search",
+                        "Step 2: Select kit number ({count} of this kit type)",
+                        count=len(kit_numbers),
+                    )
                 )
-                logging.debug(f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}")
+                logging.debug(
+                    f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}"
+                )
             else:
                 self.status_var.set(
-                    lang.t("in_kit.no_kit_numbers_for_type", 
-                           "No kit numbers found for this kit type")
+                    lang.t(
+                        "in_kit.no_kit_numbers_for_type",
+                        "No kit numbers found for this kit type",
+                    )
                 )
-        
+
         elif mode_key == "add_items_module":
             # ✅ Step 2: Enable kit NUMBER dropdown
             kit_numbers = self.fetch_existing_kit_numbers_for_code(
-                self.selected_scenario_id,
-                kit_code
+                self.selected_scenario_id, kit_code
             )
-            
+
             if kit_numbers:
                 self.kit_number_cb.config(state="readonly")
-                self.kit_number_cb['values'] = kit_numbers
+                self.kit_number_cb["values"] = kit_numbers
                 self.status_var.set(
-                    lang.t("in_kit.select_kit_number_then_module",
-                           "Step 2: Select kit number ({count} available)",
-                           count=len(kit_numbers))
+                    lang.t(
+                        "in_kit.select_kit_number_then_module",
+                        "Step 2: Select kit number ({count} available)",
+                        count=len(kit_numbers),
+                    )
                 )
-                logging.debug(f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}")
+                logging.debug(
+                    f"[IN_KIT] Enabled {len(kit_numbers)} kit numbers for {kit_code}"
+                )
             else:
                 self.status_var.set(
-                    lang.t("in_kit.no_kit_numbers_for_type",
-                           "No kit numbers found for this kit type")
+                    lang.t(
+                        "in_kit.no_kit_numbers_for_type",
+                        "No kit numbers found for this kit type",
+                    )
                 )
-    
+
         else:
             # Default fallback
             self.status_var.set(
@@ -923,7 +1206,7 @@ class StockInKit(tk.Frame):
         """
         Handle selection of existing kit NUMBER.
         Used in modes: add_module_kit, add_items_kit, add_items_module
-        
+
         ✅ Workflow:
         - add_module_kit: Kit NUMBER selected → Enable module CODE dropdown
         - add_items_kit: Kit NUMBER selected → AUTO-POPULATE search
@@ -931,74 +1214,91 @@ class StockInKit(tk.Frame):
         """
         self.ensure_vars_ready()
         kit_number = self.kit_number_var.get().strip()
-        
+
         if not kit_number:
             return
-        
+
         mode_key = self.current_mode_key()
-        
+
         logging.debug(f"[IN_KIT] Kit number selected: {kit_number} (mode: {mode_key})")
-        
+
         if mode_key == "add_module_kit":
             # ✅ Step 3: Enable module CODE dropdown
             kit_code = self._get_kit_code_for_number(kit_number)
-            
+
             if kit_code:
-                modules = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
-                
+                modules = self.fetch_modules_for_kit(
+                    self.selected_scenario_id, kit_code
+                )
+
                 if modules:
                     self.module_cb.config(state="readonly")
-                    self.module_cb['values'] = modules
+                    self.module_cb["values"] = modules
                     self.status_var.set(
-                        lang.t("in_kit.select_module_to_add_to_kit",
-                               "Step 3: Select module to add ({count} available)",
-                               count=len(modules))
+                        lang.t(
+                            "in_kit.select_module_to_add_to_kit",
+                            "Step 3: Select module to add ({count} available)",
+                            count=len(modules),
+                        )
                     )
-                    logging.debug(f"[IN_KIT] Enabled {len(modules)} modules for kit {kit_code}")
+                    logging.debug(
+                        f"[IN_KIT] Enabled {len(modules)} modules for kit {kit_code}"
+                    )
                 else:
                     self.status_var.set(
-                        lang.t("in_kit.no_modules_for_kit", "No modules available for this kit type")
+                        lang.t(
+                            "in_kit.no_modules_for_kit",
+                            "No modules available for this kit type",
+                        )
                     )
             else:
                 self.status_var.set(
                     lang.t("in_kit.kit_code_not_found", "Could not determine kit type")
                 )
-            
+
         elif mode_key == "add_items_kit":
             # ✅ AUTO-POPULATE search results for items
             self.status_var.set(
-                lang.t("in_kit.search_items_for_kit",
-                       "Kit number: {num}. Items loaded below.",
-                       num=kit_number)
+                lang.t(
+                    "in_kit.search_items_for_kit",
+                    "Kit number: {num}. Items loaded below.",
+                    num=kit_number,
+                )
             )
             # ✅ Trigger auto-populate
             self.after(100, self.auto_populate_search)
-        
+
         elif mode_key == "add_items_module":
             # ✅ Step 3: Enable module CODE dropdown
             kit_code = self._extract_code_from_display(self.kit_var.get())
-            
+
             if kit_code:
-                modules = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
-                
+                modules = self.fetch_modules_for_kit(
+                    self.selected_scenario_id, kit_code
+                )
+
                 if modules:
                     self.module_cb.config(state="readonly")
-                    self.module_cb['values'] = modules
+                    self.module_cb["values"] = modules
                     self.status_var.set(
-                        lang.t("in_kit.select_module_code_then_number",
-                               "Step 3: Select module type ({count} available)",
-                               count=len(modules))
+                        lang.t(
+                            "in_kit.select_module_code_then_number",
+                            "Step 3: Select module type ({count} available)",
+                            count=len(modules),
+                        )
                     )
                     logging.debug(f"[IN_KIT] Enabled {len(modules)} module types")
                 else:
                     self.status_var.set(
-                        lang.t("in_kit.no_modules_for_kit", "No modules in this kit type")
+                        lang.t(
+                            "in_kit.no_modules_for_kit", "No modules in this kit type"
+                        )
                     )
-                
+
     def on_module_selected(self, event=None):
         """
         Handle module selection.
-        
+
         ✅ Workflows:
         - add_module_scenario: Module CODE selected → Popup for NEW module number
         - add_module_kit: Module CODE selected → Popup for NEW module number
@@ -1006,53 +1306,65 @@ class StockInKit(tk.Frame):
         """
         self.ensure_vars_ready()
         module_display = self.module_var.get()
-    
+
         if not module_display:
             return
-    
+
         module_code = self._extract_code_from_display(module_display)
-    
-        logging.debug(f"[IN_KIT] Module selected: '{module_display}' -> Code: '{module_code}'")
-    
+
+        logging.debug(
+            f"[IN_KIT] Module selected: '{module_display}' -> Code: '{module_code}'"
+        )
+
         if not module_code:
             return
-    
+
         mode_key = self.current_mode_key()
         kit_number = self.kit_number_var.get().strip() or None
-    
+
         # ===== WORKFLOW: Add Items to Module =====
         if mode_key == "add_items_module":
-            # ✅ Step 4: Enable module NUMBER dropdown (existing)
+            # ✅ FIXED: Pass module_code to filter module numbers
             module_numbers = self.fetch_existing_module_numbers(
                 self.selected_scenario_id,
-                kit_number
+                kit_number,
+                module_code,  # ✅ NEW: Filter by selected module code
             )
-            
+
             if module_numbers:
                 self.module_number_cb.config(state="readonly")
-                self.module_number_cb['values'] = module_numbers
+                self.module_number_cb["values"] = module_numbers
                 self.status_var.set(
-                    lang.t("in_kit.select_module_number_final",
-                           "Step 4: Select module number ({count} available)",
-                           count=len(module_numbers))
+                    lang.t(
+                        "in_kit.select_module_number_final",
+                        "Step 4: Select module number ({count} available)",
+                        count=len(module_numbers),
+                    )
                 )
-                logging.debug(f"[IN_KIT] Enabled {len(module_numbers)} module numbers")
+                logging.debug(
+                    f"[IN_KIT] Enabled {len(module_numbers)} module numbers for {module_code}"
+                )
             else:
                 self.status_var.set(
-                    lang.t("in_kit.no_module_numbers", "No module numbers found")
+                    lang.t(
+                        "in_kit.no_module_numbers",
+                        f"No module numbers found for {module_code}",
+                    )
                 )
-        
+
         # ===== WORKFLOW: Add Module (new module number via popup) =====
         else:
             # ✅ Trigger popup for NEW module number
             module_number = self.ask_module_number(kit_number, module_code)
-        
+
             if module_number:
                 self.module_number_var.set(module_number)
                 self.status_var.set(
-                    lang.t("in_kit.module_number_set", 
-                        "Module number set: {num}. Ready to add items.", 
-                        num=module_number)
+                    lang.t(
+                        "in_kit.module_number_set",
+                        "Module number set: {num}. Ready to add items.",
+                        num=module_number,
+                    )
                 )
                 logging.info(f"[IN_KIT] Module number entered: {module_number}")
             else:
@@ -1063,84 +1375,86 @@ class StockInKit(tk.Frame):
                     lang.t("in_kit.module_cancelled", "Module selection cancelled")
                 )
 
-
     def on_module_number_selected(self, event=None):
         """
         Handle selection of existing module NUMBER.
         Used in mode: add_items_module
-        
+
         ✅ Workflow:
         - add_items_module: Module NUMBER selected → AUTO-POPULATE search
         """
         self.ensure_vars_ready()
         module_number = self.module_number_var.get().strip()
-        
+
         if not module_number:
             return
-        
+
         mode_key = self.current_mode_key()
-        
-        logging.debug(f"[IN_KIT] Module number selected: {module_number} (mode: {mode_key})")
-        
+
+        logging.debug(
+            f"[IN_KIT] Module number selected: {module_number} (mode: {mode_key})"
+        )
+
         if mode_key == "add_items_module":
             # ✅ AUTO-POPULATE search results for items
             kit_number = self.kit_number_var.get().strip()
             self.status_var.set(
-                lang.t("in_kit.search_items_for_module",
-                       "Kit: {kit}, Module: {mod}. Items loaded below.",
-                       kit=kit_number,
-                       mod=module_number)
+                lang.t(
+                    "in_kit.search_items_for_module",
+                    "Kit: {kit}, Module: {mod}. Items loaded below.",
+                    kit=kit_number,
+                    mod=module_number,
+                )
             )
             # ✅ Trigger auto-populate
             self.after(100, self.auto_populate_search)
-
-
 
     def auto_populate_search(self):
         """
         Automatically populate search results without user typing.
         Used when entering certain modes or after selecting kit/module numbers.
-        
+
         ✅ Triggers automatic search with empty query to show all available items.
         """
         if not self.selected_scenario_id:
             return
-        
+
         mode_key = self.current_mode_key()
-        
+
         logging.debug(f"[IN_KIT] Auto-populating search for mode: {mode_key}")
-        
+
         # Clear search input (show we're loading all items)
         if self.search_var:
             self.search_var.set("")
-        
+
         # Clear existing results
         if self.search_listbox:
             self.search_listbox.delete(0, tk.END)
-        
+
         # Fetch ALL items for current mode (empty query = all items)
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
-        
+
         # Populate search listbox
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        
+
         # Update status
         count = len(results)
         if count > 0:
             self.status_var.set(
-                lang.t("in_kit.items_loaded", 
-                       "{count} items available (search to filter)",
-                       count=count)
+                lang.t(
+                    "in_kit.items_loaded",
+                    "{count} items available (search to filter)",
+                    count=count,
+                )
             )
         else:
             self.status_var.set(
                 lang.t("in_kit.no_items_available", "No items available")
             )
-        
-        logging.info(f"[IN_KIT] Auto-populated {count} items for mode: {mode_key}")			
 
-                
+        logging.info(f"[IN_KIT] Auto-populated {count} items for mode: {mode_key}")
+
     # ------------- Clear & Search -------------
     def clear_search(self):
         if self.search_var:
@@ -1152,7 +1466,7 @@ class StockInKit(tk.Frame):
         self.row_data.clear()
         self.code_to_iid.clear()
         self.suggested_usage.clear()
-        self.status_var.set(lang.t("receive_kit.ready","Ready"))
+        self.status_var.set(lang.t("receive_kit.ready", "Ready"))
 
     def clear_form(self):
         self.ensure_vars_ready()
@@ -1185,7 +1499,11 @@ class StockInKit(tk.Frame):
         results = self.fetch_search_results(q, self.selected_scenario_id, mk)
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        self.status_var.set(lang.t("receive_kit.found_items", f"Found {self.search_listbox.size()} items"))
+        self.status_var.set(
+            lang.t(
+                "receive_kit.found_items", f"Found {self.search_listbox.size()} items"
+            )
+        )
 
     def select_first_result(self, event=None):
         if self.search_listbox.size() > 0:
@@ -1210,7 +1528,7 @@ class StockInKit(tk.Frame):
         """
         Fetch PRIMARY kits from kit_items (level='primary').
         Only includes items with type='Kit' (language-independent).
-        
+
         Returns:
             List of formatted strings: "CODE - Description"
         """
@@ -1218,13 +1536,14 @@ class StockInKit(tk.Frame):
         if conn is None:
             logging.error("[IN_KIT] DB connection failed in fetch_kits")
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get primary kits from kit_items
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code
                 FROM kit_items
                 WHERE scenario_id=? 
@@ -1232,28 +1551,34 @@ class StockInKit(tk.Frame):
                   AND code IS NOT NULL 
                   AND code != ''
                 ORDER BY code
-            """, (scenario_id,))
-            
-            kit_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id,),
+            )
+
+            kit_codes = [r["code"] for r in cur.fetchall()]
+
             if not kit_codes:
-                logging.debug(f"[IN_KIT] No primary kits found for scenario {scenario_id}")
+                logging.debug(
+                    f"[IN_KIT] No primary kits found for scenario {scenario_id}"
+                )
                 return []
-            
+
             # Get descriptions and filter by type
             result = []
             for kit_code in kit_codes:
                 desc = get_item_description(kit_code)
                 item_type = detect_type(kit_code, desc).upper()
-                
+
                 # Only include if type is KIT
                 if item_type == "KIT":
                     display = f"{kit_code} - {desc}" if desc else kit_code
                     result.append(display)
-            
-            logging.info(f"[IN_KIT] Found {len(result)} primary kits for scenario {scenario_id}")
+
+            logging.info(
+                f"[IN_KIT] Found {len(result)} primary kits for scenario {scenario_id}"
+            )
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_kits error: {e}")
             return []
@@ -1265,7 +1590,7 @@ class StockInKit(tk.Frame):
         """
         Fetch PRIMARY modules from kit_items (level='primary', standalone modules).
         Only includes items with type='Module' (language-independent).
-        
+
         Returns:
             List of formatted strings: "CODE - Description"
         """
@@ -1273,13 +1598,14 @@ class StockInKit(tk.Frame):
         if conn is None:
             logging.error("[IN_KIT] DB connection failed in fetch_all_modules")
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get primary standalone modules
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code
                 FROM kit_items
                 WHERE scenario_id=? 
@@ -1291,28 +1617,34 @@ class StockInKit(tk.Frame):
                   AND code IS NOT NULL 
                   AND code != ''
                 ORDER BY code
-            """, (scenario_id,))
-            
-            module_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id,),
+            )
+
+            module_codes = [r["code"] for r in cur.fetchall()]
+
             if not module_codes:
-                logging.debug(f"[IN_KIT] No primary modules found for scenario {scenario_id}")
+                logging.debug(
+                    f"[IN_KIT] No primary modules found for scenario {scenario_id}"
+                )
                 return []
-            
+
             # Get descriptions and filter by type
             result = []
             for module_code in module_codes:
                 desc = get_item_description(module_code)
                 item_type = detect_type(module_code, desc).upper()
-                
+
                 # Only include if type is MODULE
                 if item_type == "MODULE":
                     display = f"{module_code} - {desc}" if desc else module_code
                     result.append(display)
-            
-            logging.info(f"[IN_KIT] Found {len(result)} primary modules for scenario {scenario_id}")
+
+            logging.info(
+                f"[IN_KIT] Found {len(result)} primary modules for scenario {scenario_id}"
+            )
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_all_modules error: {e}")
             return []
@@ -1320,16 +1652,15 @@ class StockInKit(tk.Frame):
             cur.close()
             conn.close()
 
-
     def fetch_modules_for_kit(self, scenario_id, kit_code):
         """
         Fetch SECONDARY modules inside a specific kit from kit_items.
         Only includes items with type='Module'.
-        
+
         Args:
             scenario_id: Scenario ID
             kit_code: Kit code (extracted from dropdown)
-        
+
         Returns:
             List of formatted strings: "CODE - Description"
         """
@@ -1337,13 +1668,14 @@ class StockInKit(tk.Frame):
         if conn is None:
             logging.error("[IN_KIT] DB connection failed in fetch_modules_for_kit")
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get secondary modules inside this kit
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code
                 FROM kit_items
                 WHERE scenario_id=? 
@@ -1352,27 +1684,29 @@ class StockInKit(tk.Frame):
                   AND code IS NOT NULL 
                   AND code != ''
                 ORDER BY code
-            """, (scenario_id, kit_code))
-            
-            module_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id, kit_code),
+            )
+
+            module_codes = [r["code"] for r in cur.fetchall()]
+
             if not module_codes:
                 logging.debug(f"[IN_KIT] No modules found in kit {kit_code}")
                 return []
-            
+
             # Get descriptions and filter by type
             result = []
             for module_code in module_codes:
                 desc = get_item_description(module_code)
                 item_type = detect_type(module_code, desc).upper()
-                
+
                 if item_type == "MODULE":
                     display = f"{module_code} - {desc}" if desc else module_code
                     result.append(display)
-            
+
             logging.debug(f"[IN_KIT] Found {len(result)} modules in kit {kit_code}")
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_modules_for_kit error: {e}")
             return []
@@ -1381,29 +1715,37 @@ class StockInKit(tk.Frame):
             conn.close()
 
     def fetch_available_kit_numbers(self, scenario_id, kit_code=None):
-        if not scenario_id: return []
+        if not scenario_id:
+            return []
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         cur = conn.cursor()
         try:
             if kit_code:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT DISTINCT kit_number
                       FROM stock_data
                      WHERE kit_number IS NOT NULL
                        AND kit_number!='None'
                        AND unique_id LIKE ?
                      ORDER BY kit_number
-                """,(f"{scenario_id}/{kit_code}/%",))
+                """,
+                    (f"{scenario_id}/{kit_code}/%",),
+                )
             else:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT DISTINCT kit_number
                       FROM stock_data
                      WHERE kit_number IS NOT NULL
                        AND kit_number!='None'
                        AND unique_id LIKE ?
                      ORDER BY kit_number
-                """,(f"{scenario_id}/%",))
+                """,
+                    (f"{scenario_id}/%",),
+                )
             return [r[0] for r in cur.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"[fetch_available_kit_numbers] {e}")
@@ -1413,12 +1755,18 @@ class StockInKit(tk.Frame):
             conn.close()
 
     def fetch_module_numbers(self, scenario_id, kit_code=None, module_code=None):
-        if not scenario_id: return []
+        if not scenario_id:
+            return []
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         cur = conn.cursor()
         try:
-            where = ["module_number IS NOT NULL","module_number!='None'","unique_id LIKE ?"]
+            where = [
+                "module_number IS NOT NULL",
+                "module_number!='None'",
+                "unique_id LIKE ?",
+            ]
             params = [f"{scenario_id}/%"]
             if kit_code:
                 where.append("unique_id LIKE ?")
@@ -1441,26 +1789,27 @@ class StockInKit(tk.Frame):
             cur.close()
             conn.close()
 
-		#--------------------------HELPERS for Dropd Downs-------------#
+    # --------------------------HELPERS for Dropd Downs-------------#
 
     def fetch_existing_kit_numbers(self, scenario_id):
         """
         Fetch existing kit numbers with stock > 0 from stock_data.
         Used for selecting which kit to add modules/items to.
-        
+
         Returns:
             List of kit numbers (strings), sorted
         """
         if not scenario_id:
             return []
-        
+
         conn = connect_db()
         if conn is None:
             return []
-        
+
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT kit_number
                 FROM stock_data
                 WHERE scenario = ?
@@ -1469,93 +1818,107 @@ class StockInKit(tk.Frame):
                   AND kit_number != ''
                   AND (qty_in - COALESCE(qty_out, 0)) > 0
                 ORDER BY kit_number
-            """, (str(scenario_id),))
-            
+            """,
+                (str(scenario_id),),
+            )
+
             results = [r[0] for r in cur.fetchall()]
             logging.debug(f"[IN_KIT] Found {len(results)} existing kit numbers")
             return results
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_existing_kit_numbers error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
-    
-    def fetch_existing_module_numbers(self, scenario_id, kit_number=None):
+
+    def fetch_existing_module_numbers(
+        self, scenario_id, kit_number=None, module_code=None
+    ):
         """
         Fetch existing module numbers with stock > 0 from stock_data.
         Used for selecting which module to add items to.
-        
+
         Args:
             scenario_id: Scenario ID
             kit_number: Optional kit number filter
-        
+            module_code: Optional module code filter (NEW)
+
         Returns:
-            List of module numbers (strings), sorted
+        List of module numbers (strings), sorted
         """
         if not scenario_id:
             return []
-        
+
         conn = connect_db()
         if conn is None:
             return []
-        
+
         cur = conn.cursor()
         try:
             sql = """
                 SELECT DISTINCT module_number
                 FROM stock_data
                 WHERE scenario = ?
-                  AND module_number IS NOT NULL
-                  AND module_number != 'None'
-                  AND module_number != ''
-                  AND (qty_in - COALESCE(qty_out, 0)) > 0
+                AND module_number IS NOT NULL
+                AND module_number != 'None'
+                AND module_number != ''
+                AND (qty_in - COALESCE(qty_out, 0)) > 0
             """
             params = [str(scenario_id)]
-            
+
             if kit_number:
                 sql += " AND kit_number = ?"
                 params.append(kit_number)
-            
+
+            # ✅ NEW: Filter by module code
+            if module_code:
+                sql += " AND module = ?"
+                params.append(module_code)
+
             sql += " ORDER BY module_number"
-            
+
             cur.execute(sql, params)
-            
+
             results = [r[0] for r in cur.fetchall()]
-            logging.debug(f"[IN_KIT] Found {len(results)} existing module numbers")
+            logging.debug(
+                f"[IN_KIT] Found {len(results)} existing module numbers (module={module_code})"
+            )
             return results
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_existing_module_numbers error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
-	#-------------------Helper------------
+
+    # -------------------Helper------------
 
     def fetch_existing_kit_numbers_for_code(self, scenario_id, kit_code):
         """
         Fetch existing kit numbers for a SPECIFIC kit code.
         Filters by both scenario AND kit code.
-        
+
         Args:
             scenario_id: Scenario ID
             kit_code: Kit code (e.g., "CHOLKIT001")
-        
+
         Returns:
             List of kit numbers for this specific kit type
         """
         if not scenario_id or not kit_code:
             return []
-        
+
         conn = connect_db()
         if conn is None:
             return []
-        
+
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT kit_number
                 FROM stock_data
                 WHERE scenario = ?
@@ -1565,12 +1928,14 @@ class StockInKit(tk.Frame):
                   AND kit_number != ''
                   AND (qty_in - COALESCE(qty_out, 0)) > 0
                 ORDER BY kit_number
-            """, (str(scenario_id), kit_code))
-            
+            """,
+                (str(scenario_id), kit_code),
+            )
+
             results = [r[0] for r in cur.fetchall()]
             logging.debug(f"[IN_KIT] Found {len(results)} kit numbers for {kit_code}")
             return results
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_existing_kit_numbers_for_code error: {e}")
             return []
@@ -1578,27 +1943,27 @@ class StockInKit(tk.Frame):
             cur.close()
             conn.close()
 
-
     def _get_kit_code_for_number(self, kit_number: str) -> str:
         """
         Get kit CODE from kit NUMBER by querying stock_data.
-        
+
         Args:
             kit_number: Kit number (e.g., "CHOLKIT001-K1")
-        
+
         Returns:
             Kit code (e.g., "CHOLKIT001"), or None if not found
         """
         if not kit_number or not self.selected_scenario_id:
             return None
-        
+
         conn = connect_db()
         if conn is None:
             return None
-        
+
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT kit
                 FROM stock_data
                 WHERE scenario = ?
@@ -1607,21 +1972,21 @@ class StockInKit(tk.Frame):
                   AND kit != 'None'
                   AND kit != ''
                 LIMIT 1
-            """, (str(self.selected_scenario_id), kit_number))
-            
+            """,
+                (str(self.selected_scenario_id), kit_number),
+            )
+
             row = cur.fetchone()
             return row[0] if row else None
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] _get_kit_code_for_number error: {e}")
             return None
         finally:
             cur.close()
             conn.close()
-            
-#------------------HELPERS Drop down finished----------			
 
-
+    # ------------------HELPERS Drop down finished----------
 
     def fetch_search_results(self, query, scenario_id, mode_key):
         """
@@ -1634,21 +1999,21 @@ class StockInKit(tk.Frame):
             mode_key = self.ensure_mode_ready()
         if mode_key in (self.mode_label_to_key or {}):
             mode_key = self.mode_label_to_key[mode_key]
-        
+
         mk = (mode_key or "").lower()
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             q = (query or "").lower()
-            
+
             def common_params():
                 return (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-            
+
             if mk == "receive_kit":
                 # Search for PRIMARY level kits
                 sql = """
@@ -1666,7 +2031,7 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, *common_params())
-            
+
             elif mk == "add_standalone":
                 # ✅ FIXED: Search for PRIMARY level standalone ITEMS (not in kit/module)
                 sql = """
@@ -1686,7 +2051,7 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, *common_params())
-            
+
             elif mk == "add_module_scenario":
                 # Search for PRIMARY level modules (not in kits)
                 sql = """
@@ -1705,13 +2070,13 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, *common_params())
-            
+
             elif mk == "add_module_kit":
                 # Search for modules in selected kit
                 kit_code = self._extract_code_from_display(self.kit_var.get())
                 if not kit_code:
                     return []
-                
+
                 sql = """
                    SELECT DISTINCT ki.code, ki.level
                      FROM kit_items ki
@@ -1728,13 +2093,13 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, *common_params())
-            
+
             elif mk == "add_items_kit":
                 # ✅ FIXED: Search for ITEMS in selected kit
                 kit_code = self._extract_code_from_display(self.kit_var.get())
                 if not kit_code:
                     return []
-                
+
                 sql = """
                    SELECT DISTINCT ki.code, ki.level
                      FROM kit_items ki
@@ -1751,15 +2116,15 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, *common_params())
-            
+
             elif mk == "add_items_module":
                 # ✅ FIXED: Search for ITEMS in selected module
                 kit_code = self._extract_code_from_display(self.kit_var.get())
                 module_code = self._extract_code_from_display(self.module_var.get())
-                
+
                 if not kit_code or not module_code:
                     return []
-                
+
                 sql = """
                    SELECT DISTINCT ki.code, ki.level
                      FROM kit_items ki
@@ -1777,31 +2142,270 @@ class StockInKit(tk.Frame):
                  ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, module_code, *common_params())
-            
+
             else:
                 return []
-            
+
             cur.execute(sql, params)
             rows = cur.fetchall()
-            
+
             out = []
             for r in rows:
-                code = r['code']
+                code = r["code"]
                 desc = get_item_description(code)
                 t = detect_type(code, desc)
-                out.append({
-                    'code': code,
-                    'description': desc,
-                    'level': r['level'],
-                    'type': t
-                })
-            
+                out.append(
+                    {"code": code, "description": desc, "level": r["level"], "type": t}
+                )
+
             logging.debug(f"[IN_KIT] Search found {len(out)} results for mode '{mk}'")
             return out
-            
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_search_results error: {e}")
             return []
+        finally:
+            cur.close()
+            conn.close()
+
+    def fetch_std_qty(self, code, kit_code=None, module_code=None):
+        """
+        Fetch standard quantity for an item from kit_items table.
+
+        Args:
+            code: Item code
+            kit_code: Optional kit code filter
+            module_code: Optional module code filter
+
+        Returns:
+            Integer std_qty, or 0 if not found
+        """
+        if not self.selected_scenario_id:
+            logging.warning(f"[IN_KIT] No scenario selected in fetch_std_qty")
+            return 0
+
+        conn = connect_db()
+        if conn is None:
+            return 0
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            # ✅ Build query based on context
+            sql = """
+                SELECT std_qty
+                FROM kit_items
+                WHERE scenario_id = ?
+                  AND code = ?
+            """
+            params = [self.selected_scenario_id, code]
+
+            # ✅ CRITICAL: Handle standalone items (no kit/module)
+            if not kit_code and not module_code:
+                sql += """
+                  AND (kit IS NULL OR kit = '' OR kit = 'None')
+                  AND (module IS NULL OR module = '' OR module = 'None')
+                  AND level = 'primary'
+                """
+                logging.debug(f"[IN_KIT] Searching for STANDALONE item {code}")
+            else:
+                # For items in kits/modules
+                if kit_code:
+                    sql += " AND kit = ?"
+                    params.append(kit_code)
+                    logging.debug(
+                        f"[IN_KIT] Searching for item {code} in kit {kit_code}"
+                    )
+
+                if module_code:
+                    sql += " AND module = ?"
+                    params.append(module_code)
+                    logging.debug(
+                        f"[IN_KIT] Searching for item {code} in module {module_code}"
+                    )
+
+            sql += " LIMIT 1"
+
+            logging.debug(f"[IN_KIT] SQL: {sql}")
+            logging.debug(f"[IN_KIT] Params: {params}")
+
+            cur.execute(sql, params)
+            row = cur.fetchone()
+
+            if row and row["std_qty"]:
+                std_qty = int(row["std_qty"])
+                logging.info(f"[IN_KIT] ✅ Found std_qty={std_qty} for {code}")
+                return std_qty
+            else:
+                logging.warning(
+                    f"[IN_KIT] ❌ No std_qty found for {code} (kit={kit_code}, module={module_code})"
+                )
+                return 0
+
+        except sqlite3.Error as e:
+            logging.error(f"[IN_KIT] fetch_std_qty error: {e}")
+            return 0
+        finally:
+            cur.close()
+            conn.close()
+
+    def load_module_with_items(
+        self, module_code, kit_number, module_number, kit_code=None
+    ):
+        """
+        Load a module and its child items into the tree.
+        Used when adding a module to a kit or scenario.
+
+        Args:
+            module_code: Module code (e.g., "KMEDMCHO06-")
+            kit_number: Kit number (for context, can be None)
+            module_number: Module number (newly entered)
+            kit_code: Kit code (for context, can be None)
+        """
+        if not self.selected_scenario_id or not module_code:
+            return
+
+        logging.info(
+            f"[IN_KIT] Loading module {module_code} with items (kit={kit_code})"
+        )
+
+        # Fetch module's child items from kit_items
+        conn = connect_db()
+        if conn is None:
+            return
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            # ✅ Build query - filter by kit if provided
+            sql = """
+                SELECT code, std_qty, level
+                FROM kit_items
+                WHERE scenario_id = ?
+                  AND module = ?
+                  AND level = 'tertiary'
+            """
+            params = [self.selected_scenario_id, module_code]
+
+            # ✅ IMPORTANT: Filter by kit if adding module to a kit
+            if kit_code:
+                sql += " AND kit = ?"
+                params.append(kit_code)
+                logging.debug(
+                    f"[IN_KIT] Filtering items for module {module_code} in kit {kit_code}"
+                )
+            else:
+                # Standalone module - no kit filter
+                logging.debug(f"[IN_KIT] Loading standalone module {module_code}")
+
+            sql += " ORDER BY code"
+
+            cur.execute(sql, params)
+            items = cur.fetchall()
+
+            if not items:
+                logging.warning(
+                    f"[IN_KIT] No items found for module {module_code} (kit={kit_code})"
+                )
+                self.status_var.set(
+                    lang.t(
+                        "in_kit.no_items_in_module",
+                        "No items found in module {code}",
+                        code=module_code,
+                    )
+                )
+                return
+
+            logging.info(f"[IN_KIT] Found {len(items)} items for module {module_code}")
+
+            # ✅ Check for duplicate module_code in tree - only populate once
+            existing_modules = set()
+            for iid in self.tree.get_children():
+                vals = self.tree.item(iid, "values")
+                if vals and vals[0] == module_code and vals[2].upper() == "MODULE":
+                    existing_modules.add(module_code)
+
+            if module_code in existing_modules:
+                logging.info(
+                    f"[IN_KIT] Module {module_code} already in tree, skipping duplicate"
+                )
+                return
+
+            # Insert module header row
+            desc = get_item_description(module_code)
+            module_iid = self.tree.insert(
+                "",
+                "end",
+                values=(
+                    module_code,
+                    desc,
+                    "MODULE",
+                    kit_code or "-----",
+                    module_code,
+                    0,  # std_qty (calculated later)
+                    0,  # qty_to_receive (calculated later)
+                    "",
+                    "",
+                    "",
+                    "",
+                ),
+                tags=("module",),
+            )
+
+            self.row_data[module_iid] = {
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "treecode": None,
+            }
+
+            logging.debug(f"[IN_KIT] Inserted module header for {module_code}")
+
+            # Insert child items with batches
+            inserted_count = 0
+            for item_row in items:
+                item_code = item_row["code"]
+                std_qty = item_row["std_qty"] or 0
+
+                logging.debug(
+                    f"[IN_KIT] Inserting item {item_code} (std_qty={std_qty}) into module {module_code}"
+                )
+
+                self.insert_item_batches(
+                    code=item_code,
+                    parent_iid=module_iid,
+                    kit_number=kit_number,
+                    module_number=module_number,
+                    structural_kit=kit_code,
+                    structural_module=module_code,
+                    std_qty=std_qty,
+                )
+                inserted_count += 1
+
+            logging.info(
+                f"[IN_KIT] Inserted {inserted_count} items into module {module_code}"
+            )
+
+            # Update parent quantities and expiries
+            self.update_child_quantities()
+            self.update_parent_expiry()
+
+            self.status_var.set(
+                lang.t(
+                    "in_kit.module_loaded",
+                    "Module {code} loaded with {count} items",
+                    code=module_code,
+                    count=len(items),
+                )
+            )
+
+            logging.info(
+                f"[IN_KIT] ✅ Successfully loaded module {module_code} with {len(items)} items"
+            )
+
+        except sqlite3.Error as e:
+            logging.error(f"[IN_KIT] load_module_with_items error: {e}")
         finally:
             cur.close()
             conn.close()
@@ -1810,11 +2414,13 @@ class StockInKit(tk.Frame):
         if not scenario_id or not code:
             return []
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT code, level, kit, module, item,
                        COALESCE(std_qty,0) AS std_qty,
                        treecode
@@ -1822,20 +2428,24 @@ class StockInKit(tk.Frame):
                  WHERE scenario_id=?
                    AND (code=? OR kit=? OR module=? OR item=?)
                  ORDER BY treecode
-            """,(scenario_id, code, code, code, code))
+            """,
+                (scenario_id, code, code, code, code),
+            )
             comps = []
             for r in cur.fetchall():
-                dsc = get_item_description(r['code'])
-                comps.append({
-                    'code': r['code'],
-                    'description': dsc,
-                    'type': detect_type(r['code'], dsc),
-                    'kit': r['kit'] or "-----",
-                    'module': r['module'] or "-----",
-                    'item': r['item'] or "-----",
-                    'std_qty': r['std_qty'],
-                    'treecode': r['treecode']
-                })
+                dsc = get_item_description(r["code"])
+                comps.append(
+                    {
+                        "code": r["code"],
+                        "description": dsc,
+                        "type": detect_type(r["code"], dsc),
+                        "kit": r["kit"] or "-----",
+                        "module": r["module"] or "-----",
+                        "item": r["item"] or "-----",
+                        "std_qty": r["std_qty"],
+                        "treecode": r["treecode"],
+                    }
+                )
             return comps
         except sqlite3.Error as e:
             logging.error(f"[fetch_kit_items] {e}")
@@ -1848,14 +2458,14 @@ class StockInKit(tk.Frame):
     def fetch_on_shelf_batches(self, code: str):
         """
         Fetch on-shelf stock for a given item code, sorted by LONGEST expiry first.
-    
+
         Returns list of dicts:
             - code: item code
             - expiry: parsed YYYY-MM-DD or original string
          - management_mode: 'on_shelf'
             - final_qty: available quantity
             - line_id: stock_data.line_id
-    
+
         ✅ Filters:
             - Same scenario (using scenario_id)
             - On-shelf items only (≤6 slashes in unique_id OR management_mode='on-shelf')
@@ -1867,25 +2477,26 @@ class StockInKit(tk.Frame):
         """
         if not code:
             return []
-    
+
         code = code.strip().upper()
         scenario_id = self.selected_scenario_id
-    
+
         if not scenario_id:
             logging.warning("[IN_KIT] No scenario selected in fetch_on_shelf_batches")
             return []
-    
+
         conn = connect_db()
         if conn is None:
             logging.error("[IN_KIT] DB connection failed in fetch_on_shelf_batches")
             return []
-    
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-    
+
         try:
             # ✅ Query: Filter by scenario_id, on-shelf status, positive stock
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT 
                     unique_id,
                     exp_date,
@@ -1904,62 +2515,68 @@ class StockInKit(tk.Frame):
                 ORDER BY 
                 CASE WHEN exp_date IS NULL OR exp_date = '' OR exp_date = 'None' THEN 1 ELSE 0 END,
                 exp_date DESC
-            """, (code, scenario_id))
-        
+            """,
+                (code, scenario_id),
+            )
+
             rows = cur.fetchall()
-        
+
             if not rows:
-                logging.info(f"[IN_KIT] No on-shelf stock found for {code} in scenario {scenario_id}")
+                logging.info(
+                    f"[IN_KIT] No on-shelf stock found for {code} in scenario {scenario_id}"
+                )
                 return []
-        
+
             batches = []
-        
+
             for r in rows:
                 # Calculate final_qty
-                qty_in = r['qty_in'] or 0
-                qty_out = r['qty_out'] or 0
+                qty_in = r["qty_in"] or 0
+                qty_out = r["qty_out"] or 0
                 final_qty = qty_in - qty_out
-            
+
                 if final_qty <= 0:
                     continue
-            
+
                 # Parse expiry date
-                exp_date = r['exp_date']
-            
+                exp_date = r["exp_date"]
+
                 # If exp_date column is empty, try extracting from unique_id
-                if not exp_date or exp_date == 'None':
-                    parts = r['unique_id'].split('/')
+                if not exp_date or exp_date == "None":
+                    parts = r["unique_id"].split("/")
                     if len(parts) >= 6:
                         exp_part = parts[5]
-                        if exp_part and exp_part != 'None':
+                        if exp_part and exp_part != "None":
                             exp_date = exp_part
-            
+
                 # Parse to standard format if possible
-                if exp_date and exp_date != 'None':
+                if exp_date and exp_date != "None":
                     parsed = parse_expiry(exp_date)
                     if parsed:
                         exp_date = parsed
                 else:
                     exp_date = None
-            
-                batches.append({
-                    'code': code,
-                    'expiry': exp_date,
-                    'management_mode': 'on_shelf',
-                    'final_qty': final_qty,
-                    'line_id': r['line_id']
-                })
-        
+
+                batches.append(
+                    {
+                        "code": code,
+                        "expiry": exp_date,
+                        "management_mode": "on_shelf",
+                        "final_qty": final_qty,
+                        "line_id": r["line_id"],
+                    }
+                )
+
             # ✅ Log results
             if batches:
-                longest_exp = batches[0]['expiry']
+                longest_exp = batches[0]["expiry"]
                 logging.info(
                     f"[IN_KIT] Found {len(batches)} on-shelf batches for {code}, "
                     f"longest expiry: {longest_exp}"
                 )
-        
+
             return batches
-        
+
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] fetch_on_shelf_batches error: {e}")
             return []
@@ -1984,7 +2601,8 @@ class StockInKit(tk.Frame):
             while stack:
                 iid = stack.pop()
                 vals = self.tree.item(iid, "values")
-                if not vals: continue
+                if not vals:
+                    continue
                 c, t, s, q = vals[0], vals[2], vals[5], vals[6]
                 if c == code and t.upper() == "ITEM":
                     if std_val is None and str(s).isdigit():
@@ -2001,11 +2619,11 @@ class StockInKit(tk.Frame):
     def ask_module_number(self, kit_number: str, module_code: str) -> str:
         """
         Ask user for a new module number with pre-filled suggestion.
-        
+
         Args:
             kit_number: Kit number (for suggestion)
             module_code: Module code (for suggestion if no kit)
-        
+
         Returns:
             Entered module number (validated as unique), or None if cancelled
         """
@@ -2016,7 +2634,7 @@ class StockInKit(tk.Frame):
             suggestion = f"{module_code.strip()}-M1"
         else:
             suggestion = "M1"
-        
+
         while True:
             # ✅ Use custom dialog with pre-filled suggestion
             entered = self.ask_custom_text(
@@ -2026,30 +2644,31 @@ class StockInKit(tk.Frame):
                     "Enter a unique Module Number.\n\n"
                     "Suggestion: {suggestion}\n\n"
                     "You can edit the suggestion or enter a different number.",
-                    suggestion=suggestion
+                    suggestion=suggestion,
                 ),
-                initial_value=suggestion  # ✅ Pre-fill with suggestion
+                initial_value=suggestion,  # ✅ Pre-fill with suggestion
             )
-            
+
             # User cancelled
             if entered is None:
                 return None
-            
+
             # Validate not empty
             if not entered.strip():
                 custom_popup(
                     self.parent,
                     lang.t("dialog_titles.warning", "Warning"),
-                    lang.t("in_kit.module_number_empty", "Module number cannot be empty."),
-                    "warning"
+                    lang.t(
+                        "in_kit.module_number_empty", "Module number cannot be empty."
+                    ),
+                    "warning",
                 )
                 continue
-            
+
             # ✅ Check uniqueness
             if self.is_module_number_unique(kit_number, entered):
                 logging.info(f"[IN_KIT] Module number entered: {entered}")
                 return entered
-            
 
             custom_popup(
                 self.parent,
@@ -2058,76 +2677,74 @@ class StockInKit(tk.Frame):
                     "receive_kit.duplicate_module_number",
                     "Module Number '{num}' already exists.\n\n"
                     "Please enter a different number.",
-                    num=entered
+                    num=entered,
                 ),
-                "error"
+                "error",
             )
-        
-
 
     # ------------- Custom text input dialog -------------
     def ask_custom_text(self, title: str, prompt: str, initial_value: str = "") -> str:
         """
         Show a custom dialog to ask for text input.
-        
+
         Args:
             title: Dialog title
             prompt: Prompt message
             initial_value: Pre-filled text (suggestion)
-        
+
         Returns:
             Entered text (stripped), or None if cancelled
         """
         result = {"value": None}
-        
+
         # Create dialog
         dlg = tk.Toplevel(self.parent)
         dlg.title(title)
         dlg.transient(self.parent)
         dlg.grab_set()
         dlg.resizable(False, False)
-        
+
         # Configure style
         dlg.configure(bg="#F0F4F8", padx=20, pady=20)
-        
+
         # Prompt label
         tk.Label(
-            dlg, 
-            text=prompt, 
+            dlg,
+            text=prompt,
             font=("Helvetica", 10),
             bg="#F0F4F8",
             wraplength=400,
-            justify="left"
+            justify="left",
         ).pack(pady=(0, 10))
-        
+
         # Entry field with pre-filled suggestion
         entry_var = tk.StringVar(value=initial_value)
         entry = tk.Entry(
-            dlg, 
+            dlg,
             textvariable=entry_var,
             font=("Helvetica", 11),
             width=40,
             relief="solid",
-            borderwidth=1
+            borderwidth=1,
         )
         entry.pack(pady=(0, 15), ipady=4)
         entry.focus()
         entry.select_range(0, tk.END)  # Select all text for easy editing
-        
+
         # Button frame
         btn_frame = tk.Frame(dlg, bg="#F0F4F8")
         btn_frame.pack()
-        
+
         def on_ok():
             entered = entry_var.get().strip()
             if entered:
                 result["value"] = entered
                 dlg.destroy()
-        
+
         def on_cancel():
             result["value"] = None
             dlg.destroy()
-        
+
         # OK button
         tk.Button(
             btn_frame,
@@ -2139,9 +2756,9 @@ class StockInKit(tk.Frame):
             padx=20,
             pady=5,
             relief="flat",
-            cursor="hand2"
+            cursor="hand2",
         ).pack(side="left", padx=5)
-        
+
         # Cancel button
         tk.Button(
             btn_frame,
@@ -2153,24 +2770,22 @@ class StockInKit(tk.Frame):
             padx=20,
             pady=5,
             relief="flat",
-            cursor="hand2"
+            cursor="hand2",
         ).pack(side="left", padx=5)
-        
+
         # Bind keys
         entry.bind("<Return>", lambda e: on_ok())
         entry.bind("<Escape>", lambda e: on_cancel())
         dlg.bind("<Escape>", lambda e: on_cancel())
-        
+
         # Center dialog
         dlg.update_idletasks()
         _center_child(dlg, self.parent)
-        
+
         # Wait for dialog
         dlg.wait_window()
-        
+
         return result["value"]
-
-
 
     # ------------- Hierarchy load -------------
     def load_hierarchy(self, kit_code):
@@ -2182,13 +2797,17 @@ class StockInKit(tk.Frame):
         self.suggested_usage.clear()
         comps = self.fetch_kit_items(self.selected_scenario_id, kit_code)
         if not comps:
-            self.status_var.set(lang.t("receive_kit.no_items", f"No items for {kit_code}"))
+            self.status_var.set(
+                lang.t("receive_kit.no_items", f"No items for {kit_code}")
+            )
             return
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        kit_number = (
+            self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        )
         if not kit_number:
             # ✅ Generate smart suggestion for kit number
             suggestion = f"{kit_code}-K1" if kit_code else "K1"
-            
+
             while True:
                 # ✅ Use custom dialog with pre-filled suggestion
                 kn = self.ask_custom_text(
@@ -2199,36 +2818,40 @@ class StockInKit(tk.Frame):
                         "Suggestion: {suggestion}\n\n"
                         "You can edit the suggestion or enter a different number.",
                         kit_code=kit_code,
-                        suggestion=suggestion
+                        suggestion=suggestion,
                     ),
-                    initial_value=suggestion  # ✅ Pre-fill with suggestion
+                    initial_value=suggestion,  # ✅ Pre-fill with suggestion
                 )
-                
+
                 # User cancelled
                 if kn is None:
                     self.status_var.set(
-                        lang.t("receive_kit.kit_number_cancelled", "Kit number entry cancelled")
+                        lang.t(
+                            "receive_kit.kit_number_cancelled",
+                            "Kit number entry cancelled",
+                        )
                     )
                     return
-                
+
                 # Validate not empty
                 if not kn.strip():
                     custom_popup(
                         self.parent,
                         lang.t("dialog_titles.warning", "Warning"),
-                        lang.t("in_kit.kit_number_empty", "Kit number cannot be empty."),
-                        "warning"
+                        lang.t(
+                            "in_kit.kit_number_empty", "Kit number cannot be empty."
+                        ),
+                        "warning",
                     )
                     continue
-                
+
                 # ✅ Check uniqueness
                 if self.is_kit_number_unique(kn):
                     kit_number = kn
                     self.kit_number_var.set(kn)
                     logging.info(f"[IN_KIT] Kit number entered: {kit_number}")
                     break
-                
-        
+
                 custom_popup(
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
@@ -2236,79 +2859,102 @@ class StockInKit(tk.Frame):
                         "receive_kit.duplicate_kit_number",
                         "Kit Number '{num}' already exists globally.\n\n"
                         "Please enter a different number.",
-                        num=kn
+                        num=kn,
                     ),
-                    "error"
+                    "error",
                 )
                 # Loop again with same suggestion
         treecode_to_iid = {}
         module_number_map = {}
-        for comp in sorted(comps, key=lambda x: x['treecode']):
-            tc = comp['treecode']
+        for comp in sorted(comps, key=lambda x: x["treecode"]):
+            tc = comp["treecode"]
             parent_tc = tc[:-3] if len(tc) >= 3 else ""
             parent_iid = treecode_to_iid.get(parent_tc, "")
-            ctype = comp['type'].upper()
-            std_qty = comp['std_qty']
-            kit_disp = comp['kit'] or "-----"
-            module_disp = comp['module'] or "-----"
+            ctype = comp["type"].upper()
+            std_qty = comp["std_qty"]
+            kit_disp = comp["kit"] or "-----"
+            module_disp = comp["module"] or "-----"
             module_number = None
             if ctype == "MODULE":
-                module_number = self.ask_module_number(kit_number, comp['code'])
+                module_number = self.ask_module_number(kit_number, comp["code"])
                 if module_number is None:
-                    self.status_var.set(lang.t("receive_kit.module_number_cancelled","Cancelled"))
+                    self.status_var.set(
+                        lang.t("receive_kit.module_number_cancelled", "Cancelled")
+                    )
                     return
-                module_number_map[comp['code']] = module_number
+                module_number_map[comp["code"]] = module_number
             else:
-                if comp['module'] and comp['module'] in module_number_map:
-                    module_number = module_number_map[comp['module']]
-            row_iid = self.tree.insert(parent_iid, "end", values=(
-                comp['code'], comp['description'], comp['type'],
-                kit_disp, module_disp,
-                std_qty, (std_qty if ctype!="ITEM" else 0), "", "",
-                "", ""  # hidden line_id, qty_out
-            ))
+                if comp["module"] and comp["module"] in module_number_map:
+                    module_number = module_number_map[comp["module"]]
+            row_iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    comp["code"],
+                    comp["description"],
+                    comp["type"],
+                    kit_disp,
+                    module_disp,
+                    std_qty,
+                    (std_qty if ctype != "ITEM" else 0),
+                    "",
+                    "",
+                    "",
+                    "",  # hidden line_id, qty_out
+                ),
+            )
             treecode_to_iid[tc] = row_iid
-            self.code_to_iid[comp['code']] = row_iid
+            self.code_to_iid[comp["code"]] = row_iid
             if ctype == "KIT":
                 self.tree.item(row_iid, tags=("kit",))
             elif ctype == "MODULE":
                 self.tree.item(row_iid, tags=("module",))
             self.row_data[row_iid] = {
-                'kit_number': kit_number,
-                'module_number': module_number,
-                'treecode': tc
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "treecode": tc,
             }
             if ctype == "ITEM":
                 self.tree.delete(row_iid)
                 del self.row_data[row_iid]
-                if comp['code'] in self.code_to_iid:
-                    del self.code_to_iid[comp['code']]
+                if comp["code"] in self.code_to_iid:
+                    del self.code_to_iid[comp["code"]]
                 self.insert_item_batches(
-                    code=comp['code'],
+                    code=comp["code"],
                     parent_iid=parent_iid,
                     kit_number=kit_number,
                     module_number=module_number,
                     structural_kit=kit_disp if kit_disp != "-----" else None,
                     structural_module=module_disp if module_disp != "-----" else None,
-                    std_qty=std_qty
+                    std_qty=std_qty,
                 )
         self.update_child_quantities()
         self.update_parent_expiry()
-        self.status_var.set(lang.t("receive_kit.loaded_records", f"Loaded hierarchy for {kit_code}"))
+        self.status_var.set(
+            lang.t("receive_kit.loaded_records", f"Loaded hierarchy for {kit_code}")
+        )
 
     # ------------- Insert batch rows (with line_id & hidden qty_out) -------------
-    def insert_item_batches(self, code, parent_iid, kit_number, module_number,
-                            structural_kit, structural_module, std_qty):
+    def insert_item_batches(
+        self,
+        code,
+        parent_iid,
+        kit_number,
+        module_number,
+        structural_kit,
+        structural_module,
+        std_qty,
+    ):
         """
         Insert item batches into tree, allocating from longest expiry stock.
-        
+
         ✅ Logic:
             1. Fetch all on-shelf batches (sorted by longest expiry)
             2. Allocate up to std_qty from batches
             3. If one batch insufficient, use multiple batches
             4. Display longest expiry in tree
             5. Track allocation to prevent over-allocation
-        
+
         Args:
             code: Item code
             parent_iid: Parent tree item ID
@@ -2320,44 +2966,51 @@ class StockInKit(tk.Frame):
         """
         batches = self.fetch_on_shelf_batches(code)
         desc = get_item_description(code)
-        
+
         # Convert std_qty to integer
         try:
             std_qty_int = int(std_qty) if std_qty else 0
         except (ValueError, TypeError):
             std_qty_int = 0
-        
+
         # If no stock available, insert warning row
         if not batches:
             logging.warning(f"[IN_KIT] No on-shelf stock for {code}")
-            iid = self.tree.insert(parent_iid, "end", values=(
-                code, desc, "ITEM",
-                structural_kit or "-----",
-                structural_module or "-----",
-                std_qty_int,
-                0,  # qty_to_receive = 0
-                "",  # expiry_date = empty
-                "",  # batch_no = empty
-                "",  # line_id (hidden)
-                "0"  # qty_out (hidden)
-            ), tags=("light_red",))
-            
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    code,
+                    desc,
+                    "ITEM",
+                    structural_kit or "-----",
+                    structural_module or "-----",
+                    std_qty_int,
+                    0,  # qty_to_receive = 0
+                    "",  # expiry_date = empty
+                    "",  # batch_no = empty
+                    "",  # line_id (hidden)
+                    "0",  # qty_out (hidden)
+                ),
+                tags=("light_red",),
+            )
+
             self.row_data[iid] = {
-                'kit_number': kit_number,
-                'module_number': module_number,
-                'max_qty': 0,
-                'management_mode': 'on_shelf',
-                'expiry_key': "",
-                'line_id': None
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "max_qty": 0,
+                "management_mode": "on_shelf",
+                "expiry_key": "",
+                "line_id": None,
             }
             return
-        
+
         # Calculate how much we can/should allocate
         def remaining_std_allowance_for_insertion():
             """Calculate how much more of this item we can allocate (respecting std_qty)."""
             total_assigned = 0
             current_std = std_qty_int
-            
+
             for top in self.tree.get_children():
                 stack = [top]
                 while stack:
@@ -2368,152 +3021,272 @@ class StockInKit(tk.Frame):
                         if q and str(q).isdigit():
                             total_assigned += int(q)
                     stack.extend(self.tree.get_children(iid))
-            
+
             if current_std <= 0:
                 return 10**12  # No limit if std_qty is 0 or invalid
-            
+
             rem = current_std - total_assigned
             return rem if rem > 0 else 0
-        
+
         # Track longest expiry (first batch has it due to sorting)
-        longest_expiry = batches[0]['expiry'] if batches else None
-        
+        longest_expiry = batches[0]["expiry"] if batches else None
+
         # Allocate from batches
         inserted_any = False
-        
+
         for b in batches:
-            expiry = b['expiry'] or ""
-            final_qty = b['final_qty']
-            line_id = b['line_id']
-            
+            expiry = b["expiry"] or ""
+            final_qty = b["final_qty"]
+            line_id = b["line_id"]
+
             # Check physical availability (after accounting for prior allocations)
-            remain_physical = self.remaining_available(code, expiry, b['management_mode'], final_qty)
-            
+            remain_physical = self.remaining_available(
+                code, expiry, b["management_mode"], final_qty
+            )
+
             if remain_physical <= 0:
                 continue
-            
+
             # Check standard quantity allowance
             remain_std = remaining_std_allowance_for_insertion()
-            
+
             if remain_std <= 0:
                 break  # Already allocated enough
-            
+
             # Allocate minimum of physical and standard allowance
             allocate = min(remain_physical, remain_std)
-            
+
             if allocate <= 0:
                 continue
-            
+
             # ✅ Insert tree row with expiry date visible
-            iid = self.tree.insert(parent_iid, "end", values=(
-                code,
-                desc,
-                "ITEM",
-                structural_kit or "-----",
-                structural_module or "-----",
-                std_qty_int,
-                allocate,  # qty_to_receive
-                expiry if expiry else "",  # ✅ EXPIRY DATE VISIBLE
-                "",  # batch_no (user can edit)
-                str(line_id),  # line_id (hidden)
-                str(allocate)  # qty_out (hidden) - mirrors qty_to_receive
-            ))
-            
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    code,
+                    desc,
+                    "ITEM",
+                    structural_kit or "-----",
+                    structural_module or "-----",
+                    std_qty_int,
+                    allocate,  # qty_to_receive
+                    expiry if expiry else "",  # ✅ EXPIRY DATE VISIBLE
+                    "",  # batch_no (user can edit)
+                    str(line_id),  # line_id (hidden)
+                    str(allocate),  # qty_out (hidden) - mirrors qty_to_receive
+                ),
+            )
+
             # Store metadata
             self.row_data[iid] = {
-                'kit_number': kit_number,
-                'module_number': module_number,
-                'max_qty': final_qty,
-                'management_mode': b['management_mode'],
-                'expiry_key': expiry,
-                'line_id': line_id
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "max_qty": final_qty,
+                "management_mode": b["management_mode"],
+                "expiry_key": expiry,
+                "line_id": line_id,
             }
-            
+
             # Record allocation to prevent over-use
-            self.record_suggested(code, expiry, b['management_mode'], allocate)
-            
+            self.record_suggested(code, expiry, b["management_mode"], allocate)
+
             inserted_any = True
-            
+
             logging.debug(
                 f"[IN_KIT] Allocated {allocate} of {code} from batch "
                 f"(expiry: {expiry}, line_id: {line_id})"
             )
-        
+
         # If no batches were inserted (shouldn't happen if batches exist), add warning row
         if not inserted_any:
-            logging.warning(f"[IN_KIT] No batches allocated for {code} (likely allocation issue)")
-            iid = self.tree.insert(parent_iid, "end", values=(
-                code, desc, "ITEM",
-                structural_kit or "-----",
-                structural_module or "-----",
-                std_qty_int,
-                0,  # qty_to_receive = 0
-                longest_expiry if longest_expiry else "",  # Show longest available expiry
-                "",
-                "",  # line_id
-                "0"  # qty_out
-            ), tags=("light_red",))
-            
+            logging.warning(
+                f"[IN_KIT] No batches allocated for {code} (likely allocation issue)"
+            )
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    code,
+                    desc,
+                    "ITEM",
+                    structural_kit or "-----",
+                    structural_module or "-----",
+                    std_qty_int,
+                    0,  # qty_to_receive = 0
+                    (
+                        longest_expiry if longest_expiry else ""
+                    ),  # Show longest available expiry
+                    "",
+                    "",  # line_id
+                    "0",  # qty_out
+                ),
+                tags=("light_red",),
+            )
+
             self.row_data[iid] = {
-                'kit_number': kit_number,
-                'module_number': module_number,
-                'max_qty': 0,
-                'management_mode': 'on_shelf',
-                'expiry_key': longest_expiry or "",
-                'line_id': None
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "max_qty": 0,
+                "management_mode": "on_shelf",
+                "expiry_key": longest_expiry or "",
+                "line_id": None,
             }
+
     # ------------- Add single code -------------
     def add_to_tree(self, code):
+        """Add a single item/module to tree based on current mode."""
         mk = self.current_mode_key()
         desc = get_item_description(code)
         item_type = detect_type(code, desc).upper()
-        kit_code = self.kit_var.get() if mk in ["add_module_kit","add_items_kit","add_items_module"] else None
-        module_code = self.module_var.get() if mk == "add_items_module" else None
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
-        module_number = self.module_number_var.get().strip() if self.module_number_var.get() else None
+
+        logging.info(
+            f"[IN_KIT] add_to_tree called: code={code}, type={item_type}, mode={mk}"
+        )
+
+        kit_code = (
+            self._extract_code_from_display(self.kit_var.get())
+            if mk in ["add_module_kit", "add_items_kit", "add_items_module"]
+            else None
+        )
+        module_code = (
+            self._extract_code_from_display(self.module_var.get())
+            if mk == "add_items_module"
+            else None
+        )
+        kit_number = (
+            self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        )
+        module_number = (
+            self.module_number_var.get().strip()
+            if self.module_number_var.get()
+            else None
+        )
+
+        logging.debug(
+            f"[IN_KIT] Context: kit_code={kit_code}, kit_number={kit_number}, module_code={module_code}, module_number={module_number}"
+        )
+
+        # Validate required selections
         if mk == "add_module_kit":
             if not kit_code or not kit_number:
-                custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                             lang.t("receive_kit.no_kit_number","Please select a Kit & Kit Number"),"error")
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t(
+                        "receive_kit.no_kit_number", "Please select a Kit & Kit Number"
+                    ),
+                    "error",
+                )
                 return
         elif mk == "add_items_kit":
             if not kit_number:
-                custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                             lang.t("receive_kit.no_kit_number","Please select a Kit Number"),"error")
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("receive_kit.no_kit_number", "Please select a Kit Number"),
+                    "error",
+                )
                 return
         elif mk == "add_items_module":
             if not module_code or not module_number:
-                custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                             lang.t("receive_kit.no_module_number","Please select a Module & Module Number"),"error")
+                custom_popup(
+                    self.parent,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t(
+                        "receive_kit.no_module_number",
+                        "Please select a Module & Module Number",
+                    ),
+                    "error",
+                )
                 return
-        scenario_module_mode = (mk == "add_module_scenario")
-        if item_type in ["KIT","MODULE"]:
-            if item_type == "MODULE" and mk in ["add_module_kit","add_module_scenario"]:
+
+        scenario_module_mode = mk == "add_module_scenario"
+
+        # ===== HANDLE KIT/MODULE TYPES =====
+        if item_type in ["KIT", "MODULE"]:
+            logging.info(f"[IN_KIT] Handling {item_type} type: {code}")
+
+            if item_type == "MODULE" and mk in [
+                "add_module_kit",
+                "add_module_scenario",
+            ]:
+                logging.info(f"[IN_KIT] Asking for module number for {code}")
                 mn = self.ask_module_number(kit_number, code)
                 if mn is None:
-                    self.status_var.set(lang.t("receive_kit.module_number_cancelled","Cancelled"))
+                    self.status_var.set(
+                        lang.t("receive_kit.module_number_cancelled", "Cancelled")
+                    )
+                    logging.warning(
+                        f"[IN_KIT] Module number entry cancelled for {code}"
+                    )
                     return
                 module_number = mn
-            iid = self.tree.insert("", "end", values=(
-                code, desc, item_type,
-                kit_code or "-----",
-                module_code or "-----",
-                0, 1, "", "",
-                "", ""  # hidden
-            ))
+                logging.info(f"[IN_KIT] Module number entered: {module_number}")
+
+                # ✅ After getting module number, load module's child items
+                logging.info(f"[IN_KIT] Loading module {code} with items")
+                self.load_module_with_items(code, kit_number, module_number, kit_code)
+                return
+
+            # Insert KIT or MODULE without children (for non-add_module modes)
+            logging.info(f"[IN_KIT] Inserting {item_type} header: {code}")
+            iid = self.tree.insert(
+                "",
+                "end",
+                values=(
+                    code,
+                    desc,
+                    item_type,
+                    kit_code or "-----",
+                    module_code or "-----",
+                    0,
+                    1,
+                    "",
+                    "",
+                    "",
+                    "",
+                ),
+            )
             if item_type == "KIT":
                 self.tree.item(iid, tags=("kit",))
             else:
                 self.tree.item(iid, tags=("module",))
+
             self.row_data[iid] = {
-                'kit_number': kit_number if not scenario_module_mode else None,
-                'module_number': module_number,
-                'treecode': None
+                "kit_number": kit_number if not scenario_module_mode else None,
+                "module_number": module_number,
+                "treecode": None,
             }
-            self.status_var.set(lang.t("receive_kit.added_item", f"Added {item_type} {code}"))
+            self.status_var.set(
+                lang.t("receive_kit.added_item", f"Added {item_type} {code}")
+            )
+            logging.info(f"[IN_KIT] ✅ Successfully added {item_type} {code}")
             return
+
+        # ===== HANDLE ITEM TYPE - FETCH STD_QTY =====
+        logging.info(f"[IN_KIT] Handling ITEM type: {code}")
+
+        # ✅ Fetch std_qty from kit_items table
+        std_qty = self.fetch_std_qty(code, kit_code, module_code)
+
+        if std_qty == 0:
+            logging.warning(
+                f"[IN_KIT] ⚠️ std_qty=0 for {code} (kit={kit_code}, module={module_code})"
+            )
+            logging.warning(
+                f"[IN_KIT] Check kit_items table for scenario_id={self.selected_scenario_id}"
+            )
+        else:
+            logging.info(f"[IN_KIT] Found std_qty={std_qty} for {code}")
+
         structural_kit = None if scenario_module_mode else kit_code
         structural_module = module_code
+
+        logging.info(
+            f"[IN_KIT] Inserting item batches for {code}: std_qty={std_qty}, structural_kit={structural_kit}, structural_module={structural_module}"
+        )
+
         self.insert_item_batches(
             code=code,
             parent_iid="",
@@ -2521,39 +3294,62 @@ class StockInKit(tk.Frame):
             module_number=module_number,
             structural_kit=structural_kit,
             structural_module=structural_module,
-            std_qty=0
+            std_qty=std_qty,  # ✅ NOW USING ACTUAL STD_QTY
         )
-        self.status_var.set(lang.t("receive_kit.added_item", f"Added ITEM {code} (batches)"))
+
+        self.status_var.set(
+            lang.t("receive_kit.added_item", f"Added ITEM {code} (batches)")
+        )
+        logging.info(f"[IN_KIT] ✅ Successfully added ITEM {code}")
 
     # ------------- Add missing item dialog -------------
     def add_missing_item(self):
         if not self.selected_scenario_id:
-            custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                         lang.t("receive_kit.no_scenario","Please select a scenario"),"error")
+            custom_popup(
+                self.parent,
+                lang.t("dialog_titles.error", "Error"),
+                lang.t("receive_kit.no_scenario", "Please select a scenario"),
+                "error",
+            )
             return
         dlg = tk.Toplevel(self.parent)
-        dlg.title(lang.t("receive_kit.add_missing","Add Missing Item"))
+        dlg.title(lang.t("receive_kit.add_missing", "Add Missing Item"))
         dlg.geometry("560x360")
         dlg.transient(self.parent)
         dlg.grab_set()
-        tk.Label(dlg, text=lang.t("receive_kit.search_item","Search Kit/Module/Item"),
-                 font=("Helvetica",10,"bold")).pack(pady=6)
+        tk.Label(
+            dlg,
+            text=lang.t("receive_kit.search_item", "Search Kit/Module/Item"),
+            font=("Helvetica", 10, "bold"),
+        ).pack(pady=6)
         sv = tk.StringVar()
-        entry = tk.Entry(dlg, textvariable=sv, font=("Helvetica",10), width=60)
+        entry = tk.Entry(dlg, textvariable=sv, font=("Helvetica", 10), width=60)
         entry.pack(padx=10, pady=4, fill=tk.X)
-        lb = tk.Listbox(dlg, font=("Helvetica",10), height=14,
-                        selectbackground="#2563EB", selectforeground="white")
+        lb = tk.Listbox(
+            dlg,
+            font=("Helvetica", 10),
+            height=14,
+            selectbackground="#2563EB",
+            selectforeground="white",
+        )
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
         def refresh(*_):
             lb.delete(0, tk.END)
             mk = self.current_mode_key()
-            res = self.fetch_search_results(sv.get().strip(), self.selected_scenario_id, mk)
+            res = self.fetch_search_results(
+                sv.get().strip(), self.selected_scenario_id, mk
+            )
             for r in res:
                 lb.insert(tk.END, f"{r['code']} - {r['description']}")
             if not res:
-                lb.insert(tk.END, lang.t("receive_kit.no_items_found","No items found"))
+                lb.insert(
+                    tk.END, lang.t("receive_kit.no_items_found", "No items found")
+                )
+
         sv.trace_add("write", refresh)
         refresh()
+
         def choose(_=None):
             idxs = lb.curselection()
             if idxs:
@@ -2567,6 +3363,7 @@ class StockInKit(tk.Frame):
                     self.add_to_tree(c)
             else:
                 dlg.destroy()
+
         lb.bind("<Double-Button-1>", choose)
         entry.bind("<Return>", choose)
         entry.focus()
@@ -2582,9 +3379,9 @@ class StockInKit(tk.Frame):
         col_id = self.tree.identify_column(event.x)
         if not row_id or not col_id:
             return
-        col_index = int(col_id.replace("#","")) - 1
+        col_index = int(col_id.replace("#", "")) - 1
         # qty_to_receive(6), expiry_date(7), batch_no(8) only
-        if col_index not in [6,7,8]:
+        if col_index not in [6, 7, 8]:
             return
         self._start_edit_cell(row_id, col_index)
 
@@ -2593,13 +3390,14 @@ class StockInKit(tk.Frame):
             bbox = self.tree.bbox(row_id, f"#{col_index+1}")
             if not bbox:
                 return
-            x,y,w,h = bbox
+            x, y, w, h = bbox
             orig_val = self.tree.set(row_id, self.tree["columns"][col_index])
-            entry = tk.Entry(self.tree, font=("Helvetica",10))
+            entry = tk.Entry(self.tree, font=("Helvetica", 10))
             entry.place(x=x, y=y, width=w, height=h)
             entry.insert(0, orig_val)
             entry.focus()
             self.editing_cell = entry
+
             def finalize(_=None):
                 new_val = entry.get().strip()
                 if col_index == 6:
@@ -2609,26 +3407,29 @@ class StockInKit(tk.Frame):
                         code = self.tree.set(row_id, "code")
                         expiry = self.tree.set(row_id, "expiry_date") or ""
                         meta = self.row_data.get(row_id, {})
-                        mgmt_mode = meta.get('management_mode')
-                        if mgmt_mode == 'on_shelf':
-                            max_qty = meta.get('max_qty')
+                        mgmt_mode = meta.get("management_mode")
+                        if mgmt_mode == "on_shelf":
+                            max_qty = meta.get("max_qty")
                             key = (code, expiry, mgmt_mode)
                             prev_used = self.suggested_usage.get(key, 0)
                             old_qty = int(orig_val) if orig_val.isdigit() else 0
                             used_minus_self = prev_used - old_qty
-                            physical_remaining = (max_qty if max_qty is not None else new_qty) - used_minus_self
+                            physical_remaining = (
+                                max_qty if max_qty is not None else new_qty
+                            ) - used_minus_self
                             physical_remaining = max(physical_remaining, 0)
                             if new_qty > physical_remaining:
                                 new_qty = physical_remaining
                             std_allow = self._remaining_std_allowance(code) + old_qty
                             if new_qty > std_allow:
                                 new_qty = std_allow
-                            if new_qty < 0: new_qty = 0
+                            if new_qty < 0:
+                                new_qty = 0
                             self.suggested_usage[key] = used_minus_self + new_qty
                     self.tree.set(row_id, "qty_to_receive", str(new_qty))
                     # Mirror into hidden qty_out
                     self.tree.set(row_id, "qty_out", str(new_qty))
-                    if t in ["KIT","MODULE"]:
+                    if t in ["KIT", "MODULE"]:
                         self.update_child_quantities()
                 elif col_index == 7:
                     if new_val:
@@ -2643,10 +3444,14 @@ class StockInKit(tk.Frame):
                 entry.destroy()
                 self.editing_cell = None
                 self.update_parent_expiry()
+
             entry.bind("<Return>", finalize)
             entry.bind("<Tab>", finalize)
             entry.bind("<FocusOut>", finalize)
-            entry.bind("<Escape>", lambda e: (entry.destroy(), setattr(self, "editing_cell", None)))
+            entry.bind(
+                "<Escape>",
+                lambda e: (entry.destroy(), setattr(self, "editing_cell", None)),
+            )
         except Exception as e:
             logging.error(f"[start_edit_cell] {e}")
 
@@ -2660,9 +3465,10 @@ class StockInKit(tk.Frame):
 
     def _update_subtree_quantities(self, iid):
         vals = self.tree.item(iid, "values")
-        if not vals: return
+        if not vals:
+            return
         t = vals[2].upper()
-        if t in ["KIT","MODULE"]:
+        if t in ["KIT", "MODULE"]:
             for child in self.tree.get_children(iid):
                 self._update_subtree_quantities(child)
 
@@ -2676,25 +3482,35 @@ class StockInKit(tk.Frame):
 
     def _update_parent_expiry_recursive(self, iid):
         vals = self.tree.item(iid, "values")
-        if not vals: return
+        if not vals:
+            return
         t = vals[2].upper()
         child_exp = []
         for c in self.tree.get_children(iid):
             self._update_parent_expiry_recursive(c)
-            cv = self.tree.item(c,"values")
-            if not cv: continue
-            if cv[2].upper()=="ITEM":
+            cv = self.tree.item(c, "values")
+            if not cv:
+                continue
+            if cv[2].upper() == "ITEM":
                 p = parse_expiry(cv[7])
-                if p: child_exp.append(p)
+                if p:
+                    child_exp.append(p)
             else:
                 cp = parse_expiry(cv[7])
-                if cp: child_exp.append(cp)
-        if t in ["KIT","MODULE"] and child_exp:
+                if cp:
+                    child_exp.append(cp)
+        if t in ["KIT", "MODULE"] and child_exp:
             self.tree.set(iid, "expiry_date", min(child_exp))
         code = vals[0]
         qty = vals[6]
         expv = self.tree.set(iid, "expiry_date")
-        if qty and str(qty).isdigit() and int(qty)>0 and check_expiry_required(code) and not parse_expiry(expv):
+        if (
+            qty
+            and str(qty).isdigit()
+            and int(qty) > 0
+            and check_expiry_required(code)
+            and not parse_expiry(expv)
+        ):
             self.tree.item(iid, tags=("light_red",))
         else:
             if t == "KIT":
@@ -2707,10 +3523,12 @@ class StockInKit(tk.Frame):
         if self.editing_cell:
             return
         all_rows = []
+
         def collect(p=""):
             for r in self.tree.get_children(p):
                 all_rows.append(r)
                 collect(r)
+
         collect()
         if not all_rows:
             return
@@ -2720,46 +3538,67 @@ class StockInKit(tk.Frame):
             current = all_rows[0]
         idx = all_rows.index(current)
         if event.keysym == "Up" and idx > 0:
-            self.tree.selection_set(all_rows[idx-1]); self.tree.focus(all_rows[idx-1])
-        elif event.keysym == "Down" and idx < len(all_rows)-1:
-            self.tree.selection_set(all_rows[idx+1]); self.tree.focus(all_rows[idx+1])
+            self.tree.selection_set(all_rows[idx - 1])
+            self.tree.focus(all_rows[idx - 1])
+        elif event.keysym == "Down" and idx < len(all_rows) - 1:
+            self.tree.selection_set(all_rows[idx + 1])
+            self.tree.focus(all_rows[idx + 1])
 
     def show_context_menu(self, event):
         menu = tk.Menu(self.tree, tearoff=0)
-        menu.add_command(label=lang.t("receive_kit.add_new_row","Add New Row"),
-                         command=lambda: None)
+        menu.add_command(
+            label=lang.t("receive_kit.add_new_row", "Add New Row"), command=lambda: None
+        )
         menu.post(event.x_root, event.y_root)
 
     # ------------- Uniqueness helpers -------------
     def is_kit_number_unique(self, kit_number: str) -> bool:
-        if not kit_number or kit_number.lower()=="none":
+        if not kit_number or kit_number.lower() == "none":
             return False
         conn = connect_db()
-        if conn is None: return False
+        if conn is None:
+            return False
         cur = conn.cursor()
         try:
-            cur.execute("""SELECT COUNT(*) FROM stock_data
-                           WHERE kit_number=? AND kit_number!='None'""",(kit_number.strip(),))
+            cur.execute(
+                """SELECT COUNT(*) FROM stock_data
+                           WHERE kit_number=? AND kit_number!='None'""",
+                (kit_number.strip(),),
+            )
             return cur.fetchone()[0] == 0
         finally:
             cur.close()
             conn.close()
 
     def is_module_number_unique(self, kit_number: str, module_number: str) -> bool:
-        if not module_number or module_number.lower()=="none":
+        if not module_number or module_number.lower() == "none":
             return False
         conn = connect_db()
-        if conn is None: return False
+        if conn is None:
+            return False
         cur = conn.cursor()
         try:
-            cur.execute("""SELECT COUNT(*) FROM stock_data
-                           WHERE module_number=? AND module_number!='None'""",(module_number.strip(),))
+            cur.execute(
+                """SELECT COUNT(*) FROM stock_data
+                           WHERE module_number=? AND module_number!='None'""",
+                (module_number.strip(),),
+            )
             return cur.fetchone()[0] == 0
         finally:
             cur.close()
             conn.close()
 
-    def generate_unique_id(self, scenario_id, kit, module, item, std_qty, exp_date, kit_number, module_number):
+    def generate_unique_id(
+        self,
+        scenario_id,
+        kit,
+        module,
+        item,
+        std_qty,
+        exp_date,
+        kit_number,
+        module_number,
+    ):
         return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
 
     # ------------- Document & Logging -------------
@@ -2767,25 +3606,35 @@ class StockInKit(tk.Frame):
         project_name, project_code = fetch_project_details()
         project_code = (project_code or "PRJ").upper()
         base_map = {
-            "In MSF":"IMSF","In Local Purchase":"ILP","In from Quarantine":"IFQ",
-            "In Donation":"IDN","Return from End User":"IREU","In Supply Non-MSF":"ISNM",
-            "In Borrowing":"IBR","In Return of Loan":"IRL","In Correction of Previous Transaction":"ICOR",
-            "In from on-shelf items":"INTERNAL"
+            "In MSF": "IMSF",
+            "In Local Purchase": "ILP",
+            "In from Quarantine": "IFQ",
+            "In Donation": "IDN",
+            "Return from End User": "IREU",
+            "In Supply Non-MSF": "ISNM",
+            "In Borrowing": "IBR",
+            "In Return of Loan": "IRL",
+            "In Correction of Previous Transaction": "ICOR",
+            "In from on-shelf items": "INTERNAL",
         }
         raw = (in_type_text or "").strip()
         abbr = None
-        norm_raw = re.sub(r'[^a-z0-9]+','', raw.lower())
-        for k,v in base_map.items():
-            if re.sub(r'[^a-z0-9]+','', k.lower()) == norm_raw:
-                abbr = v; break
+        norm_raw = re.sub(r"[^a-z0-9]+", "", raw.lower())
+        for k, v in base_map.items():
+            if re.sub(r"[^a-z0-9]+", "", k.lower()) == norm_raw:
+                abbr = v
+                break
         if not abbr:
-            tokens = re.split(r'\s+', raw.upper())
-            stop = {"OF","FROM","THE","AND","DE","DU","DES","LA","LE","LES"}
-            letters=[]
+            tokens = re.split(r"\s+", raw.upper())
+            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES"}
+            letters = []
             for t in tokens:
-                if not t or t in stop: continue
-                if t=="MSF": letters.append("MSF")
-                else: letters.append(t[0])
+                if not t or t in stop:
+                    continue
+                if t == "MSF":
+                    letters.append("MSF")
+                else:
+                    letters.append(t[0])
             abbr = "".join(letters) or (raw[:4].upper() or "DOC")
             abbr = abbr[:8]
         now = datetime.now()
@@ -2795,16 +3644,19 @@ class StockInKit(tk.Frame):
         if conn:
             cur = conn.cursor()
             try:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT document_number FROM stock_transactions
                      WHERE document_number LIKE ?
                      ORDER BY document_number DESC LIMIT 1
-                """,(prefix+"/%",))
+                """,
+                    (prefix + "/%",),
+                )
                 r = cur.fetchone()
                 if r and r[0]:
-                    last = r[0].rsplit('/',1)[-1]
+                    last = r[0].rsplit("/", 1)[-1]
                     if last.isdigit():
-                        serial = int(last)+1
+                        serial = int(last) + 1
             finally:
                 cur.close()
                 conn.close()
@@ -2812,24 +3664,26 @@ class StockInKit(tk.Frame):
         self.current_document_number = doc
         return doc
 
-    def log_transaction(self,
-                        unique_id: str,
-                        code: str,
-                        description: str,
-                        expiry_date: str,
-                        batch_number: str,
-                        scenario: str,
-                        kit: str,
-                        module: str,
-                        qty_in,
-                        in_type: str,
-                        qty_out,
-                        out_type: str,
-                        third_party: str,
-                        end_user: str,
-                        remarks: str,
-                        movement_type: str,
-                        document_number: str):
+    def log_transaction(
+        self,
+        unique_id: str,
+        code: str,
+        description: str,
+        expiry_date: str,
+        batch_number: str,
+        scenario: str,
+        kit: str,
+        module: str,
+        qty_in,
+        in_type: str,
+        qty_out,
+        out_type: str,
+        third_party: str,
+        end_user: str,
+        remarks: str,
+        movement_type: str,
+        document_number: str,
+    ):
         """
         Insert a single stock transaction row.
 
@@ -2845,33 +3699,36 @@ class StockInKit(tk.Frame):
             return
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO stock_transactions
                 (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
                  Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
                  Third_Party, End_User, Remarks, Movement_Type, document_number)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,(
-                datetime.today().strftime('%Y-%m-%d'),
-                datetime.now().strftime('%H:%M:%S'),
-                unique_id,
-                code,
-                description,
-                expiry_date,
-                batch_number,
-                scenario,
-                kit,
-                module,
-                qty_in,
-                in_type,
-                qty_out,
-                out_type,
-                third_party,
-                end_user,
-                remarks,
-                movement_type,
-                document_number
-            ))
+            """,
+                (
+                    datetime.today().strftime("%Y-%m-%d"),
+                    datetime.now().strftime("%H:%M:%S"),
+                    unique_id,
+                    code,
+                    description,
+                    expiry_date,
+                    batch_number,
+                    scenario,
+                    kit,
+                    module,
+                    qty_in,
+                    in_type,
+                    qty_out,
+                    out_type,
+                    third_party,
+                    end_user,
+                    remarks,
+                    movement_type,
+                    document_number,
+                ),
+            )
             conn.commit()
         except sqlite3.Error as e:
             conn.rollback()
@@ -2880,116 +3737,139 @@ class StockInKit(tk.Frame):
             cur.close()
             conn.close()
 
-
     # ------------- Uniqueness enforcement -------------
     def _enforce_unique_numbers_before_save(self):
         kits = {}
         modules = {}
         for iid, meta in self.row_data.items():
             vals = self.tree.item(iid, "values")
-            if not vals: continue
+            if not vals:
+                continue
             t = (vals[2] or "").upper()
-            kn = meta.get('kit_number')
-            mn = meta.get('module_number')
-            if t == "KIT" and kn and kn.lower() != 'none':
+            kn = meta.get("kit_number")
+            mn = meta.get("module_number")
+            if t == "KIT" and kn and kn.lower() != "none":
                 kits.setdefault(kn, []).append(iid)
-            if t == "MODULE" and mn and mn.lower() != 'none':
+            if t == "MODULE" and mn and mn.lower() != "none":
                 modules.setdefault(mn, []).append(iid)
-        dup_kits = {k: v for k,v in kits.items() if len(v) > 1}
-        dup_modules = {m: v for m,v in modules.items() if len(v) > 1}
+        dup_kits = {k: v for k, v in kits.items() if len(v) > 1}
+        dup_modules = {m: v for m, v in modules.items() if len(v) > 1}
         if not dup_kits and not dup_modules:
             return True
         for kit_number, iids in dup_kits.items():
             for iid in iids[1:]:
                 while True:
                     new_kn = simpledialog.askstring(
-                        lang.t("receive_kit.kit_number","Kit Number"),
+                        lang.t("receive_kit.kit_number", "Kit Number"),
                         f"Duplicate Kit Number '{kit_number}'. Enter a new Kit Number:",
-                        parent=self.parent
+                        parent=self.parent,
                     )
                     if new_kn is None:
-                        custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                                     f"Save aborted (duplicate Kit Number {kit_number}).","error")
+                        custom_popup(
+                            self.parent,
+                            lang.t("dialog_titles.error", "Error"),
+                            f"Save aborted (duplicate Kit Number {kit_number}).",
+                            "error",
+                        )
                         return False
                     new_kn = new_kn.strip()
                     if not new_kn:
                         continue
                     if self.is_kit_number_unique(new_kn):
-                        self.row_data[iid]['kit_number'] = new_kn
+                        self.row_data[iid]["kit_number"] = new_kn
                         break
-                    custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                                 f"Kit Number '{new_kn}' already exists globally.","error")
+                    custom_popup(
+                        self.parent,
+                        lang.t("dialog_titles.error", "Error"),
+                        f"Kit Number '{new_kn}' already exists globally.",
+                        "error",
+                    )
         for mod_number, iids in dup_modules.items():
             for iid in iids[1:]:
                 while True:
                     new_mn = simpledialog.askstring(
-                        lang.t("receive_kit.module_number","Module Number"),
+                        lang.t("receive_kit.module_number", "Module Number"),
                         f"Duplicate Module Number '{mod_number}'. Enter a new Module Number:",
-                        parent=self.parent
+                        parent=self.parent,
                     )
                     if new_mn is None:
-                        custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                                     f"Save aborted (duplicate Module Number {mod_number}).","error")
+                        custom_popup(
+                            self.parent,
+                            lang.t("dialog_titles.error", "Error"),
+                            f"Save aborted (duplicate Module Number {mod_number}).",
+                            "error",
+                        )
                         return False
                     new_mn = new_mn.strip()
                     if not new_mn:
                         continue
                     if self.is_module_number_unique(None, new_mn):
-                        self.row_data[iid]['module_number'] = new_mn
+                        self.row_data[iid]["module_number"] = new_mn
                         break
-                    custom_popup(self.parent, lang.t("dialog_titles.error","Error"),
-                                 f"Module Number '{new_mn}' already exists globally.","error")
+                    custom_popup(
+                        self.parent,
+                        lang.t("dialog_titles.error", "Error"),
+                        f"Module Number '{new_mn}' already exists globally.",
+                        "error",
+                    )
         return True
 
     # ------------- 70% rule -------------
     def _validate_global_70_rule(self):
         per_code = {}
         for top in self.tree.get_children():
-            stack=[top]
+            stack = [top]
             while stack:
-                iid=stack.pop()
-                vals=self.tree.item(iid,"values")
+                iid = stack.pop()
+                vals = self.tree.item(iid, "values")
                 if vals:
                     code, _, t, _, _, std_qty, qty, _, _, _, _ = vals
-                    if (t or "").upper()=="ITEM":
+                    if (t or "").upper() == "ITEM":
                         std = int(std_qty) if str(std_qty).isdigit() else 0
                         issued = int(qty) if str(qty).isdigit() else 0
                         if code not in per_code:
-                            per_code[code]={'std':std,'issued':issued}
+                            per_code[code] = {"std": std, "issued": issued}
                         else:
-                            per_code[code]['issued'] += issued
-                            if std > per_code[code]['std']:
-                                per_code[code]['std'] = std
+                            per_code[code]["issued"] += issued
+                            if std > per_code[code]["std"]:
+                                per_code[code]["std"] = std
                 stack.extend(self.tree.get_children(iid))
         if not per_code:
             return True
         total = len(per_code)
         covered = 0
-        uncovered=[]
-        for c,st in per_code.items():
-            if st['std']<=0 or st['issued']>=st['std']:
-                covered+=1
+        uncovered = []
+        for c, st in per_code.items():
+            if st["std"] <= 0 or st["issued"] >= st["std"]:
+                covered += 1
             else:
-                uncovered.append((c, st['std'], st['issued']))
-        coverage = covered/total if total else 1
+                uncovered.append((c, st["std"], st["issued"]))
+        coverage = covered / total if total else 1
         if coverage >= 0.70:
             return True
-        uncovered.sort(key=lambda x: (x[1]-x[2]), reverse=True)
-        sample = "\n".join([f"{c}: {issd}/{std} ({(issd/std*100):.1f}%)" for c,std,issd in uncovered[:15]])
-        more = f"\n... {len(uncovered)-15} more." if len(uncovered)>15 else ""
+        uncovered.sort(key=lambda x: (x[1] - x[2]), reverse=True)
+        sample = "\n".join(
+            [
+                f"{c}: {issd}/{std} ({(issd/std*100):.1f}%)"
+                for c, std, issd in uncovered[:15]
+            ]
+        )
+        more = f"\n... {len(uncovered)-15} more." if len(uncovered) > 15 else ""
         mode_key = self.current_mode_key()
         context = {
-            "receive_kit":"kit",
-            "add_module_kit":"module",
-            "add_module_scenario":"module",
-            "add_items_kit":"kit",
-            "add_items_module":"module",
-            "add_standalone":"operation"
-        }.get(mode_key,"operation")
-        msg = (f"At least 70% of items must have enough stock. Current: {coverage*100:.2f}% "
-               f"({covered}/{total}). The {context} cannot be created.\n\nBelow standard (sample):\n"
-               f"{sample}{more}")
-        custom_popup(self.parent, lang.t("dialog_titles.error","Error"), msg, "error")
+            "receive_kit": "kit",
+            "add_module_kit": "module",
+            "add_module_scenario": "module",
+            "add_items_kit": "kit",
+            "add_items_module": "module",
+            "add_standalone": "operation",
+        }.get(mode_key, "operation")
+        msg = (
+            f"At least 70% of items must have enough stock. Current: {coverage*100:.2f}% "
+            f"({covered}/{total}). The {context} cannot be created.\n\nBelow standard (sample):\n"
+            f"{sample}{more}"
+        )
+        custom_popup(self.parent, lang.t("dialog_titles.error", "Error"), msg, "error")
         return False
 
     # ------------- Save logic -------------
@@ -3007,25 +3887,27 @@ class StockInKit(tk.Frame):
                  Out_Type = original IN_Type value, Qty_IN = NULL
         """
         self.ensure_vars_ready()
-        
+
         # ===== PERMISSION CHECK =====
         if self.role not in ["admin", "manager"]:
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
-                lang.t("receive_kit.no_permission", 
-                       "Only admin or manager roles can save changes."),
-                "error"
+                lang.t(
+                    "receive_kit.no_permission",
+                    "Only admin or manager roles can save changes.",
+                ),
+                "error",
             )
             return
-        
+
         # ===== VALIDATE DATA EXISTS =====
         if not self.tree.get_children():
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
                 lang.t("receive_kit.no_rows", "No rows to save."),
-                "error"
+                "error",
             )
             return
 
@@ -3036,7 +3918,7 @@ class StockInKit(tk.Frame):
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
                 "Internal error: IN Type missing.",
-                "error"
+                "error",
             )
             return
 
@@ -3050,19 +3932,19 @@ class StockInKit(tk.Frame):
 
         # ===== GENERATE DOCUMENT NUMBER =====
         doc = self.generate_document_number(in_type)
-        
+
         # ✅ Get scenario_id (for database storage)
         scenario_id = self.selected_scenario_id
-        
+
         if not scenario_id:
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
                 "No scenario selected. Cannot save.",
-                "error"
+                "error",
             )
             return
-        
+
         # Get scenario_name (for display/logging purposes)
         scenario_name = self.scenario_map.get(scenario_id, "Unknown")
 
@@ -3075,41 +3957,55 @@ class StockInKit(tk.Frame):
             for r in self.tree.get_children(root):
                 all_iids.append(r)
                 collect(r)
+
         collect()
 
         # ===== STEP 1: CONSUME EXISTING STOCK LINES =====
         consumed_lines = set()
-        
+
         for iid in all_iids:
             vals = self.tree.item(iid, "values")
             if not vals:
                 continue
-            
-            (code, description, t, kit_col, module_col, std_qty,
-             qty_to_receive, expiry_date, batch_no, line_id, qty_out_hidden) = vals
-            
+
+            (
+                code,
+                description,
+                t,
+                kit_col,
+                module_col,
+                std_qty,
+                qty_to_receive,
+                expiry_date,
+                batch_no,
+                line_id,
+                qty_out_hidden,
+            ) = vals
+
             if (t or "").upper() != "ITEM":
                 continue
-            
+
             if not line_id or not line_id.isdigit():
                 continue
-            
+
             if not qty_out_hidden or not qty_out_hidden.isdigit():
                 continue
-            
+
             consume_qty = int(qty_out_hidden)
-            
+
             if consume_qty <= 0:
                 continue
-            
+
             if line_id in consumed_lines:
                 continue
-            
+
             # ✅ Update existing stock_data line's qty_out
             try:
                 StockData.consume_by_line_id(int(line_id), consume_qty)
                 consumed_lines.add(line_id)
-                logging.info(f"[IN_KIT] Consumed {consume_qty} from line_id {line_id} for {code}")
+                logging.info(
+                    f"[IN_KIT] Consumed {consume_qty} from line_id {line_id} for {code}"
+                )
             except Exception as e:
                 logging.error(f"[IN_KIT] Failed to consume line_id {line_id}: {e}")
 
@@ -3118,15 +4014,26 @@ class StockInKit(tk.Frame):
             vals = self.tree.item(iid, "values")
             if not vals:
                 continue
-            
-            (code, description, t, kit_col, module_col, std_qty,
-             qty_to_receive, expiry_date, batch_no, line_id, qty_out_hidden) = vals
+
+            (
+                code,
+                description,
+                t,
+                kit_col,
+                module_col,
+                std_qty,
+                qty_to_receive,
+                expiry_date,
+                batch_no,
+                line_id,
+                qty_out_hidden,
+            ) = vals
 
             if not qty_to_receive or not str(qty_to_receive).isdigit():
                 continue
-            
+
             qty_to_receive = int(qty_to_receive)
-            
+
             if qty_to_receive <= 0:
                 continue
 
@@ -3143,8 +4050,8 @@ class StockInKit(tk.Frame):
 
             # ===== GET METADATA =====
             meta = self.row_data.get(iid, {})
-            kit_number = meta.get('kit_number')
-            module_number = meta.get('module_number')
+            kit_number = meta.get("kit_number")
+            module_number = meta.get("module_number")
 
             # ===== BUILD UNIQUE_ID COMPONENTS =====
             kit_struct = kit_col if kit_col and kit_col != "-----" else None
@@ -3161,7 +4068,7 @@ class StockInKit(tk.Frame):
                 std_numeric,
                 parsed_exp,
                 kit_number,
-                module_number
+                module_number,
             )
 
             # ===== ADD/UPDATE STOCK_DATA (NEW COMPOSITION LINE) =====
@@ -3172,7 +4079,7 @@ class StockInKit(tk.Frame):
                     qty_in=qty_to_receive,
                     exp_date=parsed_exp,
                     kit_number=kit_number,
-                    module_number=module_number
+                    module_number=module_number,
                 )
                 logging.info(
                     f"[IN_KIT] Added stock_data: {unique_id}, "
@@ -3184,7 +4091,7 @@ class StockInKit(tk.Frame):
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
                     f"Failed to save {code}: {str(e)}",
-                    "error"
+                    "error",
                 )
                 continue
 
@@ -3205,18 +4112,22 @@ class StockInKit(tk.Frame):
                     out_type=None,
                     third_party=self.third_party_var.get() or None,
                     end_user=self.end_user_var.get() or None,
-                    remarks=self.remarks_entry.get().strip() if self.remarks_entry else None,
+                    remarks=(
+                        self.remarks_entry.get().strip() if self.remarks_entry else None
+                    ),
                     movement_type=self.mode_var.get() or "stock_in_kit",
-                    document_number=doc
+                    document_number=doc,
                 )
                 logging.debug(f"[IN_KIT] Logged incoming transaction for {code}")
             except Exception as e:
-                logging.error(f"[IN_KIT] Failed to log incoming transaction for {code}: {e}")
+                logging.error(
+                    f"[IN_KIT] Failed to log incoming transaction for {code}: {e}"
+                )
 
             # ===== LOG TRANSACTION 2: OUTGOING MIRROR (QTY_OUT) =====
             if qty_out_hidden and str(qty_out_hidden).isdigit():
                 out_q = int(qty_out_hidden)
-                
+
                 if out_q > 0:
                     try:
                         self.log_transaction(
@@ -3234,26 +4145,36 @@ class StockInKit(tk.Frame):
                             out_type=in_type,
                             third_party=self.third_party_var.get() or None,
                             end_user=self.end_user_var.get() or None,
-                            remarks=self.remarks_entry.get().strip() if self.remarks_entry else None,
+                            remarks=(
+                                self.remarks_entry.get().strip()
+                                if self.remarks_entry
+                                else None
+                            ),
                             movement_type=self.mode_var.get() or "stock_in_kit",
-                            document_number=doc
+                            document_number=doc,
                         )
-                        logging.debug(f"[IN_KIT] Logged outgoing mirror transaction for {code}")
+                        logging.debug(
+                            f"[IN_KIT] Logged outgoing mirror transaction for {code}"
+                        )
                     except Exception as e:
-                        logging.error(f"[IN_KIT] Failed to log outgoing transaction for {code}: {e}")
+                        logging.error(
+                            f"[IN_KIT] Failed to log outgoing transaction for {code}: {e}"
+                        )
 
             saved += 1
 
         # ===== HANDLE ERRORS =====
         if errors:
-            error_list = ', '.join(set(errors))
+            error_list = ", ".join(set(errors))
             custom_popup(
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
-                lang.t("receive_kit.invalid_expiry",
-                       "Valid expiry dates are required for these items:\n{items}",
-                       items=error_list),
-                "error"
+                lang.t(
+                    "receive_kit.invalid_expiry",
+                    "Valid expiry dates are required for these items:\n{items}",
+                    items=error_list,
+                ),
+                "error",
             )
             return
 
@@ -3261,86 +4182,114 @@ class StockInKit(tk.Frame):
         custom_popup(
             self.parent,
             lang.t("dialog_titles.success", "Success"),
-            lang.t("receive_kit.save_success",
-                   "Kit/Module received successfully.\n\n"
-                   "Items saved: {saved}\n"
-                   "Transactions logged: {transactions}\n"
-                   "Document Number: {doc}",
-                   saved=saved,
-                   transactions=saved * 2,
-                   doc=doc),
-            "info"
+            lang.t(
+                "receive_kit.save_success",
+                "Kit/Module received successfully.\n\n"
+                "Items saved: {saved}\n"
+                "Transactions logged: {transactions}\n"
+                "Document Number: {doc}",
+                saved=saved,
+                transactions=saved * 2,
+                doc=doc,
+            ),
+            "info",
         )
 
         self.status_var.set(
-            lang.t("receive_kit.document_number_generated",
-                   "Saved {saved} items ({transactions} transactions). Doc: {doc}",
-                   saved=saved,
-                   transactions=saved * 2,
-                   doc=doc)
+            lang.t(
+                "receive_kit.document_number_generated",
+                "Saved {saved} items ({transactions} transactions). Doc: {doc}",
+                saved=saved,
+                transactions=saved * 2,
+                doc=doc,
+            )
         )
-        
+
         # ===== CLEAR FORM =====
         self.clear_form()
-        
 
     # ------------- Export -------------
     def export_data(self, rows_to_export=None):
         if not self.tree.get_children():
-            self.status_var.set(lang.t("receive_kit.export_cancelled","Export cancelled"))
+            self.status_var.set(
+                lang.t("receive_kit.export_cancelled", "Export cancelled")
+            )
             return
         default_dir = "D:/ISEPREP"
         if not os.path.exists(default_dir):
-            try: os.makedirs(default_dir)
-            except: pass
+            try:
+                os.makedirs(default_dir)
+            except:
+                pass
         current_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-        in_type_raw = self.trans_type_var.get() or lang.t("receive_kit.unknown","Unknown")
-        movement_type_raw = self.mode_var.get() or lang.t("receive_kit.unknown","Unknown")
+        in_type_raw = self.trans_type_var.get() or lang.t(
+            "receive_kit.unknown", "Unknown"
+        )
+        movement_type_raw = self.mode_var.get() or lang.t(
+            "receive_kit.unknown", "Unknown"
+        )
         doc_number = getattr(self, "current_document_number", "")
-        safe = lambda s: (re.sub(r'[^A-Za-z0-9]+','_', s or '') or "Unknown").strip('_')
-        file_name = f"in_kit_{safe(movement_type_raw)}_{safe(in_type_raw)}_{current_time}.xlsx"
+        safe = lambda s: (re.sub(r"[^A-Za-z0-9]+", "_", s or "") or "Unknown").strip(
+            "_"
+        )
+        file_name = (
+            f"in_kit_{safe(movement_type_raw)}_{safe(in_type_raw)}_{current_time}.xlsx"
+        )
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            filetypes=[("Excel","*.xlsx")],
+            filetypes=[("Excel", "*.xlsx")],
             initialfile=file_name,
-            initialdir=default_dir
+            initialdir=default_dir,
         )
         if not path:
-            self.status_var.set(lang.t("receive_kit.export_cancelled","Export cancelled"))
+            self.status_var.set(
+                lang.t("receive_kit.export_cancelled", "Export cancelled")
+            )
             return
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws_title = lang.t("receive_kit.title","Receive Kit-Module")
+        ws_title = lang.t("receive_kit.title", "Receive Kit-Module")
         ws.title = ws_title[:31]
         project_name, project_code = fetch_project_details()
-        ws['A1'] = f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}    Document Number: {doc_number}"
-        ws['A2'] = f"{ws_title} – Movement: {movement_type_raw}"
-        ws['A3'] = f"{project_name} - {project_code}"
-        ws['A4'] = f"{lang.t('receive_kit.in_type','IN Type')}: {in_type_raw}"
-        ws['A5'] = f"{lang.t('receive_kit.movement_type','Movement Type')}: {movement_type_raw}"
+        ws["A1"] = (
+            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}    Document Number: {doc_number}"
+        )
+        ws["A2"] = f"{ws_title} – Movement: {movement_type_raw}"
+        ws["A3"] = f"{project_name} - {project_code}"
+        ws["A4"] = f"{lang.t('receive_kit.in_type','IN Type')}: {in_type_raw}"
+        ws["A5"] = (
+            f"{lang.t('receive_kit.movement_type','Movement Type')}: {movement_type_raw}"
+        )
         ws.append([])
         headers = [
-            lang.t("receive_kit.code","Code"),
-            lang.t("receive_kit.description","Description"),
-            lang.t("receive_kit.type","Type"),
-            lang.t("receive_kit.kit","Kit"),
-            lang.t("receive_kit.module","Module"),
-            lang.t("receive_kit.std_qty","Std Qty"),
-            lang.t("receive_kit.qty_to_receive","Qty to Receive"),
-            lang.t("receive_kit.expiry_date","Expiry Date"),
-            lang.t("receive_kit.batch_no","Batch No"),
+            lang.t("receive_kit.code", "Code"),
+            lang.t("receive_kit.description", "Description"),
+            lang.t("receive_kit.type", "Type"),
+            lang.t("receive_kit.kit", "Kit"),
+            lang.t("receive_kit.module", "Module"),
+            lang.t("receive_kit.std_qty", "Std Qty"),
+            lang.t("receive_kit.qty_to_receive", "Qty to Receive"),
+            lang.t("receive_kit.expiry_date", "Expiry Date"),
+            lang.t("receive_kit.batch_no", "Batch No"),
             "line_id",
-            "qty_out_consumed"
+            "qty_out_consumed",
         ]
         ws.append(headers)
+
         def append_rows_recursive(iid):
-            vals = self.tree.item(iid,"values")
+            vals = self.tree.item(iid, "values")
             if vals:
                 qty = vals[6]
-                if qty and str(qty).isdigit() and int(qty)>0 and vals[2].upper()=="ITEM":
+                if (
+                    qty
+                    and str(qty).isdigit()
+                    and int(qty) > 0
+                    and vals[2].upper() == "ITEM"
+                ):
                     ws.append(list(vals))
             for c in self.tree.get_children(iid):
                 append_rows_recursive(c)
+
         for iid in self.tree.get_children():
             append_rows_recursive(iid)
         for col in ws.columns:
@@ -3349,17 +4298,27 @@ class StockInKit(tk.Frame):
             for cell in col:
                 if cell.value:
                     max_len = max(max_len, len(str(cell.value)))
-            ws.column_dimensions[letter].width = min(max_len+2, 55)
+            ws.column_dimensions[letter].width = min(max_len + 2, 55)
         wb.save(path)
-        custom_popup(self.parent, lang.t("dialog_titles.success","Success"),
-                     lang.t("receive_kit.export_success", f"Export successful: {path}"), "info")
-        self.status_var.set(lang.t("receive_kit.export_success", f"Export successful: {path}"))
+        custom_popup(
+            self.parent,
+            lang.t("dialog_titles.success", "Success"),
+            lang.t("receive_kit.export_success", f"Export successful: {path}"),
+            "info",
+        )
+        self.status_var.set(
+            lang.t("receive_kit.export_success", f"Export successful: {path}")
+        )
+
 
 # ------------- Standalone harness -------------
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("In Kit (On-Shelf Batches)")
-    class DummyApp: pass
+
+    class DummyApp:
+        pass
+
     DummyApp.role = "admin"
     app = DummyApp()
     StockInKit(root, app, role="admin")
