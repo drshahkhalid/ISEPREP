@@ -16,7 +16,7 @@ import os
 from db import connect_db
 from manage_items import get_item_description, detect_type
 from language_manager import lang
-from popup_utils import custom_popup
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -574,7 +574,7 @@ class StockInKit(tk.Frame):
             (
                 "add_standalone",
                 lang.t(
-                    "receive_kit.mode_add_standalone",
+                    "in_kit.mode_add_standalone",
                     "Add standalone item/s in {scenario}",
                     scenario=scenario,
                 ),
@@ -582,7 +582,7 @@ class StockInKit(tk.Frame):
             (
                 "add_module_scenario",
                 lang.t(
-                    "receive_kit.mode_add_module_scenario",
+                    "in_kit.mode_add_module_scenario",
                     "Add module to {scenario}",
                     scenario=scenario,
                 ),
@@ -1547,9 +1547,7 @@ class StockInKit(tk.Frame):
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
         self.status_var.set(
-            lang.t(
-                "receive_kit.found_items", f"Found {self.search_listbox.size()} items"
-            )
+            lang.t("in_kit.found_items", f"Found {self.search_listbox.size()} items")
         )
 
     def select_first_result(self, event=None):
@@ -2805,7 +2803,7 @@ class StockInKit(tk.Frame):
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
                 lang.t(
-                    "receive_kit.duplicate_module_number",
+                    "in_kit.duplicate_module_number",
                     "Module Number '{num}' already exists.\n\n"
                     "Please enter a different number.",
                     num=entered,
@@ -2956,7 +2954,7 @@ class StockInKit(tk.Frame):
                 if kn is None:
                     self.status_var.set(
                         lang.t(
-                            "receive_kit.kit_number_cancelled",
+                            "in_kit.kit_number_cancelled",
                             "Kit number entry cancelled",
                         )
                     )
@@ -2985,7 +2983,7 @@ class StockInKit(tk.Frame):
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
                     lang.t(
-                        "receive_kit.duplicate_kit_number",
+                        "in_kit.duplicate_kit_number",
                         "Kit Number '{num}' already exists globally.\n\n"
                         "Please enter a different number.",
                         num=kn,
@@ -3309,9 +3307,7 @@ class StockInKit(tk.Frame):
                 custom_popup(
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
-                    lang.t(
-                        "receive_kit.no_kit_number", "Please select a Kit & Kit Number"
-                    ),
+                    lang.t("in_kit.no_kit_number", "Please select a Kit & Kit Number"),
                     "error",
                 )
                 return
@@ -3330,7 +3326,7 @@ class StockInKit(tk.Frame):
                     self.parent,
                     lang.t("dialog_titles.error", "Error"),
                     lang.t(
-                        "receive_kit.no_module_number",
+                        "in_kit.no_module_number",
                         "Please select a Module & Module Number",
                     ),
                     "error",
@@ -4007,7 +4003,7 @@ class StockInKit(tk.Frame):
                 self.parent,
                 lang.t("dialog_titles.error", "Error"),
                 lang.t(
-                    "receive_kit.no_permission",
+                    "in_kit.no_permission",
                     "Only admin or manager roles can save changes.",
                 ),
                 "error",
@@ -4426,7 +4422,7 @@ class StockInKit(tk.Frame):
                     self.parent,
                     lang.t("dialog_titles.warning", "Warning"),
                     lang.t(
-                        "receive_kit.save_with_errors",
+                        "in_kit.save_with_errors",
                         "Saved {saved} items, but some had errors:\n\n{errors}",
                         saved=saved,
                         errors=error_list,
@@ -4451,7 +4447,7 @@ class StockInKit(tk.Frame):
 
             self.status_var.set(
                 lang.t(
-                    "receive_kit.save_status",
+                    "in_kit.save_status",
                     "Saved {saved} items. Document: {doc}",
                     saved=saved,
                     doc=doc,
@@ -4486,12 +4482,8 @@ class StockInKit(tk.Frame):
             except:
                 pass
         current_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-        in_type_raw = self.trans_type_var.get() or lang.t(
-            "receive_kit.unknown", "Unknown"
-        )
-        movement_type_raw = self.mode_var.get() or lang.t(
-            "receive_kit.unknown", "Unknown"
-        )
+        in_type_raw = self.trans_type_var.get() or lang.t("in_kit.unknown", "Unknown")
+        movement_type_raw = self.mode_var.get() or lang.t("in_kit.unknown", "Unknown")
         doc_number = getattr(self, "current_document_number", "")
         safe = lambda s: (re.sub(r"[^A-Za-z0-9]+", "_", s or "") or "Unknown").strip(
             "_"
@@ -4518,9 +4510,9 @@ class StockInKit(tk.Frame):
         )
         ws["A2"] = f"{ws_title} – Movement: {movement_type_raw}"
         ws["A3"] = f"{project_name} - {project_code}"
-        ws["A4"] = f"{lang.t('receive_kit.in_type','IN Type')}: {in_type_raw}"
+        ws["A4"] = f"{lang.t('in_kit.in_type','IN Type')}: {in_type_raw}"
         ws["A5"] = (
-            f"{lang.t('receive_kit.movement_type','Movement Type')}: {movement_type_raw}"
+            f"{lang.t('in_kit.movement_type','Movement Type')}: {movement_type_raw}"
         )
         ws.append([])
         headers = [
