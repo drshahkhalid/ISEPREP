@@ -4439,7 +4439,7 @@ class StockInKit(tk.Frame):
                     self.parent,
                     lang.t("dialog_titles.success", "Success"),
                     lang.t(
-                        "receive_kit.save_complete",
+                        "in_kit.save_complete",
                         "Kit/Module received successfully!\n\n"
                         "Items saved: {saved}\n"
                         "Document: {doc}",
