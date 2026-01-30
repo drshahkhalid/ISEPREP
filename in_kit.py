@@ -2331,9 +2331,17 @@ class StockInKit(tk.Frame):
         if not self.selected_scenario_id or not module_code:
             return
 
+        logging.info(f"[IN_KIT] ===== load_module_with_items START =====")
         logging.info(
             f"[IN_KIT] Loading module {module_code} with items (kit={kit_code})"
         )
+        logging.info(
+            f"[IN_KIT] Parameters: kit_number={kit_number}, module_number={module_number}"
+        )
+
+        # ✅ CRITICAL: Clear suggested_usage for fresh allocation
+        logging.info(f"[IN_KIT] Clearing suggested_usage before loading module")
+        self.suggested_usage.clear()
 
         # Fetch module's child items from kit_items
         conn = connect_db()
@@ -2441,15 +2449,21 @@ class StockInKit(tk.Frame):
                 tags=("module",),
             )
 
+            # ✅ CRITICAL DEBUG: Verify module_iid
+            logging.info(
+                f"[IN_KIT] ✅ Inserted module header: module_iid='{module_iid}' "
+                f"(type={type(module_iid).__name__}, len={len(str(module_iid))})"
+            )
+
+            if not module_iid or module_iid == "":
+                logging.error(f"[IN_KIT] ❌ FATAL: module_iid is EMPTY!")
+                return
+
             self.row_data[module_iid] = {
                 "kit_number": kit_number,
                 "module_number": module_number,
                 "treecode": None,
             }
-
-            logging.info(
-                f"[IN_KIT] Inserted module header for {module_code} at iid={module_iid}"
-            )
 
             # Insert child items with batches
             inserted_count = 0
@@ -2457,13 +2471,23 @@ class StockInKit(tk.Frame):
                 item_code = item_row["code"]
                 std_qty = item_row["std_qty"] or 0
 
-                logging.debug(
-                    f"[IN_KIT] Processing item {item_code} (std_qty={std_qty}) for module {module_code}"
+                logging.info(
+                    f"[IN_KIT] ----- Processing item {item_code} (std_qty={std_qty}) -----"
                 )
+                logging.info(
+                    f"[IN_KIT] Will call insert_item_batches with parent_iid='{module_iid}'"
+                )
+
+                # ✅ CRITICAL: Verify parent_iid before passing
+                if not module_iid or module_iid == "":
+                    logging.error(
+                        f"[IN_KIT] ❌ FATAL: module_iid is EMPTY before calling insert_item_batches!"
+                    )
+                    continue
 
                 self.insert_item_batches(
                     code=item_code,
-                    parent_iid=module_iid,  # ✅ CRITICAL: Insert as child of module
+                    parent_iid=module_iid,  # ✅ CRITICAL: Pass module's tree ID
                     kit_number=kit_number,
                     module_number=module_number,
                     structural_kit=kit_code,
@@ -2471,6 +2495,10 @@ class StockInKit(tk.Frame):
                     std_qty=std_qty,
                 )
                 inserted_count += 1
+
+                logging.info(
+                    f"[IN_KIT] ----- Finished processing item {item_code} -----"
+                )
 
             logging.info(
                 f"[IN_KIT] Inserted {inserted_count} items into module {module_code}"
@@ -2499,8 +2527,9 @@ class StockInKit(tk.Frame):
             )
 
             logging.info(
-                f"[IN_KIT] ✅ Successfully loaded module {module_code} with {child_count} child items visible"
+                f"[IN_KIT] ✅ Successfully loaded module {module_code} with {child_count} child items"
             )
+            logging.info(f"[IN_KIT] ===== load_module_with_items END =====")
 
         except sqlite3.Error as e:
             logging.error(f"[IN_KIT] load_module_with_items error: {e}")
@@ -2713,14 +2742,55 @@ class StockInKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def remaining_available(self, code, expiry, management_mode, total_final):
-        key = (code, expiry or "", management_mode)
-        used = self.suggested_usage.get(key, 0)
-        return max(total_final - used, 0)
+    def remaining_available(
+        self, code, expiry, management_mode, total_final, parent_iid=""
+    ):
+        """
+        Calculate remaining physical stock from a batch for a specific parent.
 
-    def record_suggested(self, code, expiry, management_mode, qty):
-        key = (code, expiry or "", management_mode)
+        ✅ FIXED: Tracks allocation per parent context.
+
+        Args:
+            code: Item code
+            expiry: Expiry date
+            management_mode: 'on_shelf' or 'in_box'
+            total_final: Total available in this batch
+            parent_iid: Parent tree ID (for context-specific tracking)
+
+        Returns:
+            Remaining quantity available for this parent
+        """
+        key = (parent_iid, code, expiry or "", management_mode)
+        used = self.suggested_usage.get(key, 0)
+        remaining = max(total_final - used, 0)
+
+        logging.debug(
+            f"[IN_KIT] remaining_available for parent={parent_iid}, code={code}, "
+            f"expiry={expiry}: total={total_final}, used={used}, remaining={remaining}"
+        )
+
+        return remaining
+
+    def record_suggested(self, code, expiry, management_mode, qty, parent_iid=""):
+        """
+        Record allocation from a batch for a specific parent.
+
+        ✅ FIXED: Tracks allocation per parent context.
+
+        Args:
+            code: Item code
+            expiry: Expiry date
+            management_mode: 'on_shelf' or 'in_box'
+            qty: Quantity allocated
+            parent_iid: Parent tree ID (for context-specific tracking)
+        """
+        key = (parent_iid, code, expiry or "", management_mode)
         self.suggested_usage[key] += qty
+
+        logging.debug(
+            f"[IN_KIT] record_suggested for parent={parent_iid}, code={code}, "
+            f"expiry={expiry}: allocated={qty}, total_used={self.suggested_usage[key]}"
+        )
 
     def _remaining_std_allowance(self, code: str) -> int:
         std_val = None
@@ -2918,16 +2988,37 @@ class StockInKit(tk.Frame):
 
     # ------------- Hierarchy load -------------
     def load_hierarchy(self, kit_code):
+        """
+        Load complete kit hierarchy (kit → modules → items) into tree.
+
+        ✅ Tracks parent_iid correctly for batch allocation
+        ✅ Clears suggested_usage for fresh allocation
+        ✅ Extensive debugging to identify issues
+        """
         if not self.selected_scenario_id or not kit_code:
             return
+
+        logging.info(f"[IN_KIT] ===== load_hierarchy START =====")
+        logging.info(f"[IN_KIT] Loading hierarchy for kit: {kit_code}")
+
+        # Clear tree and tracking
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
+
+        # ✅ CRITICAL: Clear batch allocation tracking
         self.suggested_usage.clear()
+        logging.info(f"[IN_KIT] Cleared suggested_usage for fresh allocation")
+
+        # Fetch kit structure
         comps = self.fetch_kit_items(self.selected_scenario_id, kit_code)
         if not comps:
             self.status_var.set(lang.t("in_kit.no_items", f"No items for {kit_code}"))
             return
+
+        logging.info(f"[IN_KIT] Fetched {len(comps)} components for {kit_code}")
+
+        # Get or prompt for kit number
         kit_number = (
             self.kit_number_var.get().strip() if self.kit_number_var.get() else None
         )
@@ -2991,16 +3082,30 @@ class StockInKit(tk.Frame):
                     "error",
                 )
                 # Loop again with same suggestion
+
+        # Build tree structure
         treecode_to_iid = {}
         module_number_map = {}
+
+        logging.info(f"[IN_KIT] Building tree structure...")
+
         for comp in sorted(comps, key=lambda x: x["treecode"]):
             tc = comp["treecode"]
-            parent_tc = tc[:-3] if len(tc) >= 3 else ""
+            parent_tc = (tc[:-3] + "000") if len(tc) >= 3 else ""
             parent_iid = treecode_to_iid.get(parent_tc, "")
+
             ctype = comp["type"].upper()
             std_qty = comp["std_qty"]
             kit_disp = comp["kit"] or "-----"
             module_disp = comp["module"] or "-----"
+
+            # ✅ DEBUG: Log parent relationship
+            logging.debug(
+                f"[IN_KIT] Processing: code={comp['code']}, type={ctype}, "
+                f"treecode={tc}, parent_tc={parent_tc}, parent_iid='{parent_iid}'"
+            )
+
+            # Handle module number
             module_number = None
             if ctype == "MODULE":
                 module_number = self.ask_module_number(kit_number, comp["code"])
@@ -3010,56 +3115,117 @@ class StockInKit(tk.Frame):
                     )
                     return
                 module_number_map[comp["code"]] = module_number
+                logging.info(
+                    f"[IN_KIT] Module {comp['code']} assigned number: {module_number}"
+                )
             else:
                 if comp["module"] and comp["module"] in module_number_map:
                     module_number = module_number_map[comp["module"]]
-            row_iid = self.tree.insert(
-                parent_iid,
-                "end",
-                values=(
-                    comp["code"],
-                    comp["description"],
-                    comp["type"],
-                    kit_disp,
-                    module_disp,
-                    std_qty,
-                    (std_qty if ctype != "ITEM" else 0),
-                    "",
-                    "",
-                    "",
-                    "",  # hidden line_id, qty_out
-                ),
-            )
-            treecode_to_iid[tc] = row_iid
-            self.code_to_iid[comp["code"]] = row_iid
-            if ctype == "KIT":
-                self.tree.item(row_iid, tags=("kit",))
-            elif ctype == "MODULE":
-                self.tree.item(row_iid, tags=("module",))
-            self.row_data[row_iid] = {
-                "kit_number": kit_number,
-                "module_number": module_number,
-                "treecode": tc,
-            }
-            if ctype == "ITEM":
-                self.tree.delete(row_iid)
-                del self.row_data[row_iid]
-                if comp["code"] in self.code_to_iid:
-                    del self.code_to_iid[comp["code"]]
+
+            # ✅ CRITICAL: Insert KIT/MODULE rows (keep them, don't delete)
+            if ctype in ["KIT", "MODULE"]:
+                row_iid = self.tree.insert(
+                    parent_iid,
+                    "end",
+                    values=(
+                        comp["code"],
+                        comp["description"],
+                        comp["type"],
+                        kit_disp,
+                        module_disp,
+                        std_qty,
+                        std_qty,  # qty_to_receive = std_qty for containers
+                        "",
+                        "",
+                        "",
+                        "",  # hidden line_id, qty_out
+                    ),
+                )
+
+                treecode_to_iid[tc] = row_iid
+                self.code_to_iid[comp["code"]] = row_iid
+
+                if ctype == "KIT":
+                    self.tree.item(row_iid, tags=("kit",))
+                elif ctype == "MODULE":
+                    self.tree.item(row_iid, tags=("module",))
+
+                self.row_data[row_iid] = {
+                    "kit_number": kit_number,
+                    "module_number": module_number,
+                    "treecode": tc,
+                }
+
+                logging.info(
+                    f"[IN_KIT] Inserted {ctype}: iid='{row_iid}', code={comp['code']}"
+                )
+
+            # ✅ CRITICAL: Handle ITEM rows - DON'T insert placeholder, call batches directly
+            elif ctype == "ITEM":
+                # ✅ Validate parent exists
+                if not parent_iid or parent_iid == "":
+                    logging.error(
+                        f"[IN_KIT] ❌ FATAL: parent_iid is EMPTY for item {comp['code']}! "
+                        f"parent_tc={parent_tc}, treecode={tc}"
+                    )
+                    logging.error(f"[IN_KIT] treecode_to_iid map: {treecode_to_iid}")
+                    continue
+
+                # ✅ Verify parent exists in tree
+                try:
+                    parent_vals = self.tree.item(parent_iid, "values")
+                    if not parent_vals:
+                        logging.error(f"[IN_KIT] ❌ Parent {parent_iid} has no values!")
+                        continue
+                    logging.debug(
+                        f"[IN_KIT] Parent verified: iid={parent_iid}, "
+                        f"code={parent_vals[0]}, type={parent_vals[2]}"
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"[IN_KIT] ❌ Parent {parent_iid} doesn't exist in tree! {e}"
+                    )
+                    continue
+
+                # ✅ Call insert_item_batches with VERIFIED parent_iid
+                logging.info(
+                    f"[IN_KIT] ----- Calling insert_item_batches for {comp['code']} -----"
+                )
+                logging.info(f"[IN_KIT] parent_iid='{parent_iid}' (verified in tree)")
+
                 self.insert_item_batches(
                     code=comp["code"],
-                    parent_iid=parent_iid,
+                    parent_iid=parent_iid,  # ✅ Verified non-empty parent
                     kit_number=kit_number,
                     module_number=module_number,
                     structural_kit=kit_disp if kit_disp != "-----" else None,
                     structural_module=module_disp if module_disp != "-----" else None,
                     std_qty=std_qty,
                 )
+
+                logging.info(
+                    f"[IN_KIT] ----- Finished insert_item_batches for {comp['code']} -----"
+                )
+
+        # ✅ Expand all KIT/MODULE nodes
+        for iid in treecode_to_iid.values():
+            try:
+                vals = self.tree.item(iid, "values")
+                if vals and vals[2].upper() in ["KIT", "MODULE"]:
+                    self.tree.item(iid, open=True)
+            except:
+                pass
+
+        # Update aggregated quantities
         self.update_child_quantities()
         self.update_parent_expiry()
+
         self.status_var.set(
             lang.t("in_kit.loaded_records", f"Loaded hierarchy for {kit_code}")
         )
+
+        logging.info(f"[IN_KIT] ✅ Successfully loaded hierarchy for {kit_code}")
+        logging.info(f"[IN_KIT] ===== load_hierarchy END =====")
 
     # ------------- Insert batch rows (with line_id & hidden qty_out) -------------
     def insert_item_batches(
@@ -3074,23 +3240,35 @@ class StockInKit(tk.Frame):
     ):
         """
         Insert item batches into tree, allocating from longest expiry stock.
-
-        ✅ Logic:
-            1. Fetch all on-shelf batches (sorted by longest expiry)
-            2. Allocate up to std_qty from batches
-            3. If one batch insufficient, use multiple batches
-            4. Display longest expiry in tree
-            5. Track allocation to prevent over-allocation
-
-        Args:
-            code: Item code
-            parent_iid: Parent tree item ID
-            kit_number: Kit number (for metadata)
-            module_number: Module number (for metadata)
-            structural_kit: Kit code (for display)
-            structural_module: Module code (for display)
-            std_qty: Standard quantity needed
         """
+        # ✅ CRITICAL DEBUG: Log what we received
+        logging.info(f"[IN_KIT] ===== insert_item_batches CALLED =====")
+        logging.info(
+            f"[IN_KIT] Received: code={code}, parent_iid='{parent_iid}' "
+            f"(type={type(parent_iid).__name__}, len={len(str(parent_iid))})"
+        )
+        logging.info(
+            f"[IN_KIT] Received: kit_number={kit_number}, module_number={module_number}"
+        )
+
+        # ✅ Check if parent exists in tree
+        if parent_iid:
+            try:
+                parent_vals = self.tree.item(parent_iid, "values")
+                if parent_vals:
+                    logging.info(
+                        f"[IN_KIT] Parent EXISTS in tree: code={parent_vals[0]}, "
+                        f"type={parent_vals[2]}"
+                    )
+                else:
+                    logging.error(f"[IN_KIT] ❌ Parent {parent_iid} has NO VALUES!")
+            except Exception as e:
+                logging.error(
+                    f"[IN_KIT] ❌ Parent {parent_iid} does NOT exist in tree! Error: {e}"
+                )
+        else:
+            logging.error(f"[IN_KIT] ❌ FATAL: parent_iid is EMPTY for {code}!")
+
         batches = self.fetch_on_shelf_batches(code)
         desc = get_item_description(code)
 
@@ -3113,11 +3291,11 @@ class StockInKit(tk.Frame):
                     structural_kit or "-----",
                     structural_module or "-----",
                     std_qty_int,
-                    0,  # qty_to_receive = 0
-                    "",  # expiry_date = empty
-                    "",  # batch_no = empty
-                    "",  # line_id (hidden)
-                    "0",  # qty_out (hidden)
+                    0,
+                    "",
+                    "",
+                    "",
+                    "0",
                 ),
                 tags=("light_red",),
             )
@@ -3132,30 +3310,41 @@ class StockInKit(tk.Frame):
             }
             return
 
-        # Calculate how much we can/should allocate
+        # ✅ CRITICAL: Calculate remaining for THIS PARENT ONLY
         def remaining_std_allowance_for_insertion():
-            """Calculate how much more of this item we can allocate (respecting std_qty)."""
-            total_assigned = 0
-            current_std = std_qty_int
+            """
+            Calculate how much more THIS PARENT can allocate.
+            Only counts allocations under current parent_iid.
+            """
+            total_assigned_in_parent = 0
 
-            for top in self.tree.get_children():
-                stack = [top]
-                while stack:
-                    iid = stack.pop()
-                    vals = self.tree.item(iid, "values")
-                    if vals and vals[0] == code and vals[2].upper() == "ITEM":
+            # ✅ Only count children of THIS parent
+            if parent_iid:
+                for child_iid in self.tree.get_children(parent_iid):
+                    vals = self.tree.item(child_iid, "values")
+                    if (
+                        vals
+                        and len(vals) >= 7
+                        and vals[0] == code
+                        and vals[2].upper() == "ITEM"
+                    ):
                         q = vals[6]  # qty_to_receive column
                         if q and str(q).isdigit():
-                            total_assigned += int(q)
-                    stack.extend(self.tree.get_children(iid))
+                            total_assigned_in_parent += int(q)
 
-            if current_std <= 0:
-                return 10**12  # No limit if std_qty is 0 or invalid
+            if std_qty_int <= 0:
+                return 10**12  # No limit
 
-            rem = current_std - total_assigned
+            rem = std_qty_int - total_assigned_in_parent
+
+            logging.debug(
+                f"[IN_KIT] Parent {parent_iid}: std_qty={std_qty_int}, "
+                f"assigned={total_assigned_in_parent}, remaining={rem}"
+            )
+
             return rem if rem > 0 else 0
 
-        # Track longest expiry (first batch has it due to sorting)
+        # Track longest expiry
         longest_expiry = batches[0]["expiry"] if batches else None
 
         # Allocate from batches
@@ -3166,19 +3355,30 @@ class StockInKit(tk.Frame):
             final_qty = b["final_qty"]
             line_id = b["line_id"]
 
-            # Check physical availability (after accounting for prior allocations)
+            # ✅ CRITICAL FIX: Pass parent_iid to remaining_available
             remain_physical = self.remaining_available(
-                code, expiry, b["management_mode"], final_qty
+                code,
+                expiry,
+                b["management_mode"],
+                final_qty,
+                parent_iid,  # ✅ MUST PASS THIS!
             )
 
             if remain_physical <= 0:
+                logging.debug(
+                    f"[IN_KIT] Parent {parent_iid}: Skipping batch {line_id} "
+                    f"(no physical stock remaining)"
+                )
                 continue
 
-            # Check standard quantity allowance
+            # Check standard quantity allowance FOR THIS PARENT
             remain_std = remaining_std_allowance_for_insertion()
 
             if remain_std <= 0:
-                break  # Already allocated enough
+                logging.debug(
+                    f"[IN_KIT] Parent {parent_iid}: Reached std_qty limit, stopping allocation"
+                )
+                break  # Already allocated enough for this parent
 
             # Allocate minimum of physical and standard allowance
             allocate = min(remain_physical, remain_std)
@@ -3186,7 +3386,7 @@ class StockInKit(tk.Frame):
             if allocate <= 0:
                 continue
 
-            # ✅ Insert tree row with expiry date visible
+            # ✅ Insert tree row
             iid = self.tree.insert(
                 parent_iid,
                 "end",
@@ -3198,37 +3398,43 @@ class StockInKit(tk.Frame):
                     structural_module or "-----",
                     std_qty_int,
                     allocate,  # qty_to_receive
-                    expiry if expiry else "",  # ✅ EXPIRY DATE VISIBLE
-                    "",  # batch_no (user can edit)
+                    expiry if expiry else "",
+                    "",  # batch_no
                     str(line_id),  # line_id (hidden)
-                    str(allocate),  # qty_out (hidden) - mirrors qty_to_receive
+                    str(allocate),  # qty_out (hidden)
                 ),
             )
 
-            # Store metadata
+            # ✅ Store metadata with max_qty
             self.row_data[iid] = {
                 "kit_number": kit_number,
                 "module_number": module_number,
-                "max_qty": final_qty,
+                "max_qty": final_qty,  # ✅ For edit validation
                 "management_mode": b["management_mode"],
                 "expiry_key": expiry,
                 "line_id": line_id,
             }
 
-            # Record allocation to prevent over-use
-            self.record_suggested(code, expiry, b["management_mode"], allocate)
+            # ✅ CRITICAL FIX: Pass parent_iid to record_suggested
+            self.record_suggested(
+                code,
+                expiry,
+                b["management_mode"],
+                allocate,
+                parent_iid,  # ✅ MUST PASS THIS!
+            )
 
             inserted_any = True
 
-            logging.debug(
-                f"[IN_KIT] Allocated {allocate} of {code} from batch "
-                f"(expiry: {expiry}, line_id: {line_id})"
+            logging.info(
+                f"[IN_KIT] Parent {parent_iid}: Allocated {allocate} of {code} "
+                f"from batch (expiry={expiry}, line_id={line_id})"
             )
 
-        # If no batches were inserted (shouldn't happen if batches exist), add warning row
+        # If no batches inserted, add warning row
         if not inserted_any:
             logging.warning(
-                f"[IN_KIT] No batches allocated for {code} (likely allocation issue)"
+                f"[IN_KIT] No batches allocated for {code} in parent {parent_iid}"
             )
             iid = self.tree.insert(
                 parent_iid,
@@ -3240,13 +3446,11 @@ class StockInKit(tk.Frame):
                     structural_kit or "-----",
                     structural_module or "-----",
                     std_qty_int,
-                    0,  # qty_to_receive = 0
-                    (
-                        longest_expiry if longest_expiry else ""
-                    ),  # Show longest available expiry
+                    0,
+                    longest_expiry if longest_expiry else "",
                     "",
-                    "",  # line_id
-                    "0",  # qty_out
+                    "",
+                    "0",
                 ),
                 tags=("light_red",),
             )
@@ -3260,11 +3464,11 @@ class StockInKit(tk.Frame):
                 "line_id": None,
             }
 
-            # ✅ Verify insertion (debugging aid)
+        # Debug: Verify insertion
         if parent_iid:
             child_count = len(self.tree.get_children(parent_iid))
             logging.debug(
-                f"[IN_KIT] Parent {parent_iid} now has {child_count} children after inserting {code}"
+                f"[IN_KIT] Parent {parent_iid} now has {child_count} children"
             )
 
     # ------------- Add single code -------------
@@ -3496,6 +3700,11 @@ class StockInKit(tk.Frame):
         self._start_edit_cell(row_id, col_index)
 
     def _start_edit_cell(self, row_id, col_index):
+        """
+        Start editing a cell (qty_to_receive, expiry_date, batch_no).
+
+        ✅ FIXED: Enforces max_qty limit when editing qty_to_receive.
+        """
         try:
             bbox = self.tree.bbox(row_id, f"#{col_index+1}")
             if not bbox:
@@ -3510,47 +3719,89 @@ class StockInKit(tk.Frame):
 
             def finalize(_=None):
                 new_val = entry.get().strip()
+
+                # ===== EDITING QTY_TO_RECEIVE (Column 6) =====
                 if col_index == 6:
                     new_qty = int(new_val) if new_val.isdigit() else 0
                     t = self.tree.set(row_id, "type").upper()
+
                     if t == "ITEM":
                         code = self.tree.set(row_id, "code")
                         expiry = self.tree.set(row_id, "expiry_date") or ""
                         meta = self.row_data.get(row_id, {})
                         mgmt_mode = meta.get("management_mode")
+
+                        # ✅ FIX: Enforce max_qty limit from source batch
+                        max_qty = meta.get("max_qty")
+
+                        if max_qty is not None and new_qty > max_qty:
+                            logging.warning(
+                                f"[IN_KIT] User tried to set qty={new_qty} for {code}, "
+                                f"but max available from batch is {max_qty}. Capping."
+                            )
+                            custom_popup(
+                                self.parent,
+                                lang.t("dialog_titles.warning", "Warning"),
+                                lang.t(
+                                    "in_kit.qty_exceeds_batch",
+                                    "Quantity {requested} exceeds available batch stock ({available}).\n\n"
+                                    "Quantity has been capped to {available}.",
+                                    requested=new_qty,
+                                    available=max_qty,
+                                ),
+                                "warning",
+                            )
+                            new_qty = max_qty
+
+                        # ✅ Check standard allowance
+                        std_allow = self._remaining_std_allowance(code)
+                        old_qty = int(orig_val) if orig_val.isdigit() else 0
+                        std_allow_including_self = std_allow + old_qty
+
+                        if new_qty > std_allow_including_self:
+                            logging.warning(
+                                f"[IN_KIT] Qty {new_qty} exceeds std allowance "
+                                f"{std_allow_including_self} for {code}. Capping."
+                            )
+                            new_qty = std_allow_including_self
+
+                        if new_qty < 0:
+                            new_qty = 0
+
+                        # ✅ Update suggested_usage (per-parent tracking)
                         if mgmt_mode == "on_shelf":
-                            max_qty = meta.get("max_qty")
-                            key = (code, expiry, mgmt_mode)
+                            parent_iid = self.tree.parent(row_id)
+                            key = (parent_iid, code, expiry, mgmt_mode)
                             prev_used = self.suggested_usage.get(key, 0)
-                            old_qty = int(orig_val) if orig_val.isdigit() else 0
                             used_minus_self = prev_used - old_qty
-                            physical_remaining = (
-                                max_qty if max_qty is not None else new_qty
-                            ) - used_minus_self
-                            physical_remaining = max(physical_remaining, 0)
-                            if new_qty > physical_remaining:
-                                new_qty = physical_remaining
-                            std_allow = self._remaining_std_allowance(code) + old_qty
-                            if new_qty > std_allow:
-                                new_qty = std_allow
-                            if new_qty < 0:
-                                new_qty = 0
                             self.suggested_usage[key] = used_minus_self + new_qty
+
+                            logging.debug(
+                                f"[IN_KIT] Updated allocation: parent={parent_iid}, "
+                                f"code={code}, old={old_qty}, new={new_qty}"
+                            )
+
                     self.tree.set(row_id, "qty_to_receive", str(new_qty))
                     # Mirror into hidden qty_out
                     self.tree.set(row_id, "qty_out", str(new_qty))
+
                     if t in ["KIT", "MODULE"]:
                         self.update_child_quantities()
+
+                # ===== EDITING EXPIRY_DATE (Column 7) =====
                 elif col_index == 7:
                     if new_val:
                         parsed = parse_expiry(new_val)
                         self.tree.set(row_id, "expiry_date", parsed if parsed else "")
                     else:
                         self.tree.set(row_id, "expiry_date", "")
+
+                # ===== EDITING BATCH_NO (Column 8) =====
                 elif col_index == 8:
                     if len(new_val) > 30:
                         new_val = new_val[:30]
                     self.tree.set(row_id, "batch_no", new_val)
+
                 entry.destroy()
                 self.editing_cell = None
                 self.update_parent_expiry()
@@ -3563,7 +3814,7 @@ class StockInKit(tk.Frame):
                 lambda e: (entry.destroy(), setattr(self, "editing_cell", None)),
             )
         except Exception as e:
-            logging.error(f"[start_edit_cell] {e}")
+            logging.error(f"[_start_edit_cell] {e}")
 
     # ------------- Quantity propagation -------------
     def update_child_quantities(self):
@@ -3974,11 +4225,18 @@ class StockInKit(tk.Frame):
             "add_items_module": "module",
             "add_standalone": "operation",
         }.get(mode_key, "operation")
-        msg = (
-            f"At least 70% of items must have enough stock. Current: {coverage*100:.2f}% "
-            f"({covered}/{total}). The {context} cannot be created.\n\nBelow standard (sample):\n"
-            f"{sample}{more}"
+        msg = lang.t(
+            "in_kit.coverage_failure",
+            "At least 70% of items must have enough stock. Current: {percent}% ({covered}/{total}). "
+            "The {context} cannot be created.\n\nBelow standard (sample):\n{sample}{more}",
+            percent=f"{coverage*100:.2f}",
+            covered=covered,
+            total=total,
+            context=context,
+            sample=sample,
+            more=more,
         )
+
         custom_popup(self.parent, lang.t("dialog_titles.error", "Error"), msg, "error")
         return False
 
