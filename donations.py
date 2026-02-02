@@ -81,7 +81,7 @@ from popup_utils import custom_popup
 # ============================================================
 # IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-from theme_config import AppTheme, configure_tree_tags
+from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resize
 
 # ============================================================
 # REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
@@ -683,6 +683,9 @@ class Donations(tk.Frame):
             self.tree.insert("", "end", values=values, tags=(tag,))
 
     # ---------- Export ----------
+        # Enable double-click column auto-resize
+        enable_column_auto_resize(self.tree)
+
     def export_excel(self):
         if not self.rows:
             custom_popup(self, lang.t("generic.info","Info"),

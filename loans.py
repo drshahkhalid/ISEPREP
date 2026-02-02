@@ -48,7 +48,7 @@ from popup_utils import custom_popup, custom_askyesno
 # ============================================================
 # IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-from theme_config import AppTheme, configure_tree_tags
+from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resize
 
 # ============================================================
 # REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
@@ -651,6 +651,9 @@ class Loans(tk.Frame):
             self.tree.insert("", "end", values=vals, tags=(tag,))
 
     # ---------- Context Menu ----------
+        # Enable double-click column auto-resize
+        enable_column_auto_resize(self.tree)
+
     def _show_context_menu(self, event):
         iid = self.tree.identify_row(event.y)
         if not iid: return

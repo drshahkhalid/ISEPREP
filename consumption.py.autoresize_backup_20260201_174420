@@ -45,7 +45,7 @@ from manage_items import get_item_description, detect_type
 # ============================================================
 # IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resize
+from theme_config import AppTheme, configure_tree_tags
 
 # ---------------- Configuration (Image Export) ----------------
 USE_SCREENSHOT_CAPTURE = True
@@ -873,9 +873,6 @@ class Consumption(tk.Frame):
             if dtype == "KIT": tag = "kitrow"
             elif dtype == "MODULE": tag = "modrow"
             self.tree.insert("", "end", values=values, tags=(tag,))
-
-        # Enable double-click column auto-resize
-        enable_column_auto_resize(self.tree)
 
     def toggle_mode(self):
         self.simple_mode = not self.simple_mode

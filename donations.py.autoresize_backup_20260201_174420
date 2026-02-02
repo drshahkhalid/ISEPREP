@@ -1,71 +1,58 @@
 """
-losses.py  v1.1
+donations.py  v1.0
 
-Losses Report
+Donations Monitor
 
 Purpose:
-  Track all losses (negative outbound adjustments) by loss Out_Type categories:
-     Expired Items, Damaged Items, Cold Chain Break, Batch Recall, Theft, Other Losses
-  Aggregation key: (Date, Code, Out_Type)
-  Summarizes quantity (sum Qty_Out) and provides contextual metadata:
-     scenarios, kit numbers, module numbers, expiry dates, document numbers, remarks.
+  Track all IN and OUT donation movements per Date, Code and Third Party.
+  Aggregates In-Donations (IN_Type='In Donation') and Out-Donations (Out_Type='Out Donation')
+  so you can quickly see net donated vs distributed quantities per third party and item.
 
-Filters (Drop Downs / Inputs):
-  - Scenario (scenarios.name)
-  - Kit Number (from stock_data.kit_number)        (All / specific)
-  - Module Number (from stock_data.module_number)  (All / specific)
-  - Type (All, Kit, Module, Item)  (using detect_type)
-  - Type of Losses (All + list of loss categories)
-  - Item Search (code or translated description; only applied to Items)
-  - Date Range: From / To (multi-format parsing; To capped at today)
-  - Document Number substring
+Grouping Key:
+  (Date, Code, Third_Party)  -- daily granularity to show chronological donation flow.
+
+Filters (Drop-down / text):
+  - Scenario        (scenarios.name)
+  - Kit Number      (stock_transactions.Kit)
+  - Module Number   (stock_transactions.Module)
+  - Third Party     (third_parties.name)
+  - Type            (Kit, Module, Item, All)   (determined via detect_type)
+  - Item Search     (search code + translated description; applies only when Type=Item or All)
+  - Date Range      (From / To) multi-format parsing; To capped at today
+  - Document Number (substring search)
   - Simple / Detailed mode toggle
 
 Columns:
   Simple Mode:
-    date, code, description, quantity, type_of_loss
+     date, code, description, in_donations, out_donations, remarks (aggregated)
   Detailed Mode:
-    date, scenarios, kits, modules, type, code, description,
-    quantity, type_of_loss, expiry_dates, documents, remarks
+     date, scenarios, kits, modules, type, code, description, third_party,
+     in_donations, out_donations, expiry_dates, documents, remarks
 
-  * scenarios / kits / modules / expiry_dates / documents / remarks
-    are comma-separated unique sorted lists aggregated inside each (date, code, out_type) group.
-
-Quantity Definition:
-  Sum of Qty_Out for rows whose Out_Type is one of the defined loss categories
-  (and matches the Type of Losses filter if not 'All').
-
-Expiry Dates:
-  Pulled primarily from stock_data.exp_date (left join via unique_id).
-  If stock_data.exp_date is null, fallback to stock_transactions.Expiry_date.
-
-Remarks:
-  Aggregated distinct stock_transactions.Remarks values.
-
-Document Number:
-  Comma-separated documents for the grouped rows.
+  * scenarios / kits / modules / documents / remarks / expiry_dates:
+        comma‑separated unique sorted lists aggregated per group
+  * expiry_dates taken from stock_transactions.Expiry_date (fallback to None if blank)
 
 Keyboard:
-  - Enter in search/document/date fields: Refresh
-  - Esc in an Entry: Clear that field & refresh
-  - Esc globally (outside Entry): Clear all filters
+  - Enter in search/date/document fields => Refresh
+  - Esc in a field => clears that field & refreshes
+  - Esc globally (when focus not inside an Entry) => clear all filters
 
-Export:
-  - Excel (includes filter summary + current mode)
-  - Rows shaded (KIT green / MODULE light blue) based on detect_type
+Excel Export:
+  - Includes filter summary + mode
+  - Color rows for KIT (green) & MODULE (light blue)
+  - Preserves all displayed columns in current mode
 
 Dependencies:
   - db.connect_db
-  - manage_items.get_item_description / detect_type
+  - manage_items.get_item_description, manage_items.detect_type
   - language_manager.lang
   - popup_utils.custom_popup
-  - tkcalendar (optional)
+  - tkcalendar (optional) for date picking
 
-Future Enhancements (not yet implemented):
-  - Graphical trend lines
-  - Drill-down double-click to open underlying transactions
-  - Pivot by scenario or third party (if required later)
-
+NOTE:
+  If you later decide to add balance (in - out) or running totals, you can extend
+  the aggregation loop easily—left as-is per current specification.
 """
 
 import tkinter as tk
@@ -74,7 +61,7 @@ import sqlite3
 import re
 from datetime import date, datetime
 from calendar import monthrange
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import openpyxl
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
@@ -94,7 +81,7 @@ from popup_utils import custom_popup
 # ============================================================
 # IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resize
+from theme_config import AppTheme, configure_tree_tags
 
 # ============================================================
 # REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
@@ -117,17 +104,7 @@ from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resiz
 KIT_FILL_COLOR    = "228B22"    # Excel fill color (no #)
 MODULE_FILL_COLOR = "ADD8E6"    # Excel fill color (no #)
 
-LOSS_TYPES = [
-    "Expired Items",
-    "Damaged Items",
-    "Cold Chain Break",
-    "Batch Recall",
-    "Theft",
-    "Other Losses"
-]
-LOSS_TYPES_SET = set(LOSS_TYPES)
-
-# ---------------- Date Parsing ----------------
+# ---------------- DATE PARSING ----------------
 DATE_REGEXES = [
     ("%Y-%m-%d", re.compile(r"^\d{4}-\d{2}-\d{2}$")),
     ("%d/%m/%Y", re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")),
@@ -143,7 +120,7 @@ MONTH_ONLY_REGEXES = [
     ("%B-%Y", re.compile(r"^[A-Za-z]+-\d{4}$")),
 ]
 
-def parse_user_date(text: str, role: str):
+def parse_user_date(text: str, bound: str):
     if not text:
         return None
     raw = text.strip()
@@ -156,17 +133,17 @@ def parse_user_date(text: str, role: str):
     for fmt, rx in MONTH_ONLY_REGEXES:
         if rx.match(raw):
             try:
-                dt = datetime.strptime(raw, fmt)
-                y, m = dt.year, dt.month
-                return date(y, m, 1) if role == "from" else date(y, m, monthrange(y, m)[1])
+                tmp = datetime.strptime(raw, fmt)
+                y, m = tmp.year, tmp.month
+                return date(y, m, 1) if bound == "from" else date(y, m, monthrange(y, m)[1])
             except Exception:
                 pass
     if re.match(r"^\d{4}$", raw):
         y = int(raw)
-        return date(y, 1, 1) if role == "from" else date(y, 12, 31)
+        return date(y, 1, 1) if bound == "from" else date(y, 12, 31)
     return None
 
-# ---------------- Filter Value Providers ----------------
+# ---------------- FILTER DATA LOADERS ----------------
 def fetch_scenarios():
     conn = connect_db()
     if conn is None: return []
@@ -180,15 +157,14 @@ def fetch_scenarios():
         cur.close(); conn.close()
 
 def fetch_kit_numbers():
-    """Kit numbers from stock_data.kit_number"""
     conn = connect_db()
     if conn is None: return []
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT DISTINCT kit_number FROM stock_data
-            WHERE kit_number IS NOT NULL AND kit_number!='None' AND kit_number!=''
-            ORDER BY kit_number
+            SELECT DISTINCT Kit FROM stock_transactions
+            WHERE Kit IS NOT NULL AND Kit!='None' AND Kit!=''
+            ORDER BY Kit
         """)
         return [r[0] for r in cur.fetchall()]
     except sqlite3.Error:
@@ -197,15 +173,14 @@ def fetch_kit_numbers():
         cur.close(); conn.close()
 
 def fetch_module_numbers():
-    """Module numbers from stock_data.module_number"""
     conn = connect_db()
     if conn is None: return []
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT DISTINCT module_number FROM stock_data
-            WHERE module_number IS NOT NULL AND module_number!='None' AND module_number!=''
-            ORDER BY module_number
+            SELECT DISTINCT Module FROM stock_transactions
+            WHERE Module IS NOT NULL AND Module!='None' AND Module!=''
+            ORDER BY Module
         """)
         return [r[0] for r in cur.fetchall()]
     except sqlite3.Error:
@@ -213,78 +188,81 @@ def fetch_module_numbers():
     finally:
         cur.close(); conn.close()
 
-# ---------------- Aggregation ----------------
-def aggregate_losses(filters):
+def fetch_third_parties():
+    conn = connect_db()
+    if conn is None: return []
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT name FROM third_parties ORDER BY name")
+        return [r[0] for r in cur.fetchall()]
+    except sqlite3.Error:
+        return []
+    finally:
+        cur.close(); conn.close()
+
+# ---------------- AGGREGATION ----------------
+def aggregate_donations(filters):
     scenario = filters.get("scenario")
     kit_number = filters.get("kit")
     module_number = filters.get("module")
     type_filter = filters.get("type")
     item_search = filters.get("item_search")
     doc_search = filters.get("doc_number")
-    loss_filter = filters.get("loss_type")
+    third_party_filter = filters.get("third_party")
     date_from = filters.get("date_from")
     date_to = filters.get("date_to")
-
-    where = ["t.Out_Type IN ({})".format(",".join("?" for _ in LOSS_TYPES_SET))]
-    params = list(LOSS_TYPES_SET)
-
-    if scenario and scenario.lower() != "all":
-        where.append("t.Scenario = ?")
-        params.append(scenario)
-    if doc_search:
-        where.append("t.document_number LIKE ?")
-        params.append(f"%{doc_search}%")
-    if date_from:
-        where.append("t.Date >= ?")
-        params.append(date_from.strftime("%Y-%m-%d"))
-    if date_to:
-        where.append("t.Date <= ?")
-        params.append(date_to.strftime("%Y-%m-%d"))
-    if loss_filter and loss_filter.lower() != "all":
-        where.append("t.Out_Type = ?")
-        params.append(loss_filter)
-    if kit_number and kit_number.lower() != "all":
-        where.append("sd.kit_number = ?")
-        params.append(kit_number)
-    if module_number and module_number.lower() != "all":
-        where.append("sd.module_number = ?")
-        params.append(module_number)
-
-    where_sql = " AND ".join(where)
-
-    sql = f"""
-        SELECT
-            t.Date, t.code, t.Scenario, t.Qty_Out, t.Out_Type,
-            t.document_number, t.Remarks, t.unique_id,
-            COALESCE(sd.exp_date, t.Expiry_date) as expiry_date,
-            sd.kit_number, sd.module_number
-        FROM stock_transactions t
-        LEFT JOIN stock_data sd ON t.unique_id = sd.unique_id
-        WHERE {where_sql}
-    """
 
     conn = connect_db()
     if conn is None:
         return []
 
     cur = conn.cursor()
+    clauses = []
+    params = []
+
+    if scenario and scenario.lower() != "all":
+        clauses.append("Scenario = ?"); params.append(scenario)
+    if kit_number and kit_number.lower() != "all":
+        clauses.append("Kit = ?"); params.append(kit_number)
+    if module_number and module_number.lower() != "all":
+        clauses.append("Module = ?"); params.append(module_number)
+    if third_party_filter and third_party_filter.lower() != "all":
+        clauses.append("Third_Party = ?"); params.append(third_party_filter)
+    if doc_search:
+        clauses.append("document_number LIKE ?"); params.append(f"%{doc_search}%")
+    if date_from:
+        clauses.append("Date >= ?"); params.append(date_from.strftime("%Y-%m-%d"))
+    if date_to:
+        clauses.append("Date <= ?"); params.append(date_to.strftime("%Y-%m-%d"))
+
+    donation_clause = "(IN_Type='In Donation' OR Out_Type='Out Donation')"
+    base_where = " AND ".join(clauses) if clauses else "1=1"
+    sql = f"""
+        SELECT Date, code, Scenario, Kit, Module,
+               Qty_IN, IN_Type, Qty_Out, Out_Type,
+               document_number, Third_Party, Remarks, Expiry_date
+        FROM stock_transactions
+        WHERE {base_where} AND {donation_clause}
+    """
     try:
         cur.execute(sql, params)
-        fetched = cur.fetchall()
+        data = cur.fetchall()
     except sqlite3.Error:
         cur.close(); conn.close()
         return []
 
+    # Group by (Date, Code, Third_Party)
     groups = {}
     scen_map = defaultdict(set)
     kit_map = defaultdict(set)
     mod_map = defaultdict(set)
     doc_map = defaultdict(set)
-    expiry_map = defaultdict(set)
     remarks_map = defaultdict(set)
+    expiry_map = defaultdict(set)
 
-    for (dt_str, code, scen, qty_out, out_type, doc, remarks, unique_id,
-         exp_date, kn, mn) in fetched:
+    for (dt_str, code, scen, kit, module,
+         qty_in, in_type, qty_out, out_type,
+         doc, third_party, remarks, exp_date) in data:
         if not code:
             continue
         desc = get_item_description(code)
@@ -293,7 +271,6 @@ def aggregate_losses(filters):
         if type_filter and type_filter.lower() != "all":
             if dtype.lower() != type_filter.lower():
                 continue
-
         if item_search:
             if dtype.lower() != "item":
                 continue
@@ -301,28 +278,31 @@ def aggregate_losses(filters):
                 and item_search.lower() not in desc.lower()):
                 continue
 
-        key = (dt_str, code, out_type)
+        third_party = third_party or ""
+        key = (dt_str, code, third_party)
         rec = groups.setdefault(key, {
             "date": dt_str,
             "code": code,
-            "type": dtype,
+            "third_party": third_party,
             "description": desc,
-            "out_type": out_type,
-            "quantity": 0
+            "type": dtype,
+            "in_donations": 0,
+            "out_donations": 0
         })
 
-        if qty_out:
-            try:
-                rec["quantity"] += int(qty_out)
-            except Exception:
-                pass
+        if in_type == "In Donation" and qty_in:
+            try: rec["in_donations"] += int(qty_in)
+            except: pass
+        if out_type == "Out Donation" and qty_out:
+            try: rec["out_donations"] += int(qty_out)
+            except: pass
 
         if scen: scen_map[key].add(scen)
-        if kn and kn not in ("None",""): kit_map[key].add(kn)
-        if mn and mn not in ("None",""): mod_map[key].add(mn)
+        if kit: kit_map[key].add(kit)
+        if module: mod_map[key].add(module)
         if doc: doc_map[key].add(doc)
-        if exp_date and exp_date not in ("None",""): expiry_map[key].add(exp_date)
         if remarks: remarks_map[key].add(remarks)
+        if exp_date: expiry_map[key].add(exp_date)
 
     rows = []
     for key, rec in groups.items():
@@ -330,20 +310,22 @@ def aggregate_losses(filters):
         rec["kits"] = ", ".join(sorted(kit_map[key])) if kit_map[key] else ""
         rec["modules"] = ", ".join(sorted(mod_map[key])) if mod_map[key] else ""
         rec["documents"] = ", ".join(sorted(doc_map[key])) if doc_map[key] else ""
-        rec["expiry_dates"] = ", ".join(sorted(expiry_map[key])) if expiry_map[key] else ""
         rec["remarks"] = ", ".join(sorted(remarks_map[key])) if remarks_map[key] else ""
+        rec["expiry_dates"] = ", ".join(sorted(expiry_map[key])) if expiry_map[key] else ""
         rows.append(rec)
 
-    rows.sort(key=lambda r: (r["date"], r["type"], r["code"], r["out_type"]))
+    rows.sort(key=lambda r: (r["date"], r["type"], r["code"], r["third_party"]))
     cur.close(); conn.close()
     return rows
 
-# ---------------- UI Class (UPDATED: All color references use AppTheme) ----------------
-class Losses(tk.Frame):
-    SIMPLE_COLS = ["date","code","description","quantity","out_type"]
+# ---------------- UI CLASS (UPDATED: All color references use AppTheme) ----------------
+class Donations(tk.Frame):
+    SIMPLE_COLS = ["date","code","description","in_donations","out_donations","remarks"]
     DETAIL_COLS = [
-        "date","scenarios","kits","modules","type","code","description",
-        "quantity","out_type","expiry_dates","documents","remarks"
+        "date","scenarios","kits","modules","type",
+        "code","description","third_party",
+        "in_donations","out_donations","expiry_dates",
+        "documents","remarks"
     ]
 
     def __init__(self, parent, app, *args, **kwargs):
@@ -352,18 +334,19 @@ class Losses(tk.Frame):
         self.rows = []
         self.simple_mode = False
 
+        # Filters with translated "All"; normalize later
         all_lbl = self._all_label()
         self.scenario_var = tk.StringVar(value=all_lbl)
         self.kit_var = tk.StringVar(value=all_lbl)
         self.module_var = tk.StringVar(value=all_lbl)
+        self.third_party_var = tk.StringVar(value=all_lbl)
         self.type_var = tk.StringVar(value=all_lbl)
-        self.loss_type_var = tk.StringVar(value=all_lbl)
         self.item_search_var = tk.StringVar()
         self.doc_var = tk.StringVar()
         self.from_var = tk.StringVar()
         self.to_var = tk.StringVar()
 
-        self.status_var = tk.StringVar(value=lang.t("losses.ready","Ready"))
+        self.status_var = tk.StringVar(value=lang.t("donations.ready","Ready"))
         self.tree = None
 
         self._build_ui()
@@ -371,74 +354,60 @@ class Losses(tk.Frame):
         self._set_default_dates()
         self.refresh()
 
+    # ---------- Helpers for "All" + type normalization ----------
     def _all_label(self):
-        return lang.t("losses.all", "All")
+        return lang.t("donations.all", "All")
 
     def _norm(self, val):
         all_lbl = self._all_label()
         return "All" if (val is None or val == "" or val == all_lbl) else val
 
     def _norm_type(self, val):
-        if val in (None, "", self._all_label()):
+        if val in (None, "", lang.t("donations.all", "All")):
             return "All"
-        if val == lang.t("losses.type_kit","Kit"):
+        if val == lang.t("donations.type_kit", "Kit"):
             return "Kit"
-        if val == lang.t("losses.type_module","Module"):
+        if val == lang.t("donations.type_module", "Module"):
             return "Module"
-        if val == lang.t("losses.type_item","Item"):
+        if val == lang.t("donations.type_item", "Item"):
             return "Item"
         return val
 
-    def _loss_display_pairs(self):
-        return [
-            ("Expired Items",   lang.t("losses.loss_expired","Expired Items")),
-            ("Damaged Items",   lang.t("losses.loss_damaged","Damaged Items")),
-            ("Cold Chain Break",lang.t("losses.loss_cold_chain","Cold Chain Break")),
-            ("Batch Recall",    lang.t("losses.loss_batch_recall","Batch Recall")),
-            ("Theft",           lang.t("losses.loss_theft","Theft")),
-            ("Other Losses",    lang.t("losses.loss_other","Other Losses")),
-        ]
-
-    def _norm_loss_type(self, display_val):
-        if display_val in (None, "", self._all_label()):
-            return "All"
-        for canonical, disp in self._loss_display_pairs():
-            if display_val == disp:
-                return canonical
-        return display_val
-
-    # ---------- UI (UPDATED: All color references use AppTheme) ----------
+    # ---------- UI BUILD (UPDATED: All color references use AppTheme) ----------
     def _build_ui(self):
         header = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         header.pack(fill="x", padx=12, pady=(12,6))
 
         tk.Label(header,
-                 text=lang.t("menu.reports.losses","Losses"),
+                 text=lang.t("donations.title","Donations"),
                  font=(AppTheme.FONT_FAMILY, AppTheme.FONT_SIZE_HUGE, "bold"),  # UPDATED: Use AppTheme
                  bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
                  fg=AppTheme.COLOR_PRIMARY).pack(side="left")  # UPDATED: Use AppTheme
 
         self.toggle_btn = tk.Button(header,
-                                    text=lang.t("losses.detailed","Detailed"),
+                                    text=lang.t("donations.detailed","Detailed"),
                                     bg=AppTheme.BTN_TOGGLE,  # UPDATED: Use AppTheme
                                     fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                                     relief="flat", padx=14, pady=6,
                                     command=self.toggle_mode)
         self.toggle_btn.pack(side="right", padx=(6,0))
 
-        tk.Button(header, text=lang.t("generic.export","Export"),
+        tk.Button(header,
+                  text=lang.t("generic.export","Export"),
                   bg=AppTheme.BTN_EXPORT,  # UPDATED: Use AppTheme
                   fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat",
                   padx=14, pady=6, command=self.export_excel)\
             .pack(side="right", padx=(6,0))
-        tk.Button(header, text=lang.t("generic.clear","Clear"),
+        tk.Button(header,
+                  text=lang.t("generic.clear","Clear"),
                   bg=AppTheme.BTN_NEUTRAL,  # UPDATED: Use AppTheme
                   fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat",
                   padx=14, pady=6, command=self.clear_filters)\
             .pack(side="right", padx=(6,0))
-        tk.Button(header, text=lang.t("generic.refresh","Refresh"),
+        tk.Button(header,
+                  text=lang.t("generic.refresh","Refresh"),
                   bg=AppTheme.BTN_REFRESH,  # UPDATED: Use AppTheme
                   fg=AppTheme.TEXT_WHITE,  # UPDATED: Use AppTheme
                   relief="flat",
@@ -448,83 +417,81 @@ class Losses(tk.Frame):
         filters = tk.Frame(self, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
         filters.pack(fill="x", padx=12, pady=(0,8))
 
-        all_lbl = self._all_label()
-        type_all_lbl   = all_lbl
-        type_kit_lbl   = lang.t("losses.type_kit","Kit")
-        type_mod_lbl   = lang.t("losses.type_module","Module")
-        type_item_lbl  = lang.t("losses.type_item","Item")
-
         # Row 1
-        r1 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r1.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        r1 = tk.Frame(filters, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
+        r1.pack(fill="x", pady=2)
 
         tk.Label(r1, text=lang.t("generic.scenario","Scenario"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=0,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.scenario_cb = ttk.Combobox(r1, textvariable=self.scenario_var,
                                         state="readonly", width=20)
-        self.scenario_cb.grid(row=0,column=1,padx=(0,12))
+        self.scenario_cb.grid(row=0, column=1, padx=(0,12))
 
         tk.Label(r1, text=lang.t("generic.kit_number","Kit Number"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=2,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.kit_cb = ttk.Combobox(r1, textvariable=self.kit_var,
                                    state="readonly", width=16)
-        self.kit_cb.grid(row=0,column=3,padx=(0,12))
+        self.kit_cb.grid(row=0, column=3, padx=(0,12))
 
         tk.Label(r1, text=lang.t("generic.module_number","Module Number"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=4,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.module_cb = ttk.Combobox(r1, textvariable=self.module_var,
                                       state="readonly", width=16)
-        self.module_cb.grid(row=0,column=5,padx=(0,12))
+        self.module_cb.grid(row=0, column=5, padx=(0,12))
 
         tk.Label(r1, text=lang.t("generic.type","Type"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=6,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
+        type_all_lbl  = lang.t("donations.all","All")
+        type_kit_lbl  = lang.t("donations.type_kit","Kit")
+        type_mod_lbl  = lang.t("donations.type_module","Module")
+        type_item_lbl = lang.t("donations.type_item","Item")
         self.type_cb = ttk.Combobox(r1, textvariable=self.type_var,
                                     state="readonly", width=12,
                                     values=[type_all_lbl, type_kit_lbl, type_mod_lbl, type_item_lbl])
-        self.type_cb.grid(row=0,column=7,padx=(0,12))
+        self.type_cb.grid(row=0, column=7, padx=(0,12))
 
-        tk.Label(r1, text=lang.t("losses.type_of_loss","Type of Losses"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=8,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
-        loss_display = [disp for _, disp in self._loss_display_pairs()]
-        self.loss_type_cb = ttk.Combobox(r1, textvariable=self.loss_type_var,
-                                         state="readonly", width=18,
-                                         values=[all_lbl] + loss_display)
-        self.loss_type_cb.grid(row=0,column=9,padx=(0,4))
+        tk.Label(r1, text=lang.t("donations.third_party","Third Party"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=8, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
+        self.third_party_cb = ttk.Combobox(r1, textvariable=self.third_party_var,
+                                           state="readonly", width=18)
+        self.third_party_cb.grid(row=0, column=9, padx=(0,4))
 
         # Row 2
-        r2 = tk.Frame(filters, bg=AppTheme.BG_MAIN); r2.pack(fill="x", pady=2)  # UPDATED: Use AppTheme
+        r2 = tk.Frame(filters, bg=AppTheme.BG_MAIN)  # UPDATED: Use AppTheme
+        r2.pack(fill="x", pady=2)
 
-        tk.Label(r2, text=lang.t("losses.item_search","Item Search"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=0,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+        tk.Label(r2, text=lang.t("donations.item_search","Item Search"), bg=AppTheme.BG_MAIN)\
+            .grid(row=0, column=0, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.item_entry = tk.Entry(r2, textvariable=self.item_search_var, width=20)
-        self.item_entry.grid(row=0,column=1,padx=(0,12))
+        self.item_entry.grid(row=0, column=1, padx=(0,12))
         self.item_entry.bind("<Return>", lambda e: self.refresh())
         self.item_entry.bind("<Escape>", lambda e: self._clear_field(self.item_search_var))
 
         tk.Label(r2, text=lang.t("generic.document_number","Document Number"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=2,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=2, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.doc_entry = tk.Entry(r2, textvariable=self.doc_var, width=20)
-        self.doc_entry.grid(row=0,column=3,padx=(0,12))
+        self.doc_entry.grid(row=0, column=3, padx=(0,12))
         self.doc_entry.bind("<Return>", lambda e: self.refresh())
         self.doc_entry.bind("<Escape>", lambda e: self._clear_field(self.doc_var))
 
         tk.Label(r2, text=lang.t("generic.from_date","From Date"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=4,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=4, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.from_entry = self._date_widget(r2, self.from_var)
-        self.from_entry.grid(row=0,column=5,padx=(0,12))
+        self.from_entry.grid(row=0, column=5, padx=(0,12))
 
         tk.Label(r2, text=lang.t("generic.to_date","To Date"), bg=AppTheme.BG_MAIN)\
-            .grid(row=0,column=6,sticky="w",padx=(0,4))  # UPDATED: Use AppTheme
+            .grid(row=0, column=6, sticky="w", padx=(0,4))  # UPDATED: Use AppTheme
         self.to_entry = self._date_widget(r2, self.to_var)
-        self.to_entry.grid(row=0,column=7,padx=(0,12))
+        self.to_entry.grid(row=0, column=7, padx=(0,12))
 
-        # Status bar (UPDATED: Colors use AppTheme)
+        # Status Bar (UPDATED: Colors use AppTheme)
         tk.Label(self, textvariable=self.status_var, anchor="w",
                  bg=AppTheme.BG_MAIN,  # UPDATED: Use AppTheme
                  fg=AppTheme.COLOR_PRIMARY,  # UPDATED: Use AppTheme
                  relief="sunken")\
             .pack(fill="x", padx=12, pady=(0,8))
 
-        # Table (UPDATED: Colors use AppTheme)
+        # Table Container (UPDATED: Colors use AppTheme)
         table_frame = tk.Frame(self, bg=AppTheme.COLOR_BORDER, bd=1, relief="solid")  # UPDATED: Use AppTheme
         table_frame.pack(fill="both", expand=True, padx=12, pady=(0,12))
 
@@ -554,7 +521,7 @@ class Losses(tk.Frame):
         self.tree.tag_configure("kitrow", background=AppTheme.KIT_COLOR, foreground=AppTheme.TEXT_WHITE)  # UPDATED: Use AppTheme
         self.tree.tag_configure("modrow", background=AppTheme.MODULE_COLOR)  # UPDATED: Use AppTheme
 
-        # Global ESC (clear all) unless inside Entry
+        # Global ESC for clearing all (when not inside entry)
         self.bind_all("<Escape>", self._esc_global)
 
     def _esc_global(self, event):
@@ -587,37 +554,41 @@ class Losses(tk.Frame):
         today = date.today()
         try:
             past = date(today.year - 1, today.month, today.day)
-        except Exception:
+        except:
             past = today
         self.from_var.set(past.strftime("%Y-%m-%d"))
         self.to_var.set(today.strftime("%Y-%m-%d"))
 
-    # ---------- Filter population ----------
+    # ---------- Filters ----------
     def populate_filters(self):
         scenarios = fetch_scenarios()
         kits = fetch_kit_numbers()
         modules = fetch_module_numbers()
+        tps = fetch_third_parties()
         all_lbl = self._all_label()
 
         self.scenario_cb['values'] = [all_lbl] + scenarios
         self.kit_cb['values'] = [all_lbl] + kits
         self.module_cb['values'] = [all_lbl] + modules
+        self.third_party_cb['values'] = [all_lbl] + tps
 
         for var, cb in [
             (self.scenario_var, self.scenario_cb),
             (self.kit_var, self.kit_cb),
-            (self.module_var, self.module_cb)
+            (self.module_var, self.module_cb),
+            (self.third_party_var, self.third_party_cb)
         ]:
             if var.get() not in cb['values']:
                 var.set(all_lbl)
 
-    # ---------- Mode toggle ----------
+        if self.type_var.get() not in self.type_cb['values']:
+            self.type_var.set(all_lbl)
+
+    # ---------- Mode ----------
     def toggle_mode(self):
         self.simple_mode = not self.simple_mode
-        self.toggle_btn.config(
-            text=lang.t("losses.simple","Simple") if self.simple_mode
-            else lang.t("losses.detailed","Detailed")
-        )
+        self.toggle_btn.config(text=lang.t("donations.simple","Simple") if self.simple_mode
+                               else lang.t("donations.detailed","Detailed"))
         self._populate_tree()
 
     # ---------- Refresh ----------
@@ -626,8 +597,8 @@ class Losses(tk.Frame):
             "scenario": self._norm(self.scenario_var.get()),
             "kit": self._norm(self.kit_var.get()),
             "module": self._norm(self.module_var.get()),
+            "third_party": self._norm(self.third_party_var.get()),
             "type": self._norm_type(self.type_var.get()),
-            "loss_type": self._norm_loss_type(self.loss_type_var.get()),
             "item_search": self.item_search_var.get().strip(),
             "doc_number": self.doc_var.get().strip(),
             "date_from": parse_user_date(self.from_var.get().strip(), "from") if self.from_var.get().strip() else None,
@@ -635,17 +606,17 @@ class Losses(tk.Frame):
         }
         if filters["date_to"] and filters["date_to"] > date.today():
             filters["date_to"] = date.today()
-        self.rows = aggregate_losses(filters)
+        self.rows = aggregate_donations(filters)
         self._populate_tree()
-        self.status_var.set(lang.t("losses.loaded","Loaded {n} rows").format(n=len(self.rows)))
+        self.status_var.set(lang.t("donations.loaded","Loaded {n} rows").format(n=len(self.rows)))
 
     def clear_filters(self):
         all_lbl = self._all_label()
         self.scenario_var.set(all_lbl)
         self.kit_var.set(all_lbl)
         self.module_var.set(all_lbl)
+        self.third_party_var.set(all_lbl)
         self.type_var.set(all_lbl)
-        self.loss_type_var.set(all_lbl)
         self.item_search_var.set("")
         self.doc_var.set("")
         self._set_default_dates()
@@ -668,11 +639,12 @@ class Losses(tk.Frame):
             "type": lang.t("generic.type","Type"),
             "code": lang.t("generic.code","Code"),
             "description": lang.t("generic.description","Description"),
-            "quantity": lang.t("losses.quantity","Quantity"),
-            "out_type": lang.t("losses.type_of_loss","Type of Loss"),
-            "expiry_dates": lang.t("losses.expiry_dates","Expiry Date(s)"),
+            "third_party": lang.t("donations.third_party","Third Party"),
+            "in_donations": lang.t("donations.in_donations","In-Donations"),
+            "out_donations": lang.t("donations.out_donations","Out-Donations"),
+            "expiry_dates": lang.t("donations.expiry_dates","Expiry Date(s)"),
             "documents": lang.t("generic.document_number","Document Number(s)"),
-            "remarks": lang.t("losses.remarks","Remarks")
+            "remarks": lang.t("donations.remarks","Remarks")
         }
 
         for c in cols:
@@ -683,7 +655,9 @@ class Losses(tk.Frame):
                 width = 160
             elif c in ("scenarios","kits","modules","documents","remarks","expiry_dates"):
                 width = 220
-            elif c in ("quantity","out_type"):
+            elif c == "third_party":
+                width = 180
+            elif c in ("in_donations","out_donations"):
                 width = 130
             self.tree.heading(c, text=headings.get(c, c))
             self.tree.column(c, width=width, anchor="w", stretch=True)
@@ -692,14 +666,14 @@ class Losses(tk.Frame):
             if self.simple_mode:
                 values = [
                     r["date"], r["code"], r["description"],
-                    r["quantity"], r["out_type"]
+                    r["in_donations"], r["out_donations"], r["remarks"]
                 ]
             else:
                 values = [
                     r["date"], r["scenarios"], r["kits"], r["modules"], r["type"],
-                    r["code"], r["description"],
-                    r["quantity"], r["out_type"],
-                    r["expiry_dates"], r["documents"], r["remarks"]
+                    r["code"], r["description"], r["third_party"],
+                    r["in_donations"], r["out_donations"], r["expiry_dates"],
+                    r["documents"], r["remarks"]
                 ]
             tag = "alt" if idx % 2 else ""
             if r["type"].upper() == "KIT":
@@ -709,26 +683,22 @@ class Losses(tk.Frame):
             self.tree.insert("", "end", values=values, tags=(tag,))
 
     # ---------- Export ----------
-        # Enable double-click column auto-resize
-        enable_column_auto_resize(self.tree)
-
     def export_excel(self):
         if not self.rows:
             custom_popup(self, lang.t("generic.info","Info"),
-                         lang.t("losses.no_data_export","Nothing to export."), "warning")
-            return
+                         lang.t("donations.no_data_export","Nothing to export."), "warning")
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            filetypes=[("Excel","*.xlsx")],
-            title=lang.t("losses.export_title","Save Losses Report"),
-            initialfile=f"Losses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            filetypes=[("Excel Files","*.xlsx")],
+            title=lang.t("donations.export_title","Save Donations Report"),
+            initialfile=f"Donations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         )
         if not path:
             return
         try:
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "Losses"
+            ws.title = "Donations"
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ws.append([lang.t("generic.generated","Generated"), now_str])
@@ -736,8 +706,8 @@ class Losses(tk.Frame):
             ws.append(["Scenario", self.scenario_var.get(),
                        "Kit", self.kit_var.get(),
                        "Module", self.module_var.get()])
-            ws.append(["Type", self.type_var.get(),
-                       "Loss Type", self.loss_type_var.get(),
+            ws.append(["Third Party", self.third_party_var.get(),
+                       "Type", self.type_var.get(),
                        "Document", self.doc_var.get()])
             ws.append(["From", self.from_var.get(),
                        "To", self.to_var.get(),
@@ -755,14 +725,14 @@ class Losses(tk.Frame):
                 if self.simple_mode:
                     line = [
                         r["date"], r["code"], r["description"],
-                        r["quantity"], r["out_type"]
+                        r["in_donations"], r["out_donations"], r["remarks"]
                     ]
                 else:
                     line = [
                         r["date"], r["scenarios"], r["kits"], r["modules"], r["type"],
-                        r["code"], r["description"],
-                        r["quantity"], r["out_type"],
-                        r["expiry_dates"], r["documents"], r["remarks"]
+                        r["code"], r["description"], r["third_party"],
+                        r["in_donations"], r["out_donations"], r["expiry_dates"],
+                        r["documents"], r["remarks"]
                     ]
                 ws.append(line)
                 dtype = r["type"].upper()
@@ -771,6 +741,7 @@ class Losses(tk.Frame):
                 elif dtype == "MODULE":
                     for c in ws[ws.max_row]: c.fill = module_fill
 
+            # Autosize
             for col in ws.columns:
                 max_len = 0
                 letter = get_column_letter(col[0].column)
@@ -781,19 +752,19 @@ class Losses(tk.Frame):
 
             wb.save(path)
             custom_popup(self, lang.t("generic.success","Success"),
-                         lang.t("losses.export_success","Export completed: {f}").format(f=path),
+                         lang.t("donations.export_success","Export completed: {f}").format(f=path),
                          "info")
         except Exception as e:
             custom_popup(self, lang.t("generic.error","Error"),
-                         lang.t("losses.export_fail","Export failed: {err}").format(err=str(e)),
+                         lang.t("donations.export_fail","Export failed: {err}").format(err=str(e)),
                          "error")
 
-# ---------------- Module Export ----------------
-__all__ = ["Losses"]
+# ------------- Module Export -------------
+__all__ = ["Donations"]
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Losses Report v1.1")
-    Losses(root, None).pack(fill="both", expand=True)
+    root.title("Donations Monitor v1.0")
+    Donations(root, None).pack(fill="both", expand=True)
     root.geometry("1580x820")
     root.mainloop()

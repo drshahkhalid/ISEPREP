@@ -4404,7 +4404,7 @@ class StockOutKit(tk.Frame):
         self.out_type_var.set(
             lang.t("out_kit.out_type_fixed", "Internal move from in-box items")
         )
-        self.status_var.set(lang.t("break_kit.ready", "Ready"))
+        self.status_var.set(lang.t("out_kit.ready", "Ready"))
         self.scenario_map = self.fetch_scenario_map()
         self.load_scenarios()
 

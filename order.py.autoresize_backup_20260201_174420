@@ -47,7 +47,7 @@ from popup_utils import custom_popup
 # ============================================================
 # IMPORT CENTRALIZED THEME (NEW)
 # ============================================================
-from theme_config import AppTheme, configure_tree_tags, enable_column_auto_resize
+from theme_config import AppTheme, configure_tree_tags
 
 # ============================================================
 # REMOVED OLD GENERAL COLOR CONSTANTS - Now using AppTheme
@@ -696,9 +696,6 @@ class OrderNeeds(tk.Frame):
                 self.tree.insert("", "end", values=vals, tags=(tag,"remarks_italic"))
             else:
                 self.tree.insert("", "end", values=vals, tags=(tag,))
-
-        # Enable double-click column auto-resize
-        enable_column_auto_resize(self.tree)
 
     def _format_cell(self,row,col):
         v=row.get(col,"")
