@@ -9,6 +9,68 @@ from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.worksheet.page import PrintPageSetup
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
 import os
+import re
+from datetime import date, datetime, timedelta
+from calendar import monthrange
+
+
+# Optional calendar (tkcalendar)
+try:
+    from tkcalendar import DateEntry
+
+    TKCAL_AVAILABLE = True
+except Exception:
+    TKCAL_AVAILABLE = False
+
+
+# ---------------- Date Parsing ----------------
+DATE_REGEXES = [
+    ("%Y-%m-%d", re.compile(r"^\d{4}-\d{2}-\d{2}$")),
+    ("%d/%m/%Y", re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")),
+    ("%d-%m-%Y", re.compile(r"^\d{1,2}-\d{1,2}-\d{4}$")),
+    ("%Y/%m/%d", re.compile(r"^\d{4}/\d{1,2}/\d{1,2}$")),
+    ("%d %b %Y", re.compile(r"^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$")),
+    ("%d %B %Y", re.compile(r"^\d{1,2}\s+[A-Za-z]+\s+\d{4}$")),
+]
+
+MONTH_ONLY_REGEXES = [
+    ("%Y-%m", re.compile(r"^\d{4}-\d{1,2}$")),
+    ("%m/%Y", re.compile(r"^\d{1,2}/\d{4}$")),
+    ("%b-%Y", re.compile(r"^[A-Za-z]{3}-\d{4}$")),
+    ("%B-%Y", re.compile(r"^[A-Za-z]+-\d{4}$")),
+]
+
+
+def parse_user_date(text: str, bound: str) -> date | None:
+    if not text:
+        return None
+    raw = text.strip()
+
+    for fmt, rx in DATE_REGEXES:
+        if rx.match(raw):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except Exception:
+                pass
+
+    for fmt, rx in MONTH_ONLY_REGEXES:
+        if rx.match(raw):
+            try:
+                tmp = datetime.strptime(raw, fmt)
+                y, m = tmp.year, tmp.month
+                return (
+                    date(y, m, 1)
+                    if bound == "from"
+                    else date(y, m, monthrange(y, m)[1])
+                )
+            except Exception:
+                pass
+
+    if re.match(r"^\d{4}$", raw):
+        y = int(raw)
+        return date(y, 1, 1) if bound == "from" else date(y, 12, 31)
+
+    return None
 
 
 def get_active_designation(code: str) -> str:
@@ -139,15 +201,13 @@ def fetch_module_numbers(
 class StockCard(tk.Frame):
     """
     Stock Card:
-      - Filters: Scenario, Kit Number, Module Number, Management Mode
+      - Filters: Scenario, Kit Number, Module Number, Management Mode, Date range (From/To)
       - Search by code/description
       - Shows transactions + running balance and mismatch detection vs stock_data.final_qty
       - Export to Excel
       - Click document_number to open Document Details window (translated headings/buttons)
     """
 
-    # Canonical values stored in DB stock_data.management_mode
-    # Adjust here if your DB stores different strings.
     MODE_ALL = "ALL"
     MODE_IN_BOX = "in_box"
     MODE_ON_SHELF = "on_shelf"
@@ -163,6 +223,15 @@ class StockCard(tk.Frame):
         self.kit_numbers = fetch_kit_numbers()
         self.module_numbers = fetch_module_numbers()
 
+        # Date filter variables with defaults (1 year back to today)
+        from datetime import date, timedelta
+
+        today = date.today()
+        one_year_ago = today - timedelta(days=365)
+
+        self.from_var = tk.StringVar(value=one_year_ago.strftime("%Y-%m-%d"))
+        self.to_var = tk.StringVar(value=today.strftime("%Y-%m-%d"))
+
         # One-line item info shown on the same line as the search bar
         self.item_info_var = tk.StringVar(value="")
 
@@ -171,9 +240,6 @@ class StockCard(tk.Frame):
         self.render_ui()
 
     def fetch_scenario_map(self) -> dict:
-        """
-        Fetch scenario_id to name mapping from scenarios table.
-        """
         conn = connect_db()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -184,9 +250,118 @@ class StockCard(tk.Frame):
             cursor.close()
             conn.close()
 
+    # ---------------- Date helpers ----------------
+    def _normalize_date_yyyy_mm_dd(self, s: str) -> str:
+        """
+        Normalize user input to 'YYYY-MM-DD' if possible.
+        Accepts: YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY.
+        Returns '' if empty. Raises ValueError if invalid.
+        """
+        s = (s or "").strip()
+        if not s:
+            return ""
+
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        raise ValueError(
+            lang.t(
+                "stock_card.invalid_date_format",
+                "Invalid date format. Use YYYY-MM-DD (or DD/MM/YYYY).",
+            )
+        )
+
+    def _get_date_range(self) -> tuple[date | None, date | None]:
+        """
+        Returns (from_date, to_date) as date objects or None.
+        Shows popup on invalid input and returns (None, None) in that case.
+        """
+        try:
+            fd_str = (self.from_var.get() or "").strip()
+            td_str = (self.to_var.get() or "").strip()
+
+            fd = None
+            td = None
+
+            if fd_str:
+                fd = parse_user_date(fd_str, "from")
+                if fd is None:
+                    raise ValueError(
+                        lang.t(
+                            "stock_card.invalid_date_format",
+                            "Invalid date format. Use YYYY-MM-DD (or DD/MM/YYYY).",
+                        )
+                    )
+
+            if td_str:
+                td = parse_user_date(td_str, "to")
+                if td is None:
+                    raise ValueError(
+                        lang.t(
+                            "stock_card.invalid_date_format",
+                            "Invalid date format. Use YYYY-MM-DD (or DD/MM/YYYY).",
+                        )
+                    )
+
+            if fd and td and fd > td:
+                raise ValueError(
+                    lang.t(
+                        "stock_card.date_range_invalid",
+                        "From Date cannot be after To Date.",
+                    )
+                )
+
+            return fd, td
+
+        except Exception as e:
+            custom_popup(
+                self,
+                lang.t("dialog_titles.error", "Error"),
+                str(e),
+                "error",
+            )
+
+            return None, None
+
+    def fetch_project_details(self):
+        try:
+            conn = connect_db()
+            if conn is None:
+                return (
+                    lang.t("stock_inv.unknown", "Unknown"),
+                    lang.t("stock_inv.unknown", "Unknown"),
+                )
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT project_name, project_code FROM project_details ORDER BY id DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                return (
+                    (row["project_name"], row["project_code"])
+                    if row
+                    else (
+                        lang.t("stock_inv.unknown", "Unknown"),
+                        lang.t("stock_inv.unknown", "Unknown"),
+                    )
+                )
+            finally:
+                cur.close()
+                conn.close()
+        except Exception as e:
+            # Log or handle the error, return defaults
+            print(f"Error fetching project details: {e}")
+            return (
+                lang.t("stock_inv.unknown", "Unknown"),
+                lang.t("stock_inv.unknown", "Unknown"),
+            )
+
     # ---------------- Management mode helpers ----------------
     def _management_mode_options(self) -> list[str]:
-        """Return display labels for the management mode combobox (translated)."""
         return [
             lang.t("stock_card.all_management_modes", "All"),
             lang.t("stock_card.in_box", "In-Box"),
@@ -194,26 +369,17 @@ class StockCard(tk.Frame):
         ]
 
     def _management_mode_display_to_db(self, display_value: str) -> str | None:
-        """
-        Map UI display label -> canonical DB value.
-        Returns None to indicate "All" (no filtering).
-        """
         if display_value == lang.t("stock_card.in_box", "In-Box"):
             return self.MODE_IN_BOX
         if display_value == lang.t("stock_card.on_shelf", "On-Shelf"):
             return self.MODE_ON_SHELF
-        # default = All
         return None
 
     def _selected_management_mode_db(self) -> str | None:
-        """Return canonical DB mode or None for All."""
         return self._management_mode_display_to_db(self.management_mode_var.get())
 
     # ---------------- Search results ----------------
     def fetch_search_results(self, query: str) -> list:
-        """
-        Fetch items matching the search query, filtered by scenario, kit_number, module_number, management_mode.
-        """
         conn = connect_db()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -226,7 +392,8 @@ class StockCard(tk.Frame):
         }
         active_designation = mapping.get(lang_code, "designation_en")
 
-        # Join stock_data to enable management_mode filtering (via unique_id link)
+        from_date, to_date = self._get_date_range()
+
         query_sql = f"""
             SELECT DISTINCT s.code
               FROM stock_transactions s
@@ -251,9 +418,11 @@ class StockCard(tk.Frame):
         ):
             query_sql += " AND s.Scenario = ?"
             params.append(self.scenario_var.get())
+
         if self.kit_var.get() != lang.t("stock_card.all_kits", "All Kits"):
             query_sql += " AND s.Kit = ?"
             params.append(self.kit_var.get())
+
         if self.module_var.get() != lang.t("stock_card.all_modules", "All Modules"):
             query_sql += " AND s.Module = ?"
             params.append(self.module_var.get())
@@ -262,6 +431,15 @@ class StockCard(tk.Frame):
         if mmode:
             query_sql += " AND sd.management_mode = ?"
             params.append(mmode)
+
+        # Date filters apply to stock_transactions.Date (store as YYYY-MM-DD)
+        if from_date:
+            query_sql += " AND s.Date >= ?"
+            params.append(from_date.strftime("%Y-%m-%d"))
+
+        if to_date:
+            query_sql += " AND s.Date <= ?"
+            params.append(to_date.strftime("%Y-%m-%d"))
 
         query_sql += " ORDER BY s.code"
         try:
@@ -321,17 +499,26 @@ class StockCard(tk.Frame):
     def _combine_remarks_and_comments(
         self, remarks: str | None, comments: str | None
     ) -> str:
-        r = self._to_display_remarks(remarks)
-        c = self._to_display_comments(comments)
-
-        r = (r or "").strip()
-        c = (c or "").strip()
-
+        r = (self._to_display_remarks(remarks) or "").strip()
+        c = (self._to_display_comments(comments) or "").strip()
         if r and c:
             return f"{r}, {c}"
         return r or c or ""
 
-    # ---------------- Document window ----------------
+    def _safe_int(self, value) -> int:
+        if value is None:
+            return 0
+        try:
+            if isinstance(value, (int, float)):
+                return int(value)
+            s = str(value).strip()
+            if not s:
+                return 0
+            return int(float(s))
+        except Exception:
+            return 0
+
+    # ---------------- Document window helpers ----------------
     def _get_stock_transactions_columns(self) -> list[str]:
         conn = connect_db()
         if conn is None:
@@ -351,13 +538,11 @@ class StockCard(tk.Frame):
         for col in cols:
             header_text = tree.heading(col, "text") or str(col)
             max_len = len(str(header_text))
-
             for iid in tree.get_children():
                 val = tree.set(iid, col)
                 if val is None:
                     continue
                 max_len = max(max_len, len(str(val)))
-
             width = min(max_width, max(80, (max_len * 7) + padding))
             tree.column(col, width=width, stretch=True)
 
@@ -403,15 +588,14 @@ class StockCard(tk.Frame):
         right_header = tk.Frame(header, bg="#F5F5F5")
         right_header.pack(side="right")
 
-        doc_lbl = tk.Label(
+        tk.Label(
             right_header,
             text=f"{lang.t('stock_card.document_number_label', 'Document Number')}: {doc}",
             font=("Helvetica", 11),
             bg="#F5F5F5",
             fg="#2C3E50",
             anchor="e",
-        )
-        doc_lbl.pack(anchor="e")
+        ).pack(anchor="e")
 
         dt_lbl = tk.Label(
             right_header,
@@ -442,8 +626,7 @@ class StockCard(tk.Frame):
             win.destroy()
             return
 
-        # Hide: unique_id, document_number, Date, Time
-        hidden_cols = {"unique_id", "document_number", "date", "time"}
+        hidden_cols = {"unique_id", "document_number", "date", "time", "treecode"}
         visible_columns = [c for c in all_columns if c.lower() not in hidden_cols]
 
         tree = ttk.Treeview(tree_frame, columns=visible_columns, show="headings")
@@ -459,7 +642,6 @@ class StockCard(tk.Frame):
 
         tree.tag_configure("active_code", background="#FFF3CD")
 
-        # Column headings translated via stock_transactions.<column_name_lower>
         for col in visible_columns:
             key = f"stock_transactions.{col.lower()}"
             tree.heading(col, text=lang.t(key, col))
@@ -488,7 +670,6 @@ class StockCard(tk.Frame):
             )
             rows = cur.fetchall()
 
-            # Show Date/Time once in header
             if rows:
                 d = rows[0]["Date"] if "Date" in rows[0].keys() else ""
                 t = rows[0]["Time"] if "Time" in rows[0].keys() else ""
@@ -498,18 +679,12 @@ class StockCard(tk.Frame):
                     )
 
             for r in rows:
-                values = (
-                    [
-                        (
-                            r.get(c, "")
-                            if isinstance(r, dict)
-                            else (r[c] if c in r.keys() else "")
-                        )
-                        for c in visible_columns
-                    ]
-                    if isinstance(r, dict)
-                    else [r[c] if c in r.keys() else "" for c in visible_columns]
-                )
+                values = []
+                for c in visible_columns:
+                    try:
+                        values.append(r[c])
+                    except Exception:
+                        values.append("")
 
                 row_code = ""
                 try:
@@ -559,19 +734,20 @@ class StockCard(tk.Frame):
         ).pack(side="right")
 
     # ---------------- Data fetch ----------------
+
     def fetch_transactions_for_code(self, code: str) -> list:
-        """
-        Fetch transactions for code with filters:
-          - Scenario, Kit, Module (from stock_transactions columns)
-          - Management Mode (from stock_data via unique_id join)
-        """
         conn = connect_db()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Use your existing helper (recommended) OR parse directly from from_var/to_var
+        from_date, to_date = self._get_date_range()
+
         try:
             query = """
                 SELECT st.Date, st.Time, st.IN_Type, st.Out_Type, st.End_User, st.Third_Party,
-                       st.Qty_IN, st.Qty_Out, st.Expiry_date, st.Remarks, st.comments, st.document_number,
+                       st.Qty_IN, st.Qty_Out, st.Discrepancy,
+                       st.Expiry_date, st.Remarks, st.comments, st.document_number,
                        sd.management_mode
                   FROM stock_transactions st
                   LEFT JOIN stock_data sd ON sd.unique_id = st.unique_id
@@ -579,34 +755,49 @@ class StockCard(tk.Frame):
             """
             params = [code]
 
+            # Scenario / Kit / Module filters
             if self.scenario_var.get() != lang.t(
                 "stock_card.all_scenarios", "All Scenarios"
             ):
                 query += " AND st.Scenario = ?"
                 params.append(self.scenario_var.get())
+
             if self.kit_var.get() != lang.t("stock_card.all_kits", "All Kits"):
                 query += " AND st.Kit = ?"
                 params.append(self.kit_var.get())
+
             if self.module_var.get() != lang.t("stock_card.all_modules", "All Modules"):
                 query += " AND st.Module = ?"
                 params.append(self.module_var.get())
 
+            # Management mode filter (from stock_data)
             mmode = self._selected_management_mode_db()
             if mmode:
                 query += " AND sd.management_mode = ?"
                 params.append(mmode)
 
-            query += " ORDER BY st.Date, st.Time"
+            # Date range filter (convert to YYYY-MM-DD strings for DB)
+            if from_date:
+                query += " AND st.Date >= ?"
+                params.append(from_date.strftime("%Y-%m-%d"))
 
+            if to_date:
+                query += " AND st.Date <= ?"
+                params.append(to_date.strftime("%Y-%m-%d"))
+
+            query += " ORDER BY st.Date, st.Time"
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
             processed_rows = []
             running_balance = 0
+
             for row in rows:
                 qty_in = row["Qty_IN"] or 0
                 qty_out = row["Qty_Out"] or 0
-                running_balance += qty_in - qty_out
+                disc = self._safe_int(row["Discrepancy"])
+
+                running_balance += qty_in - qty_out + disc
 
                 origin_destination = ""
                 if row["IN_Type"]:
@@ -631,6 +822,7 @@ class StockCard(tk.Frame):
                         "origin_destination": origin_destination,
                         "qty_in": qty_in,
                         "qty_out": qty_out,
+                        "discrepancy": disc,
                         "final_stock": running_balance,
                         "expiry_date": row["Expiry_date"] or "",
                         "remarks": remarks_disp,
@@ -648,9 +840,11 @@ class StockCard(tk.Frame):
             ):
                 stock_query += " AND scenario = ?"
                 stock_params.append(self.scenario_var.get())
+
             if self.kit_var.get() != lang.t("stock_card.all_kits", "All Kits"):
                 stock_query += " AND kit = ?"
                 stock_params.append(self.kit_var.get())
+
             if self.module_var.get() != lang.t("stock_card.all_modules", "All Modules"):
                 stock_query += " AND module = ?"
                 stock_params.append(self.module_var.get())
@@ -663,6 +857,7 @@ class StockCard(tk.Frame):
             cursor.execute(stock_query, stock_params)
             current_final_stock = cursor.fetchone()["current_final_stock"] or 0
 
+            # Keep mismatch rule (red font tag) on the last row
             if processed_rows:
                 processed_rows[-1]["mismatch"] = (
                     processed_rows[-1]["final_stock"] != current_final_stock
@@ -684,26 +879,50 @@ class StockCard(tk.Frame):
             cursor.close()
             conn.close()
 
-    def fetch_project_details(self) -> tuple:
-        conn = connect_db()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                "SELECT project_name, project_code FROM project_details LIMIT 1"
+    # ---------------- Date widget helper ----------------
+    def _date_widget(self, parent: tk.Widget, var: tk.StringVar) -> tk.Widget:
+        if TKCAL_AVAILABLE:
+            # Parse the initial date from the StringVar
+            initial_date_str = var.get().strip()
+            if initial_date_str:
+                try:
+                    initial_date = datetime.strptime(
+                        initial_date_str, "%Y-%m-%d"
+                    ).date()
+                except:
+                    initial_date = date.today()
+            else:
+                initial_date = date.today()
+
+            # Create DateEntry with the initial date
+            w = DateEntry(
+                parent,
+                width=12,
+                date_pattern="yyyy-mm-dd",
+                showweeknumbers=False,
+                year=initial_date.year,
+                month=initial_date.month,
+                day=initial_date.day,
             )
-            row = cursor.fetchone()
-            return (
-                row[0]
-                if row and row[0]
-                else lang.t("stock_card.unknown_project", "Unknown Project")
-            ), (
-                row[1]
-                if row and row[1]
-                else lang.t("stock_card.unknown_code", "Unknown Code")
-            )
-        finally:
-            cursor.close()
-            conn.close()
+
+            # Update the StringVar when the date changes
+            def on_date_change(event=None):
+                var.set(w.get_date().strftime("%Y-%m-%d"))
+
+            w.bind("<<DateEntrySelected>>", on_date_change)
+            w.bind("<Return>", lambda e: self.on_filter_selected())
+            w.bind("<Escape>", lambda e: (var.set(""), self.on_filter_selected()))
+
+            # Set initial value in StringVar
+            var.set(w.get_date().strftime("%Y-%m-%d"))
+
+            return w
+
+        # Fallback to regular Entry if tkcalendar not available
+        e = tk.Entry(parent, textvariable=var, width=12)
+        e.bind("<Return>", lambda ev: self.on_filter_selected())
+        e.bind("<Escape>", lambda ev: (var.set(""), self.on_filter_selected()))
+        return e
 
     # ---------------- UI ----------------
     def render_ui(self) -> None:
@@ -780,7 +999,7 @@ class StockCard(tk.Frame):
         self.module_cb.grid(row=0, column=5, padx=5, pady=5)
         self.module_cb.bind("<<ComboboxSelected>>", self.on_filter_selected)
 
-        # Management mode (NEW)
+        # Management mode
         tk.Label(
             filter_frame,
             text=lang.t("stock_card.management_mode", "Management Mode:"),
@@ -798,6 +1017,28 @@ class StockCard(tk.Frame):
         )
         self.management_mode_cb.grid(row=0, column=7, padx=5, pady=5)
         self.management_mode_cb.bind("<<ComboboxSelected>>", self.on_filter_selected)
+
+        # Date range (NEW row)
+        tk.Label(
+            filter_frame,
+            text=lang.t("stock_card.from_date", "From Date:"),
+            bg="#F5F5F5",
+        ).grid(row=1, column=0, padx=5, sticky="w")
+        self.from_entry = self._date_widget(filter_frame, self.from_var)
+        self.from_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        tk.Label(
+            filter_frame, text=lang.t("stock_card.to_date", "To Date:"), bg="#F5F5F5"
+        ).grid(row=1, column=2, padx=5, sticky="w")
+        self.to_entry = self._date_widget(filter_frame, self.to_var)
+        self.to_entry.grid(row=1, column=3, padx=5, pady=5, sticky="w")
+
+        tk.Label(
+            filter_frame,
+            text=lang.t("stock_card.date_format_hint", "Format: YYYY-MM-DD"),
+            bg="#F5F5F5",
+            fg="#555555",
+        ).grid(row=1, column=4, padx=5, sticky="w", columnspan=4)
 
         # Buttons
         btn_frame = tk.Frame(self, bg="#F5F5F5")
@@ -867,6 +1108,7 @@ class StockCard(tk.Frame):
             "origin_destination",
             "qty_in",
             "qty_out",
+            "discrepancy",
             "final_stock",
             "expiry_date",
             "remarks",
@@ -885,6 +1127,7 @@ class StockCard(tk.Frame):
             ),
             "qty_in": lang.t("stock_card.qty_in", "IN"),
             "qty_out": lang.t("stock_card.qty_out", "OUT"),
+            "discrepancy": lang.t("stock_card.discrepancy", "Discrepancy"),
             "final_stock": lang.t("stock_card.final_stock", "Final Stock"),
             "expiry_date": lang.t("stock_card.expiry_date", "Expiry Date"),
             "remarks": lang.t("stock_card.remarks", "Remarks"),
@@ -898,7 +1141,8 @@ class StockCard(tk.Frame):
             "origin_destination": 220,
             "qty_in": 80,
             "qty_out": 80,
-            "final_stock": 100,
+            "discrepancy": 100,
+            "final_stock": 110,
             "expiry_date": 110,
             "remarks": 300,
             "document_number": 150,
@@ -967,6 +1211,14 @@ class StockCard(tk.Frame):
             self.update_idletasks()
             data = self.fetch_transactions_for_code(code)
             if not data:
+                self.search_listbox.delete(0, tk.END)
+                self.search_listbox.insert(
+                    tk.END,
+                    lang.t(
+                        "stock_card.no_transactions_for_selected_item",
+                        "No transaction for the selected item",
+                    ),
+                )
                 self.status_var.set(
                     lang.t(
                         "stock_card.no_items", "No items found for code {code}"
@@ -994,6 +1246,19 @@ class StockCard(tk.Frame):
             self.status_var.set(lang.t("stock_card.ready", "Ready"))
             return
         results = self.fetch_search_results(query)
+        if not results:
+            self.search_listbox.insert(
+                tk.END,
+                lang.t(
+                    "stock_card.no_transactions_for_selected_item",
+                    "No transaction for the selected item",
+                ),
+            )
+            self.status_var.set(
+                lang.t("stock_card.found_items", "Found {count} items").format(count=0)
+            )
+            return
+
         for item in results:
             text = f"{item['code']} - {item['description'] or lang.t('stock_card.no_description', 'No Description')}"
             self.search_listbox.insert(tk.END, text)
@@ -1019,7 +1284,15 @@ class StockCard(tk.Frame):
         sel = self.search_listbox.curselection()
         if not sel:
             return
-        code = self.search_listbox.get(sel[0]).split(" - ")[0]
+
+        line = self.search_listbox.get(sel[0])
+        if line == lang.t(
+            "stock_card.no_transactions_for_selected_item",
+            "No transaction for the selected item",
+        ):
+            return
+
+        code = line.split(" - ")[0]
         self.code_entry.delete(0, tk.END)
         self.code_entry.insert(0, code)
         self.search_listbox.delete(0, tk.END)
@@ -1032,6 +1305,13 @@ class StockCard(tk.Frame):
         self.update_idletasks()
         data = self.fetch_transactions_for_code(code)
         if not data:
+            self.search_listbox.insert(
+                tk.END,
+                lang.t(
+                    "stock_card.no_transactions_for_selected_item",
+                    "No transaction for the selected item",
+                ),
+            )
             self.status_var.set(
                 lang.t("stock_card.no_items", "No items found for code {code}").format(
                     code=code
@@ -1057,6 +1337,7 @@ class StockCard(tk.Frame):
                 row["origin_destination"],
                 row["qty_in"],
                 row["qty_out"],
+                row.get("discrepancy", 0),
                 row["final_stock"],
                 row["expiry_date"],
                 row["remarks"],
@@ -1073,6 +1354,8 @@ class StockCard(tk.Frame):
         self.kit_var.set(lang.t("stock_card.all_kits", "All Kits"))
         self.module_var.set(lang.t("stock_card.all_modules", "All Modules"))
         self.management_mode_var.set(lang.t("stock_card.all_management_modes", "All"))
+        self.from_var.set("")
+        self.to_var.set("")
         self.item_info_var.set("")
         self.status_var.set(lang.t("stock_card.ready", "Ready"))
 
@@ -1126,12 +1409,12 @@ class StockCard(tk.Frame):
             ws["A1"] = localized_label
             ws["A1"].font = Font(name="Tahoma", size=14)
             ws["A1"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A1:I1")
+            ws.merge_cells("A1:J1")
 
             ws["A2"] = f"{project_name} - {project_code}"
             ws["A2"].font = Font(name="Tahoma", size=14)
             ws["A2"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A2:I2")
+            ws.merge_cells("A2:J2")
 
             ws["A3"] = (
                 f"{lang.t('stock_card.code', 'Code')}: {code} - {description}"
@@ -1140,7 +1423,7 @@ class StockCard(tk.Frame):
             )
             ws["A3"].font = Font(name="Tahoma")
             ws["A3"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A3:I3")
+            ws.merge_cells("A3:J3")
 
             ws.append([])
 
@@ -1165,23 +1448,13 @@ class StockCard(tk.Frame):
                 item_type = get_active_item_type(code_val)
 
                 if item_type == "KIT":
-                    for col_cells in ws[f"A{row_idx}:I{row_idx}"]:
+                    for col_cells in ws[f"A{row_idx}:J{row_idx}"]:
                         for cell in col_cells:
                             cell.fill = kit_fill
                 elif item_type == "MODULE":
-                    for col_cells in ws[f"A{row_idx}:I{row_idx}"]:
+                    for col_cells in ws[f"A{row_idx}:J{row_idx}"]:
                         for cell in col_cells:
                             cell.fill = module_fill
-
-            ws.column_dimensions["A"].width = 103.4 / 7
-            ws.column_dimensions["B"].width = 100 / 7
-            ws.column_dimensions["C"].width = 220 / 7
-            ws.column_dimensions["D"].width = 80 / 7
-            ws.column_dimensions["E"].width = 80 / 7
-            ws.column_dimensions["F"].width = 100 / 7
-            ws.column_dimensions["G"].width = 110 / 7
-            ws.column_dimensions["H"].width = 300 / 7
-            ws.column_dimensions["I"].width = 150 / 7
 
             ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
             ws.page_setup.fitToPage = True
@@ -1223,7 +1496,7 @@ class StockCard(tk.Frame):
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = tk.Tk()  # Dummy app for testing
+    app = tk.Tk()
     app.role = "admin"
     StockCard(root, app, role="admin")
     root.mainloop()

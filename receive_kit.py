@@ -19,6 +19,7 @@ Changes from previous version:
   * Recalculated comments after expiry edits / recompute
   * Export order updated (Comments last)
 """
+
 from __future__ import annotations
 import code
 import tkinter as tk
@@ -34,14 +35,21 @@ from datetime import datetime as _dt, datetime
 import openpyxl
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.utils import get_column_letter
+
 # External project modules
 from db import connect_db
 from manage_items import get_item_description, detect_type
-from kits_Composition import KitsComposition # retained (even if unused) for compatibility
+from kits_Composition import (
+    KitsComposition,
+)  # retained (even if unused) for compatibility
 from language_manager import lang
 from popup_utils import custom_popup, custom_askyesno, custom_dialog
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
 # ---------------------------------------------------------------------
 # UI Utility: Center Toplevel
 # ---------------------------------------------------------------------
@@ -59,22 +67,33 @@ def _center_child(win: tk.Toplevel, parent: tk.Widget | None):
             w, h = win.winfo_width(), win.winfo_height()
             x = (sw // 2) - (w // 2)
             y = (sh // 2) - (h // 2)
-        if x < 0: x = 0
-        if y < 0: y = 0
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
         win.geometry(f"+{x}+{y}")
     except Exception:
         pass
+
+
 # Center simpledialog askstring
 import tkinter.simpledialog as _sd
+
 if not hasattr(_sd, "_CenteredQueryString"):
     _OrigQ = _sd._QueryString
+
     class _CenteredQueryString(_OrigQ):
         def body(self, master):
             r = super().body(master)
-            try: _center_child(self, self.parent)
-            except Exception: pass
+            try:
+                _center_child(self, self.parent)
+            except Exception:
+                pass
             return r
+
     _sd._QueryString = _CenteredQueryString
+
+
 # Simple wrappers
 def win_popup(kind: str, title: str, message: str):
     if kind == "error":
@@ -83,43 +102,57 @@ def win_popup(kind: str, title: str, message: str):
         mb.showwarning(title, message)
     else:
         mb.showinfo(title, message)
+
+
 def win_confirm(title: str, message: str) -> bool:
     return mb.askyesno(title, message)
+
+
 # ---------------------------------------------------------------------
 # EXPIRY PARSING
 # ---------------------------------------------------------------------
 _PARSE_EXPIRY_PATTERNS = [
-    ("dmy_slash", re.compile(r'^(\d{1,2})/(\d{1,2})/(\d{4})$')),
-    ("ymd_slash", re.compile(r'^(\d{4})/(\d{1,2})/(\d{1,2})$')),
-    ("my_slash", re.compile(r'^(\d{1,2})/(\d{4})$')),
-    ("ym_slash", re.compile(r'^(\d{4})/(\d{1,2})$')),
-    ("iso_dash", re.compile(r'^(\d{4})-(\d{2})-(\d{2})$')),
-    ("dmy_dash", re.compile(r'^(\d{1,2})-(\d{1,2})-(\d{4})$')),
+    ("dmy_slash", re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")),
+    ("ymd_slash", re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")),
+    ("my_slash", re.compile(r"^(\d{1,2})/(\d{4})$")),
+    ("ym_slash", re.compile(r"^(\d{4})/(\d{1,2})$")),
+    ("iso_dash", re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")),
+    ("dmy_dash", re.compile(r"^(\d{1,2})-(\d{1,2})-(\d{4})$")),
 ]
+
+
 def parse_expiry(date_str: str) -> str | None:
     if not date_str:
         return None
     raw = str(date_str).replace("(adopted)", "").strip()
     if not raw or raw.lower() == "none":
         return None
-    norm_slash = re.sub(r'\s+', ' ', raw)
+    norm_slash = re.sub(r"\s+", " ", raw)
     for tag, rx in _PARSE_EXPIRY_PATTERNS:
-        m = rx.match(raw) if 'dash' in tag else rx.match(norm_slash)
+        m = rx.match(raw) if "dash" in tag else rx.match(norm_slash)
         if not m:
             continue
         try:
             if tag == "iso_dash":
-                y, mo, d = map(int, m.groups()); return f"{y:04d}-{mo:02d}-{d:02d}"
+                y, mo, d = map(int, m.groups())
+                return f"{y:04d}-{mo:02d}-{d:02d}"
             if tag == "dmy_dash":
-                d, mo, y = map(int, m.groups()); return f"{y:04d}-{mo:02d}-{d:02d}"
+                d, mo, y = map(int, m.groups())
+                return f"{y:04d}-{mo:02d}-{d:02d}"
             if tag == "dmy_slash":
-                d, mo, y = map(int, m.groups()); return f"{y:04d}-{mo:02d}-{d:02d}"
+                d, mo, y = map(int, m.groups())
+                return f"{y:04d}-{mo:02d}-{d:02d}"
             if tag == "ymd_slash":
-                y, mo, d = map(int, m.groups()); return f"{y:04d}-{mo:02d}-{d:02d}"
+                y, mo, d = map(int, m.groups())
+                return f"{y:04d}-{mo:02d}-{d:02d}"
             if tag == "my_slash":
-                mo, y = map(int, m.groups()); ld = monthrange(y, mo)[1]; return f"{y:04d}-{mo:02d}-{ld:02d}"
+                mo, y = map(int, m.groups())
+                ld = monthrange(y, mo)[1]
+                return f"{y:04d}-{mo:02d}-{ld:02d}"
             if tag == "ym_slash":
-                y, mo = map(int, m.groups()); ld = monthrange(y, mo)[1]; return f"{y:04d}-{mo:02d}-{ld:02d}"
+                y, mo = map(int, m.groups())
+                ld = monthrange(y, mo)[1]
+                return f"{y:04d}-{mo:02d}-{ld:02d}"
         except ValueError:
             return None
     # Fallback display format (DD-Mon-YYYY)
@@ -128,21 +161,25 @@ def parse_expiry(date_str: str) -> str | None:
         return dt.strftime("%Y-%m-%d")
     except Exception:
         return None
+
+
 _EXP_PATTERNS = [
-    ("dmy_slash", re.compile(r'^(\d{1,2})/(\d{1,2})/(\d{4})$')),
-    ("dmy_dash", re.compile(r'^(\d{1,2})-(\d{1,2})-(\d{4})$')),
-    ("ymd_slash", re.compile(r'^(\d{4})/(\d{1,2})/(\d{1,2})$')),
-    ("ymd_dash", re.compile(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')),
-    ("my_slash", re.compile(r'^(\d{1,2})/(\d{4})$')),
-    ("ym_slash", re.compile(r'^(\d{4})/(\d{1,2})$')),
-    ("my_dash", re.compile(r'^(\d{1,2})-(\d{4})$')),
-    ("ym_dash", re.compile(r'^(\d{4})-(\d{1,2})$')),
-    ("dmy_dot", re.compile(r'^(\d{1,2})\.(\d{1,2})\.(\d{4})$')),
-    ("my_dot", re.compile(r'^(\d{1,2})\.(\d{4})$')),
-    ("ym_dot", re.compile(r'^(\d{4})\.(\d{1,2})$')),
+    ("dmy_slash", re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")),
+    ("dmy_dash", re.compile(r"^(\d{1,2})-(\d{1,2})-(\d{4})$")),
+    ("ymd_slash", re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")),
+    ("ymd_dash", re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")),
+    ("my_slash", re.compile(r"^(\d{1,2})/(\d{4})$")),
+    ("ym_slash", re.compile(r"^(\d{4})/(\d{1,2})$")),
+    ("my_dash", re.compile(r"^(\d{1,2})-(\d{4})$")),
+    ("ym_dash", re.compile(r"^(\d{4})-(\d{1,2})$")),
+    ("dmy_dot", re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")),
+    ("my_dot", re.compile(r"^(\d{1,2})\.(\d{4})$")),
+    ("ym_dot", re.compile(r"^(\d{4})\.(\d{1,2})$")),
 ]
 _DISPLAY_DATE_FORMAT = "%d-%b-%Y"
-DISPLAY_DATE_FORMAT = _DISPLAY_DATE_FORMAT # legacy alias
+DISPLAY_DATE_FORMAT = _DISPLAY_DATE_FORMAT  # legacy alias
+
+
 def strict_parse_expiry(user_text: str) -> str | None:
     if user_text is None:
         return None
@@ -154,23 +191,30 @@ def strict_parse_expiry(user_text: str) -> str | None:
         return base
     for tag, rx in _EXP_PATTERNS:
         m = rx.match(raw)
-        if not m: continue
+        if not m:
+            continue
         try:
-            if tag in ("dmy_slash","dmy_dash","dmy_dot"):
-                d, mo, y = map(int, m.groups()); _dt(y, mo, d)
+            if tag in ("dmy_slash", "dmy_dash", "dmy_dot"):
+                d, mo, y = map(int, m.groups())
+                _dt(y, mo, d)
                 return f"{y:04d}-{mo:02d}-{d:02d}"
-            if tag in ("ymd_slash","ymd_dash"):
-                y, mo, d = map(int, m.groups()); _dt(y, mo, d)
+            if tag in ("ymd_slash", "ymd_dash"):
+                y, mo, d = map(int, m.groups())
+                _dt(y, mo, d)
                 return f"{y:04d}-{mo:02d}-{d:02d}"
-            if tag in ("my_slash","my_dash","my_dot"):
-                mo, y = map(int, m.groups()); ld = _cal.monthrange(y, mo)[1]
+            if tag in ("my_slash", "my_dash", "my_dot"):
+                mo, y = map(int, m.groups())
+                ld = _cal.monthrange(y, mo)[1]
                 return f"{y:04d}-{mo:02d}-{ld:02d}"
-            if tag in ("ym_slash","ym_dash","ym_dot"):
-                y, mo = map(int, m.groups()); ld = _cal.monthrange(y, mo)[1]
+            if tag in ("ym_slash", "ym_dash", "ym_dot"):
+                y, mo = map(int, m.groups())
+                ld = _cal.monthrange(y, mo)[1]
                 return f"{y:04d}-{mo:02d}-{ld:02d}"
         except Exception:
             raise ValueError("Invalid date values.")
     raise ValueError("Unrecognized expiry date format.")
+
+
 def format_expiry_display(iso: str) -> str:
     """
     Always returns a plain formatted date (DD-Mon-YYYY) without any '(adopted)' suffix.
@@ -182,6 +226,8 @@ def format_expiry_display(iso: str) -> str:
         return dt.strftime(_DISPLAY_DATE_FORMAT)
     except Exception:
         return iso
+
+
 # ---------------------------------------------------------------------
 # DATABASE HELPERS
 # ---------------------------------------------------------------------
@@ -194,28 +240,37 @@ def check_expiry_required(code: str) -> bool:
     try:
         cur.execute("SELECT remarks FROM items_list WHERE code = ?", (code,))
         row = cur.fetchone()
-        return bool(row and row['remarks'] and 'exp' in row['remarks'].lower())
+        return bool(row and row["remarks"] and "exp" in row["remarks"].lower())
     except sqlite3.Error:
         return False
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
+
+
 def fetch_project_details():
     conn = connect_db()
     if conn is None:
-        return ("Unknown Project","Unknown Code")
+        return ("Unknown Project", "Unknown Code")
     cur = conn.cursor()
     try:
         cur.execute("SELECT project_name, project_code FROM project_details LIMIT 1")
         row = cur.fetchone()
-        return (row[0] if row and row[0] else "Unknown Project",
-                row[1] if row and row[1] else "Unknown Code")
+        return (
+            row[0] if row and row[0] else "Unknown Project",
+            row[1] if row and row[1] else "Unknown Code",
+        )
     except sqlite3.Error:
-        return ("Unknown Project","Unknown Code")
+        return ("Unknown Project", "Unknown Code")
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
+
+
 def fetch_third_parties():
     conn = connect_db()
-    if conn is None: return []
+    if conn is None:
+        return []
     cur = conn.cursor()
     try:
         cur.execute("SELECT name FROM third_parties ORDER BY name")
@@ -223,10 +278,14 @@ def fetch_third_parties():
     except sqlite3.Error:
         return []
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
+
+
 def fetch_end_users():
     conn = connect_db()
-    if conn is None: return []
+    if conn is None:
+        return []
     cur = conn.cursor()
     try:
         cur.execute("SELECT name FROM end_users ORDER BY name")
@@ -234,15 +293,17 @@ def fetch_end_users():
     except sqlite3.Error:
         return []
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
+
 
 def validate_expiry_not_past(iso_date: str) -> tuple[bool, str]:
     """
     Check if expiry date is not in the past.
-    
+
     Args:
         iso_date:  Date string in ISO format (YYYY-MM-DD)
-    
+
     Returns:
         tuple: (is_valid, error_message)
             - is_valid: True if date is today or future, False if past
@@ -250,17 +311,20 @@ def validate_expiry_not_past(iso_date: str) -> tuple[bool, str]:
     """
     if not iso_date:
         return True, ""  # Empty date handled elsewhere
-    
+
     try:
         expiry_date = _dt.strptime(iso_date, "%Y-%m-%d").date()
         today = _dt.today().date()
-        
+
         if expiry_date < today:
             formatted_date = format_expiry_display(iso_date)
-            return False, f"Expiry date {formatted_date} is in the past.Please enter a current or future date."
-        
+            return (
+                False,
+                f"Expiry date {formatted_date} is in the past.Please enter a current or future date.",
+            )
+
         return True, ""
-    
+
     except Exception as e:
         logging.error(f"Date validation error: {e}")
         return False, "Invalid date format"
@@ -268,14 +332,16 @@ def validate_expiry_not_past(iso_date: str) -> tuple[bool, str]:
 
 class StockData:
     @staticmethod
-    def add_or_update(unique_id,
-                      scenario,
-                      qty_in=0,
-                      qty_out=0,
-                      exp_date=None,
-                      kit_number=None,
-                      module_number=None,
-                      comments=None):
+    def add_or_update(
+        unique_id,
+        scenario,
+        qty_in=0,
+        qty_out=0,
+        exp_date=None,
+        kit_number=None,
+        module_number=None,
+        comments=None,
+    ):
         """
         Insert or accumulate (qty_in, qty_out) for a unique_id, updating expiry,
         kit/module numbers and comments.Supports optional 'scenario' column
@@ -291,10 +357,13 @@ class StockData:
             cur.execute("PRAGMA table_info(stock_data)")
             cols = {row[1].lower(): row[1] for row in cur.fetchall()}
 
-            has_scenario = 'scenario' in cols
-            has_comments = 'comments' in cols
+            has_scenario = "scenario" in cols
+            has_comments = "comments" in cols
 
-            cur.execute("SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?", (unique_id,))
+            cur.execute(
+                "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
+                (unique_id,),
+            )
             existing = cur.fetchone()
             now_ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -303,7 +372,8 @@ class StockData:
                 new_out = existing[1] + qty_out
 
                 if has_scenario and has_comments:
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         UPDATE stock_data
                            SET qty_in=?,
                                qty_out=?,
@@ -314,10 +384,22 @@ class StockData:
                                comments=?,
                                updated_at=?
                          WHERE unique_id=?
-                    """, (new_in, new_out, exp_date, kit_number, module_number,
-                          scenario, comments, now_ts, unique_id))
+                    """,
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            scenario,
+                            comments,
+                            now_ts,
+                            unique_id,
+                        ),
+                    )
                 elif has_scenario:
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         UPDATE stock_data
                            SET qty_in=?,
                                qty_out=?,
@@ -327,10 +409,21 @@ class StockData:
                                scenario=?,
                                updated_at=?
                          WHERE unique_id=?
-                    """, (new_in, new_out, exp_date, kit_number, module_number,
-                          scenario, now_ts, unique_id))
+                    """,
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            scenario,
+                            now_ts,
+                            unique_id,
+                        ),
+                    )
                 elif has_comments:
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         UPDATE stock_data
                            SET qty_in=?,
                                qty_out=?,
@@ -340,10 +433,21 @@ class StockData:
                                comments=?,
                                updated_at=?
                          WHERE unique_id=?
-                    """, (new_in, new_out, exp_date, kit_number, module_number,
-                          comments, now_ts, unique_id))
+                    """,
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            comments,
+                            now_ts,
+                            unique_id,
+                        ),
+                    )
                 else:
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         UPDATE stock_data
                            SET qty_in=?,
                                qty_out=?,
@@ -352,14 +456,35 @@ class StockData:
                                module_number=?,
                                updated_at=?
                          WHERE unique_id=?
-                    """, (new_in, new_out, exp_date, kit_number, module_number,
-                          now_ts, unique_id))
+                    """,
+                        (
+                            new_in,
+                            new_out,
+                            exp_date,
+                            kit_number,
+                            module_number,
+                            now_ts,
+                            unique_id,
+                        ),
+                    )
             else:
                 # Build dynamic insert
-                base_cols = ["unique_id", "qty_in", "qty_out", "exp_date",
-                             "kit_number", "module_number"]
-                base_vals = [unique_id, qty_in, qty_out, exp_date,
-                             kit_number, module_number]
+                base_cols = [
+                    "unique_id",
+                    "qty_in",
+                    "qty_out",
+                    "exp_date",
+                    "kit_number",
+                    "module_number",
+                ]
+                base_vals = [
+                    unique_id,
+                    qty_in,
+                    qty_out,
+                    exp_date,
+                    kit_number,
+                    module_number,
+                ]
                 if has_scenario:
                     base_cols.append("scenario")
                     base_vals.append(scenario)
@@ -371,10 +496,13 @@ class StockData:
 
                 placeholders = ",".join("?" for _ in base_vals)
                 col_list = ",".join(base_cols)
-                cur.execute(f"""
+                cur.execute(
+                    f"""
                     INSERT INTO stock_data ({col_list})
                     VALUES ({placeholders})
-                """, base_vals)
+                """,
+                    base_vals,
+                )
 
             conn.commit()
 
@@ -385,6 +513,8 @@ class StockData:
         finally:
             cur.close()
             conn.close()
+
+
 # ---------------------------------------------------------------------
 # MAIN UI CLASS
 # ---------------------------------------------------------------------
@@ -429,6 +559,7 @@ class StockReceiveKit(tk.Frame):
         if self.parent and self.parent.winfo_exists():
             self.pack(fill="both", expand=True)
             self.after(120, self.initialize_ui)
+
     # ----------------- Scenario / init -----------------
     def fetch_scenario_map(self):
         conn = connect_db()
@@ -438,11 +569,13 @@ class StockReceiveKit(tk.Frame):
         cur = conn.cursor()
         try:
             cur.execute("SELECT scenario_id, name FROM scenarios ORDER BY name")
-            return {str(r['scenario_id']): r['name'] for r in cur.fetchall()}
+            return {str(r["scenario_id"]): r["name"] for r in cur.fetchall()}
         except sqlite3.Error:
             return {}
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def fetch_scenarios(self):
         conn = connect_db()
         if conn is None:
@@ -451,193 +584,296 @@ class StockReceiveKit(tk.Frame):
         cur = conn.cursor()
         try:
             cur.execute("SELECT scenario_id, name FROM scenarios ORDER BY name")
-            return [{"id": r['scenario_id'], "name": r['name']} for r in cur.fetchall()]
+            return [{"id": r["scenario_id"], "name": r["name"]} for r in cur.fetchall()]
         except sqlite3.Error:
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def initialize_ui(self):
         try:
             self.render_ui()
         except tk.TclError as e:
             logging.error(f"UI render error: {e}")
             custom_popup(
-                self.parent, 
-                lang.t("receive_kit.error", "Error"), 
-                lang.t("receive_kit.ui_render_failed", "Failed to render UI:  {error}", error=str(e)), 
-                "error"
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t(
+                    "receive_kit.ui_render_failed",
+                    "Failed to render UI:  {error}",
+                    error=str(e),
+                ),
+                "error",
             )
+
     def build_mode_definitions(self):
         scenario = self.selected_scenario_name or ""
         self.mode_definitions = [
             ("receive_kit", lang.t("receive_kit.mode_receive_kit", "Receive Kit")),
-            ("add_standalone", lang.t("receive_kit.mode_add_standalone", "Add standalone item/s in {scenario}", scenario=scenario)),
-            ("add_module_scenario",lang.t("receive_kit.mode_add_module_scenario", "Add module to {scenario}", scenario=scenario)),
-            ("add_module_kit", lang.t("receive_kit.mode_add_module_kit", "Add module to a kit")),
-            ("add_items_kit", lang.t("receive_kit.mode_add_items_kit", "Add items to a kit")),
-            ("add_items_module", lang.t("receive_kit.mode_add_items_module", "Add items to a module"))
+            (
+                "add_standalone",
+                lang.t(
+                    "receive_kit.mode_add_standalone",
+                    "Add standalone item/s in {scenario}",
+                    scenario=scenario,
+                ),
+            ),
+            (
+                "add_module_scenario",
+                lang.t(
+                    "receive_kit.mode_add_module_scenario",
+                    "Add module to {scenario}",
+                    scenario=scenario,
+                ),
+            ),
+            (
+                "add_module_kit",
+                lang.t("receive_kit.mode_add_module_kit", "Add module to a kit"),
+            ),
+            (
+                "add_items_kit",
+                lang.t("receive_kit.mode_add_items_kit", "Add items to a kit"),
+            ),
+            (
+                "add_items_module",
+                lang.t("receive_kit.mode_add_items_module", "Add items to a module"),
+            ),
         ]
         self.mode_label_to_key = {lbl: key for key, lbl in self.mode_definitions}
+
     def current_mode_key(self):
         if not hasattr(self, "mode_label_to_key"):
             return None
         return self.mode_label_to_key.get(self.mode_var.get())
+
     def render_ui(self):
         # Clear existing
         for w in self.parent.winfo_children():
-            try: w.destroy()
-            except Exception: pass
-        tk.Label(self.parent, text=lang.t("receive_kit.title","Receive Kit-Module"),
-                 font=("Helvetica", 20, "bold"), bg="#F0F4F8").pack(pady=10)
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        tk.Label(
+            self.parent,
+            text=lang.t("receive_kit.title", "Receive Kit-Module"),
+            font=("Helvetica", 20, "bold"),
+            bg="#F0F4F8",
+        ).pack(pady=10)
         main = tk.Frame(self.parent, bg="#F0F4F8")
         main.pack(fill="both", expand=True, padx=10, pady=10)
         # Scenario
-        tk.Label(main, text=lang.t("receive_kit.scenario","Scenario:"), bg="#F0F4F8")\
-            .grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(
+            main, text=lang.t("receive_kit.scenario", "Scenario:"), bg="#F0F4F8"
+        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.scenario_var = tk.StringVar()
-        self.scenario_cb = ttk.Combobox(main, textvariable=self.scenario_var, state="readonly", width=40)
+        self.scenario_cb = ttk.Combobox(
+            main, textvariable=self.scenario_var, state="readonly", width=40
+        )
         self.scenario_cb.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.scenario_cb.bind("<<ComboboxSelected>>", self.on_scenario_selected)
         # Movement Type
-        tk.Label(main, text=lang.t("receive_kit.movement_type","Movement Type:"), bg="#F0F4F8")\
-            .grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(
+            main,
+            text=lang.t("receive_kit.movement_type", "Movement Type:"),
+            bg="#F0F4F8",
+        ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.mode_var = tk.StringVar()
-        self.mode_cb = ttk.Combobox(main, textvariable=self.mode_var, state="readonly", width=40)
+        self.mode_cb = ttk.Combobox(
+            main, textvariable=self.mode_var, state="readonly", width=40
+        )
         self.mode_cb.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
         self.mode_cb.bind("<<ComboboxSelected>>", self.update_mode)
         # Kit selectors
-        self.kit_label = tk.Label(main, text=lang.t("receive_kit.select_kit","Select Kit:"), bg="#F0F4F8")
+        self.kit_label = tk.Label(
+            main, text=lang.t("receive_kit.select_kit", "Select Kit:"), bg="#F0F4F8"
+        )
         self.kit_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         # Kit selector
         self.kit_var = tk.StringVar()
-        self.kit_cb = ttk.Combobox(main, textvariable=self.kit_var, state="disabled", width=100)
+        self.kit_cb = ttk.Combobox(
+            main, textvariable=self.kit_var, state="disabled", width=100
+        )
         self.kit_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.kit_cb.bind("<<ComboboxSelected>>", self.on_kit_selected)
-        self.kit_number_label = tk.Label(main, text=lang.t("receive_kit.select_kit_number","Select Kit Number:"), bg="#F0F4F8")
+        self.kit_number_label = tk.Label(
+            main,
+            text=lang.t("receive_kit.select_kit_number", "Select Kit Number:"),
+            bg="#F0F4F8",
+        )
         self.kit_number_label.grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.kit_number_var = tk.StringVar()
-        self.kit_number_cb = ttk.Combobox(main, textvariable=self.kit_number_var, state="disabled", width=20)
+        self.kit_number_cb = ttk.Combobox(
+            main, textvariable=self.kit_number_var, state="disabled", width=20
+        )
         self.kit_number_cb.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.kit_number_cb.bind("<<ComboboxSelected>>", self.on_kit_number_selected)
         # Module selectors
-        self.module_label = tk.Label(main, text=lang.t("receive_kit.select_module","Select Module:"), bg="#F0F4F8")
+        self.module_label = tk.Label(
+            main,
+            text=lang.t("receive_kit.select_module", "Select Module:"),
+            bg="#F0F4F8",
+        )
         self.module_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.module_var = tk.StringVar()
-        self.module_cb = ttk.Combobox(main, textvariable=self.module_var, state="disabled", width=100)
+        self.module_cb = ttk.Combobox(
+            main, textvariable=self.module_var, state="disabled", width=100
+        )
         self.module_cb.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.module_cb.bind("<<ComboboxSelected>>", self.on_module_selected)
-        self.module_number_label = tk.Label(main, text=lang.t("receive_kit.select_module_number","Select Module Number:"), bg="#F0F4F8")
+        self.module_number_label = tk.Label(
+            main,
+            text=lang.t("receive_kit.select_module_number", "Select Module Number:"),
+            bg="#F0F4F8",
+        )
         self.module_number_label.grid(row=3, column=2, padx=5, pady=5, sticky="w")
         self.module_number_var = tk.StringVar()
-        self.module_number_cb = ttk.Combobox(main, textvariable=self.module_number_var, state="disabled", width=20)
+        self.module_number_cb = ttk.Combobox(
+            main, textvariable=self.module_number_var, state="disabled", width=20
+        )
         self.module_number_cb.grid(row=3, column=3, padx=5, pady=5, sticky="w")
-        self.module_number_cb.bind("<<ComboboxSelected>>", self.on_module_number_selected)
+        self.module_number_cb.bind(
+            "<<ComboboxSelected>>", self.on_module_number_selected
+        )
         # IN Type / End User / Third Party / Remarks
         type_frame = tk.Frame(main, bg="#F0F4F8")
         type_frame.grid(row=4, column=0, columnspan=4, pady=5, sticky="w")
-        tk.Label(type_frame, text=lang.t("receive_kit.in_type","IN Type:"), bg="#F0F4F8")\
-            .grid(row=0, column=0, padx=5, sticky="w")
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.in_type", "IN Type:"), bg="#F0F4F8"
+        ).grid(row=0, column=0, padx=5, sticky="w")
         self.trans_type_var = tk.StringVar()
         self.trans_type_cb = ttk.Combobox(
-            type_frame, textvariable=self.trans_type_var, state="readonly", width=30,
+            type_frame,
+            textvariable=self.trans_type_var,
+            state="readonly",
+            width=30,
             values=[
-                lang.t("receive_kit.in_msf","In MSF"),
-                lang.t("receive_kit.in_local_purchase","In Local Purchase"),
-                lang.t("receive_kit.in_from_quarantine","In from Quarantine"),
-                lang.t("receive_kit.in_donation","In Donation"),
-                lang.t("receive_kit.return_from_end_user","Return from End User"),
-                lang.t("receive_kit.in_supply_non_msf","In Supply Non-MSF"),
-                lang.t("receive_kit.in_borrowing","In Borrowing"),
-                lang.t("receive_kit.in_return_loan","In Return of Loan"),
-                lang.t("receive_kit.in_correction","In Correction of Previous Transaction")
-            ]
+                lang.t("receive_kit.in_msf", "In MSF"),
+                lang.t("receive_kit.in_local_purchase", "In Local Purchase"),
+                lang.t("receive_kit.in_from_quarantine", "In from Quarantine"),
+                lang.t("receive_kit.in_donation", "In Donation"),
+                lang.t("receive_kit.return_from_end_user", "Return from End User"),
+                lang.t("receive_kit.in_supply_non_msf", "In Supply Non-MSF"),
+                lang.t("receive_kit.in_borrowing", "In Borrowing"),
+                lang.t("receive_kit.in_return_loan", "In Return of Loan"),
+                lang.t(
+                    "receive_kit.in_correction", "In Correction of Previous Transaction"
+                ),
+            ],
         )
         self.trans_type_cb.grid(row=0, column=1, padx=5, pady=5)
         self.trans_type_cb.bind("<<ComboboxSelected>>", self.update_dropdown_visibility)
-        tk.Label(type_frame, text=lang.t("receive_kit.end_user","End User:"), bg="#F0F4F8")\
-            .grid(row=0, column=2, padx=5, sticky="w")
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.end_user", "End User:"), bg="#F0F4F8"
+        ).grid(row=0, column=2, padx=5, sticky="w")
         self.end_user_var = tk.StringVar()
-        self.end_user_cb = ttk.Combobox(type_frame, textvariable=self.end_user_var, state="disabled", width=30)
-        self.end_user_cb['values'] = fetch_end_users()
+        self.end_user_cb = ttk.Combobox(
+            type_frame, textvariable=self.end_user_var, state="disabled", width=30
+        )
+        self.end_user_cb["values"] = fetch_end_users()
         self.end_user_cb.grid(row=0, column=3, padx=5, pady=5)
-        tk.Label(type_frame, text=lang.t("receive_kit.third_party","Third Party:"), bg="#F0F4F8")\
-            .grid(row=0, column=4, padx=5, sticky="w")
+        tk.Label(
+            type_frame,
+            text=lang.t("receive_kit.third_party", "Third Party:"),
+            bg="#F0F4F8",
+        ).grid(row=0, column=4, padx=5, sticky="w")
         self.third_party_var = tk.StringVar()
-        self.third_party_cb = ttk.Combobox(type_frame, textvariable=self.third_party_var, state="disabled", width=30)
-        self.third_party_cb['values'] = fetch_third_parties()
+        self.third_party_cb = ttk.Combobox(
+            type_frame, textvariable=self.third_party_var, state="disabled", width=30
+        )
+        self.third_party_cb["values"] = fetch_third_parties()
         self.third_party_cb.grid(row=0, column=5, padx=5, pady=5)
-        tk.Label(type_frame, text=lang.t("receive_kit.remarks","Remarks:"), bg="#F0F4F8")\
-            .grid(row=0, column=6, padx=5, sticky="w")
+        tk.Label(
+            type_frame, text=lang.t("receive_kit.remarks", "Remarks:"), bg="#F0F4F8"
+        ).grid(row=0, column=6, padx=5, sticky="w")
         self.remarks_entry = tk.Entry(type_frame, width=40, state="disabled")
         self.remarks_entry.grid(row=0, column=7, padx=5, pady=5)
         # Search
-        tk.Label(main, text=lang.t("receive_kit.item","Kit/Module/Item:"), bg="#F0F4F8")\
-            .grid(row=5, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(
+            main, text=lang.t("receive_kit.item", "Kit/Module/Item:"), bg="#F0F4F8"
+        ).grid(row=5, column=0, padx=5, pady=5, sticky="w")
         self.search_var = tk.StringVar()
         self.search_entry = tk.Entry(main, textvariable=self.search_var, width=40)
         self.search_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
         self.search_entry.bind("<KeyRelease>", self.search_items)
         self.search_entry.bind("<Return>", self.select_first_result)
-        tk.Button(main, text=lang.t("receive_kit.clear_search","Clear Search"),
-                  bg="#7F8C8D", fg="white", command=self.clear_search)\
-            .grid(row=5, column=2, padx=5, pady=5)
+        tk.Button(
+            main,
+            text=lang.t("receive_kit.clear_search", "Clear Search"),
+            bg="#7F8C8D",
+            fg="white",
+            command=self.clear_search,
+        ).grid(row=5, column=2, padx=5, pady=5)
         self.search_listbox = tk.Listbox(main, height=5, width=60)
-        self.search_listbox.grid(row=6, column=1, columnspan=3, padx=5, pady=5, sticky="we")
+        self.search_listbox.grid(
+            row=6, column=1, columnspan=3, padx=5, pady=5, sticky="we"
+        )
         self.search_listbox.bind("<<ListboxSelect>>", self.fill_from_search)
         # Tree columns
         cols = (
-            "code","description","type","kit","module",
-            "std_qty","qty_to_receive","expiry_date","batch_no",
-            "exp_module","exp_kit","comments","unique_id"
+            "code",
+            "description",
+            "type",
+            "kit",
+            "module",
+            "std_qty",
+            "qty_to_receive",
+            "expiry_date",
+            "batch_no",
+            "exp_module",
+            "exp_kit",
+            "comments",
+            "unique_id",
         )
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=20)
         # Tag styles
         self.tree.tag_configure("light_red", background="#FF9999")
-        self.tree.tag_configure("kit", background="#228B22", foreground="white", font=self.font_bold)
+        self.tree.tag_configure(
+            "kit", background="#228B22", foreground="white", font=self.font_bold
+        )
         self.tree.tag_configure("module", background="#ADD8E6", font=self.font_bold)
         self.tree.tag_configure("auto_expiry_gray", foreground="#666666")
         headers = {
-                "code": "Code",
-                "description": "Description",
-                "type": "Type",
-                "kit": "Kit",
-                "module": "Module",
-                "std_qty": "Std Qty",
-                "qty_to_receive": "Qty to Receive",
-                "expiry_date": "Expiry Date",
-                "batch_no": "Batch No",
-                "exp_module": "Exp Module",
-                "exp_kit": "Exp Kit",
-                "comments": "Comments",
-                "unique_id": "Unique ID"
+            "code": "Code",
+            "description": "Description",
+            "type": "Type",
+            "kit": "Kit",
+            "module": "Module",
+            "std_qty": "Std Qty",
+            "qty_to_receive": "Qty to Receive",
+            "expiry_date": "Expiry Date",
+            "batch_no": "Batch No",
+            "exp_module": "Exp Module",
+            "exp_kit": "Exp Kit",
+            "comments": "Comments",
+            "unique_id": "Unique ID",
         }
         widths = {
-                "code": 160,
-                "description": 360,
-                "type": 95,
-                "kit": 110,
-                "module": 110,
-                "std_qty": 70,
-                "qty_to_receive": 120,
-                "expiry_date": 140,
-                "batch_no": 120,
-                "exp_module": 0,
-                "exp_kit": 0,
-                "comments": 170,
-                "unique_id": 0
+            "code": 160,
+            "description": 360,
+            "type": 95,
+            "kit": 110,
+            "module": 110,
+            "std_qty": 70,
+            "qty_to_receive": 120,
+            "expiry_date": 140,
+            "batch_no": 120,
+            "exp_module": 0,
+            "exp_kit": 0,
+            "comments": 170,
+            "unique_id": 0,
         }
-        aligns = {
-                "std_qty": "e",
-                "qty_to_receive": "e"
-        }
+        aligns = {"std_qty": "e", "qty_to_receive": "e"}
         # Configure columns
         for c in cols:
-                self.tree.heading(c, text=headers[c])
-                if c in ["exp_module", "exp_kit", "unique_id"]:
-                        # Explicitly hide these columns
-                        self.tree.column(c, width=0, minwidth=0, stretch=False)
-                else:
-                        self.tree.column(c, width=widths.get(c, 110), anchor=aligns.get(c, "w"), stretch=True)
+            self.tree.heading(c, text=headers[c])
+            if c in ["exp_module", "exp_kit", "unique_id"]:
+                # Explicitly hide these columns
+                self.tree.column(c, width=0, minwidth=0, stretch=False)
+            else:
+                self.tree.column(
+                    c, width=widths.get(c, 110), anchor=aligns.get(c, "w"), stretch=True
+                )
         vsb = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(main, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -658,27 +894,54 @@ class StockReceiveKit(tk.Frame):
         # Buttons
         btn_frame = tk.Frame(main, bg="#F0F4F8")
         btn_frame.grid(row=9, column=0, columnspan=4, pady=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.add_missing","Add Missing Item"),
-                  bg="#FFA500", fg="white", command=self.add_missing_item).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.save","Save"),
-                  bg="#27AE60", fg="white", command=self.save_all,
-                  state="normal" if self.role in ["admin","manager"] else "disabled").pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.clear","Clear"),
-                  bg="#7F8C8D", fg="white", command=self.clear_form).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=lang.t("receive_kit.export","Export"),
-                  bg="#2980B9", fg="white", command=self.export_data).pack(side="left", padx=5)
-        self.status_var = tk.StringVar(value=lang.t("receive_kit.ready","Ready"))
-        tk.Label(main, textvariable=self.status_var, relief="sunken",
-                 anchor="w", bg="#F0F4F8").grid(row=10, column=0, columnspan=4, sticky="ew")
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.add_missing", "Add Missing Item"),
+            bg="#FFA500",
+            fg="white",
+            command=self.add_missing_item,
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.save", "Save"),
+            bg="#27AE60",
+            fg="white",
+            command=self.save_all,
+            state="normal" if self.role in ["admin", "manager"] else "disabled",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.clear", "Clear"),
+            bg="#7F8C8D",
+            fg="white",
+            command=self.clear_form,
+        ).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.export", "Export"),
+            bg="#2980B9",
+            fg="white",
+            command=self.export_data,
+        ).pack(side="left", padx=5)
+        self.status_var = tk.StringVar(value=lang.t("receive_kit.ready", "Ready"))
+        tk.Label(
+            main,
+            textvariable=self.status_var,
+            relief="sunken",
+            anchor="w",
+            bg="#F0F4F8",
+        ).grid(row=10, column=0, columnspan=4, sticky="ew")
         self.load_scenarios()
+
     # ----------------- Scenario Handling -----------------
     def load_scenarios(self):
         scens = self.fetch_scenarios()
         values = [f"{s['id']} - {s['name']}" for s in scens]
-        self.scenario_cb['values'] = values
+        self.scenario_cb["values"] = values
         if values:
             self.scenario_cb.current(0)
             self.on_scenario_selected()
+
     def on_scenario_selected(self, event=None):
         scen_string = self.scenario_var.get()
         if not scen_string:
@@ -693,42 +956,54 @@ class StockReceiveKit(tk.Frame):
         self.selected_scenario_id = parts[0]
         self.selected_scenario_name = parts[1] if len(parts) > 1 else ""
         self.build_mode_definitions()
-        self.mode_cb['values'] = [lbl for _, lbl in self.mode_definitions]
+        self.mode_cb["values"] = [lbl for _, lbl in self.mode_definitions]
         self.mode_var.set(self.mode_definitions[0][1])
         # Reset tree and search
-        self.kit_var.set(""); self.kit_number_var.set("")
-        self.module_var.set(""); self.module_number_var.set("")
+        self.kit_var.set("")
+        self.kit_number_var.set("")
+        self.module_var.set("")
+        self.module_number_var.set("")
         self.tree.delete(*self.tree.get_children())
-        self.row_data.clear(); self.code_to_iid.clear()
-        self.search_var.set(""); self.search_listbox.delete(0, tk.END)
+        self.row_data.clear()
+        self.code_to_iid.clear()
+        self.search_var.set("")
+        self.search_listbox.delete(0, tk.END)
         self.update_mode()
-
 
     def on_kit_selected(self, event=None):
         # ✅ Extract code from "CODE - Description" format
         kit_display = self.kit_var.get()
         kit_code = self._extract_code_from_display(kit_display) if kit_display else ""
-        
+
         mode_key = self.current_mode_key()
         self.kit_number_var.set("")
         self.module_var.set("")
         self.module_number_var.set("")
-        if mode_key in ["add_module_kit","add_items_kit","add_items_module"]:
+        if mode_key in ["add_module_kit", "add_items_kit", "add_items_module"]:
             if kit_code:
-                self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id, kit_code)
-                self.kit_number_cb.config(state="readonly" if self.kit_number_cb['values'] else "normal")
+                self.kit_number_cb["values"] = self.fetch_available_kit_numbers(
+                    self.selected_scenario_id, kit_code
+                )
+                self.kit_number_cb.config(
+                    state="readonly" if self.kit_number_cb["values"] else "normal"
+                )
             else:
-                self.kit_number_cb['values'] = []
+                self.kit_number_cb["values"] = []
                 self.kit_number_cb.config(state="normal")
         if mode_key == "add_items_module":
             if kit_code:
-                self.module_cb['values'] = self.fetch_modules_for_kit(self.selected_scenario_id, kit_code)
+                self.module_cb["values"] = self.fetch_modules_for_kit(
+                    self.selected_scenario_id, kit_code
+                )
             else:
-                self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
+                self.module_cb["values"] = self.fetch_all_modules(
+                    self.selected_scenario_id
+                )
             # ✅ Clear module number dropdown - wait for module selection
-            self.module_number_cb['values'] = []
-            self.module_number_cb.config(state="disabled")  # Disabled until module selected
-
+            self.module_number_cb["values"] = []
+            self.module_number_cb.config(
+                state="disabled"
+            )  # Disabled until module selected
 
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
@@ -738,37 +1013,56 @@ class StockReceiveKit(tk.Frame):
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
         self.status_var.set(
-            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+            lang.t(
+                "receive_kit.found_items",
+                "Found {count} items",
+                count=self.search_listbox.size(),
+            )
         )
+
     def on_kit_number_selected(self, event=None):
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else ""
+        kit_number = (
+            self.kit_number_var.get().strip() if self.kit_number_var.get() else ""
+        )
         # ✅ Extract code from display
-        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
+        kit_code = (
+            self._extract_code_from_display(self.kit_var.get())
+            if self.kit_var.get()
+            else ""
+        )
         mode_key = self.current_mode_key()
-        
+
         if mode_key == "add_items_module":
             # ✅ Extract module code from display
             module_display = self.module_var.get()
-            module_code = self._extract_code_from_display(module_display) if module_display else ""
-            
+            module_code = (
+                self._extract_code_from_display(module_display)
+                if module_display
+                else ""
+            )
+
             if module_code and kit_number:
                 # ✅ Use updated fetch_module_numbers with kit_number parameter
                 nums = self.fetch_module_numbers(
                     self.selected_scenario_id,
                     kit_code=None,  # Not used
                     module_code=module_code,
-                    kit_number=kit_number  # ✅ Pass actual kit instance number
+                    kit_number=kit_number,  # ✅ Pass actual kit instance number
                 )
-                self.module_number_cb['values'] = nums
+                self.module_number_cb["values"] = nums
                 self.module_number_cb.config(state="readonly" if nums else "disabled")
-                logging.debug(f"[KIT_NUMBER_SELECTED] Updated module numbers for kit_number={kit_number}, module={module_code}: {nums}")
+                logging.debug(
+                    f"[KIT_NUMBER_SELECTED] Updated module numbers for kit_number={kit_number}, module={module_code}: {nums}"
+                )
             else:
                 # No module selected yet, clear module number dropdown
-                self.module_number_cb['values'] = []
+                self.module_number_cb["values"] = []
                 self.module_number_cb.config(state="disabled")
-                logging.debug(f"[KIT_NUMBER_SELECTED] No module selected, clearing module numbers")
+                logging.debug(
+                    f"[KIT_NUMBER_SELECTED] No module selected, clearing module numbers"
+                )
             return
-        
+
         if not kit_number or mode_key not in ["add_module_kit", "add_items_kit"]:
             # Reset tree if no kit number chosen in these modes
             self.tree.delete(*self.tree.get_children())
@@ -776,86 +1070,116 @@ class StockReceiveKit(tk.Frame):
             self.code_to_iid.clear()
             self.recompute_exp_groups()
             return
-        
-        items = self.fetch_stock_data_for_kit_number(self.selected_scenario_id, kit_number, kit_code)
+
+        items = self.fetch_stock_data_for_kit_number(
+            self.selected_scenario_id, kit_number, kit_code
+        )
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
         treecode_to_iid = {}
-        
-        for item in sorted(items, key=lambda x: x['treecode']):
-            parent_tc = item['treecode'][:-3] if len(item['treecode']) >= 3 else ''
-            parent_iid = treecode_to_iid.get(parent_tc, '')
-            iid = self.tree.insert(parent_iid, "end", values=(
-                item['code'], item['description'], item['type'], item['kit'], item['module'],
-                item['std_qty'], item['qty_to_receive'], item['expiry_date'] or "", "",
-                "", "", "" # hidden
-            ))
-            treecode_to_iid[item['treecode']] = iid
-            self.code_to_iid[item['code']] = iid
-            if item['type'].upper() == 'KIT':
+
+        for item in sorted(items, key=lambda x: x["treecode"]):
+            parent_tc = item["treecode"][:-3] if len(item["treecode"]) >= 3 else ""
+            parent_iid = treecode_to_iid.get(parent_tc, "")
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    item["code"],
+                    item["description"],
+                    item["type"],
+                    item["kit"],
+                    item["module"],
+                    item["std_qty"],
+                    item["qty_to_receive"],
+                    item["expiry_date"] or "",
+                    "",
+                    "",
+                    "",
+                    "",  # hidden
+                ),
+            )
+            treecode_to_iid[item["treecode"]] = iid
+            self.code_to_iid[item["code"]] = iid
+            if item["type"].upper() == "KIT":
                 self.tree.item(iid, tags=("kit",))
-            elif item['type'].upper() == 'MODULE':
+            elif item["type"].upper() == "MODULE":
                 self.tree.item(iid, tags=("module",))
             self.row_data[iid] = {
-                'unique_id': item['unique_id'],
-                'kit_number': item['kit_number'],
-                'module_number': item['module_number'],
-                'treecode': item['treecode']
+                "unique_id": item["unique_id"],
+                "kit_number": item["kit_number"],
+                "module_number": item["module_number"],
+                "treecode": item["treecode"],
             }
-        
+
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t(
-                "receive_kit.loaded_kit_records", 
-                "Loaded {count} records for kit number {kit_number}", 
-                count=len(self.tree.get_children()), 
-                kit_number=kit_number
+                "receive_kit.loaded_kit_records",
+                "Loaded {count} records for kit number {kit_number}",
+                count=len(self.tree.get_children()),
+                kit_number=kit_number,
             )
         )
+
     def on_module_selected(self, event=None):
         # ✅ Extract code from "CODE - Description" format
         module_display = self.module_var.get()
-        module_code = self._extract_code_from_display(module_display) if module_display else ""
-        
+        module_code = (
+            self._extract_code_from_display(module_display) if module_display else ""
+        )
+
         mode_key = self.current_mode_key()
-        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
+        kit_code = (
+            self._extract_code_from_display(self.kit_var.get())
+            if self.kit_var.get()
+            else ""
+        )
         # ✅ Get the actual kit_number from the dropdown
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
-        
+        kit_number = (
+            self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        )
+
         self.module_number_var.set("")
-        
+
         if mode_key == "add_items_module":
             # ✅ Pass kit_number instead of kit_code
-            self.module_number_cb['values'] = self.fetch_module_numbers(
+            self.module_number_cb["values"] = self.fetch_module_numbers(
                 self.selected_scenario_id,
                 kit_code=None,  # Not used
                 module_code=module_code if module_code else None,
-                kit_number=kit_number  # ✅ Pass actual kit instance number
+                kit_number=kit_number,  # ✅ Pass actual kit instance number
             )
-            self.module_number_cb.config(state="readonly" if self.module_number_cb['values'] else "normal")
-        
+            self.module_number_cb.config(
+                state="readonly" if self.module_number_cb["values"] else "normal"
+            )
+
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
         self.search_listbox.delete(0, tk.END)
-        
+
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
-        
+
         self.status_var.set(
-            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+            lang.t(
+                "receive_kit.found_items",
+                "Found {count} items",
+                count=self.search_listbox.size(),
+            )
         )
 
     def on_module_number_selected(self, event=None):
         module_number = self.module_number_var.get()
         mode_key = self.current_mode_key()
-        
+
         if mode_key != "add_items_module":
             # ✅ Clear module dropdown if wrong mode
             self.module_var.set("")
-            self.module_cb['values'] = []
+            self.module_cb["values"] = []
             return
         if not module_number:
             self.tree.delete(*self.tree.get_children())
@@ -864,67 +1188,103 @@ class StockReceiveKit(tk.Frame):
             self.recompute_exp_groups()
             return
         # ✅ Extract code from display
-        kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""
-        module_code = self._extract_code_from_display(self.module_var.get()) if self.module_var.get() else ""
-        items = self.fetch_stock_data_for_module_number(self.selected_scenario_id,
-                                                        module_number, kit_code, module_code)
+        kit_code = (
+            self._extract_code_from_display(self.kit_var.get())
+            if self.kit_var.get()
+            else ""
+        )
+        module_code = (
+            self._extract_code_from_display(self.module_var.get())
+            if self.module_var.get()
+            else ""
+        )
+        items = self.fetch_stock_data_for_module_number(
+            self.selected_scenario_id, module_number, kit_code, module_code
+        )
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
         treecode_to_iid = {}
-        for item in sorted(items, key=lambda x: x['treecode']):
-            parent_tc = item['treecode'][:-3] if len(item['treecode']) >= 3 else ''
-            parent_iid = treecode_to_iid.get(parent_tc, '')
-            iid = self.tree.insert(parent_iid, "end", values=(
-                item['code'], item['description'], item['type'], item['kit'], item['module'],
-                item['std_qty'], item['qty_to_receive'], item['expiry_date'] or "", "",
-                "", "", ""
-            ))
-            treecode_to_iid[item['treecode']] = iid
-            self.code_to_iid[item['code']] = iid
-            if item['type'].upper() == 'KIT':
+        for item in sorted(items, key=lambda x: x["treecode"]):
+            parent_tc = item["treecode"][:-3] if len(item["treecode"]) >= 3 else ""
+            parent_iid = treecode_to_iid.get(parent_tc, "")
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    item["code"],
+                    item["description"],
+                    item["type"],
+                    item["kit"],
+                    item["module"],
+                    item["std_qty"],
+                    item["qty_to_receive"],
+                    item["expiry_date"] or "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ),
+            )
+            treecode_to_iid[item["treecode"]] = iid
+            self.code_to_iid[item["code"]] = iid
+            if item["type"].upper() == "KIT":
                 self.tree.item(iid, tags=("kit",))
-            elif item['type'].upper() == 'MODULE':
+            elif item["type"].upper() == "MODULE":
                 self.tree.item(iid, tags=("module",))
             self.row_data[iid] = {
-                'unique_id': item['unique_id'],
-                'kit_number': item['kit_number'],
-                'module_number': item['module_number'],
-                'treecode': item['treecode']
+                "unique_id": item["unique_id"],
+                "kit_number": item["kit_number"],
+                "module_number": item["module_number"],
+                "treecode": item["treecode"],
             }
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t(
-                "receive_kit.loaded_module_records", 
-                "Loaded {count} records for module number {module_number}", 
-                    count=len(self.tree.get_children()), 
-                    module_number=module_number
-                )
+                "receive_kit.loaded_module_records",
+                "Loaded {count} records for module number {module_number}",
+                count=len(self.tree.get_children()),
+                module_number=module_number,
             )
+        )
 
-
-   
     def update_mode(self, event=None):
         mode_key = self.current_mode_key()
-        scenario_module_mode = (mode_key == "add_module_scenario")
+        scenario_module_mode = mode_key == "add_module_scenario"
         # Disable all selectors initially
-        for cb in [self.kit_cb, self.kit_number_cb, self.module_cb, self.module_number_cb]:
+        for cb in [
+            self.kit_cb,
+            self.kit_number_cb,
+            self.module_cb,
+            self.module_number_cb,
+        ]:
             cb.config(state="disabled")
-        for lab in [self.kit_label, self.kit_number_label, self.module_label, self.module_number_label]:
+        for lab in [
+            self.kit_label,
+            self.kit_number_label,
+            self.module_label,
+            self.module_number_label,
+        ]:
             lab.config(state="disabled")
-        self.kit_var.set(""); self.kit_number_var.set("")
-        self.module_var.set(""); self.module_number_var.set("")
+        self.kit_var.set("")
+        self.kit_number_var.set("")
+        self.module_var.set("")
+        self.module_number_var.set("")
         self.tree.delete(*self.tree.get_children())
-        self.row_data.clear(); self.code_to_iid.clear()
-        self.search_var.set(""); self.search_listbox.delete(0, tk.END)
+        self.row_data.clear()
+        self.code_to_iid.clear()
+        self.search_var.set("")
+        self.search_listbox.delete(0, tk.END)
         if mode_key == "add_module_kit":
             self.kit_label.config(state="normal")
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.kit_number_label.config(state="normal")
             self.kit_number_cb.config(state="normal")
-            self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id)
-            if self.kit_cb['values']:
+            self.kit_number_cb["values"] = self.fetch_available_kit_numbers(
+                self.selected_scenario_id
+            )
+            if self.kit_cb["values"]:
                 self.kit_cb.current(0)
                 self.on_kit_selected()
         elif scenario_module_mode:
@@ -932,34 +1292,41 @@ class StockReceiveKit(tk.Frame):
         elif mode_key == "add_items_kit":
             self.kit_label.config(state="normal")
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.kit_number_label.config(state="normal")
             self.kit_number_cb.config(state="normal")
-            self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id)
-            if self.kit_cb['values']:
+            self.kit_number_cb["values"] = self.fetch_available_kit_numbers(
+                self.selected_scenario_id
+            )
+            if self.kit_cb["values"]:
                 self.kit_cb.current(0)
                 self.on_kit_selected()
         elif mode_key == "add_items_module":
             self.kit_label.config(state="normal")
             self.kit_cb.config(state="readonly")
-            self.kit_cb['values'] = self.fetch_kits(self.selected_scenario_id)
+            self.kit_cb["values"] = self.fetch_kits(self.selected_scenario_id)
             self.kit_number_label.config(state="normal")
             self.kit_number_cb.config(state="normal")
-            self.kit_number_cb['values'] = self.fetch_available_kit_numbers(self.selected_scenario_id)
+            self.kit_number_cb["values"] = self.fetch_available_kit_numbers(
+                self.selected_scenario_id
+            )
             self.module_label.config(state="normal")
             self.module_cb.config(state="readonly")
-            self.module_cb['values'] = self.fetch_all_modules(self.selected_scenario_id)
+            self.module_cb["values"] = self.fetch_all_modules(self.selected_scenario_id)
             self.module_number_label.config(state="normal")
-            self.module_number_cb['values'] = []
+            self.module_number_cb["values"] = []
             self.module_number_cb.config(state="disabled")
         # Populate search results
         results = self.fetch_search_results("", self.selected_scenario_id, mode_key)
         for r in results:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
         self.status_var.set(
-            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+            lang.t(
+                "receive_kit.found_items",
+                "Found {count} items",
+                count=self.search_listbox.size(),
+            )
         )
-
 
     def ensure_mode_ready(self):
         if not hasattr(self, "mode_definitions") or not self.mode_definitions:
@@ -973,6 +1340,7 @@ class StockReceiveKit(tk.Frame):
             self.mode_var.set(first_label)
             key = self.mode_definitions[0][0]
         return key
+
     # -----------------------------------------------------------------
     # Unique ID refresh
     # -----------------------------------------------------------------
@@ -981,25 +1349,27 @@ class StockReceiveKit(tk.Frame):
         scenario_id = self.selected_scenario_id or "None"
         if not self.tree:
             return
-    
+
         for iid in self._gather_full_tree_nodes():
             if not self.tree.exists(iid):
                 continue
-        
+
             vals = list(self.tree.item(iid, "values"))
             if not vals or len(vals) < 13:
                 continue
-        
+
             code = vals[0]
             type_field = (vals[2] or "").strip().upper()
             kit_col = vals[3] if vals[3] and vals[3] != "-----" else None
             module_col = vals[4] if vals[4] and vals[4] != "-----" else None
-        
+
             # ✅ Extract codes from tree columns (in case they contain "CODE - Description")
             kit_code = self._extract_code_from_display(kit_col) if kit_col else None
-            module_code = self._extract_code_from_display(module_col) if module_col else None
+            module_code = (
+                self._extract_code_from_display(module_col) if module_col else None
+            )
             item_code = None
-        
+
             # Determine context
             if type_field == "KIT" and not kit_code:
                 kit_code = code
@@ -1007,9 +1377,9 @@ class StockReceiveKit(tk.Frame):
                 module_code = code
             if type_field == "ITEM":
                 item_code = code
-        
+
             rd = self.row_data.setdefault(iid, {})
-        
+
             # Get expiry
             expiry_iso = rd.get("expiry_iso")
             if not expiry_iso:
@@ -1017,22 +1387,28 @@ class StockReceiveKit(tk.Frame):
                 expiry_iso = parse_expiry(raw_exp)
                 if expiry_iso:
                     rd["expiry_iso"] = expiry_iso
-        
+
             kit_number = rd.get("kit_number") or "None"
             module_number = rd.get("module_number") or "None"
-        
+
             # ✅ Lookup std_qty from kit_items table with correct context
             std_qty_from_db = self.lookup_std_qty_from_kit_items(
-                scenario_id,
-                kit_code,
-                module_code,
-                item_code or code
+                scenario_id, kit_code, module_code, item_code or code
             )
-        
+
+            # ✅ NEW: Lookup treecode from kit_items table or use existing
+            treecode = rd.get("treecode")
+            if not treecode:
+                treecode = self.lookup_treecode_from_kit_items(
+                    scenario_id, kit_code, module_code, item_code or code
+                )
+                if treecode:
+                    rd["treecode"] = treecode
+
             # ✅ Also update the tree display with correct std_qty
             vals[5] = std_qty_from_db
-        
-            # Generate unique_id with correct std_qty
+
+            # ✅ Generate unique_id with treecode
             unique_id = self.generate_unique_id(
                 scenario_id,
                 kit_code if kit_code else None,
@@ -1041,13 +1417,14 @@ class StockReceiveKit(tk.Frame):
                 std_qty_from_db,  # ✅ Use looked-up value
                 expiry_iso,
                 kit_number,
-                module_number
+                module_number,
+                treecode,  # ✅ NEW: pass treecode
             )
-        
+
             # Update row_data
             rd["unique_id"] = unique_id
             rd["std_qty"] = std_qty_from_db  # ✅ Store correct value
-        
+
             # Update tree
             vals[12] = unique_id
             self.tree.item(iid, values=tuple(vals))
@@ -1059,51 +1436,65 @@ class StockReceiveKit(tk.Frame):
         """
         Fetch kit numbers with available stock (final_qty > 0).
         Handles both scenario_id and scenario name in stock_data.scenario.
-        
+
         Args:
             scenario_id: Scenario ID (can be stored as ID or name in stock_data)
             kit_code: Optional kit code to filter by (extracted code only, no description)
-        
+
         Returns:
             Sorted list of unique kit_number values with available stock
         """
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get scenario name for matching
             scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
-            
+
             if kit_code:
                 # ✅ Match by scenario_id OR scenario_name
-                cur.execute("""
-                    SELECT DISTINCT kit_number 
+                # ✅ Prioritize kit numbers with lowest stock ratio (final_qty/std_qty)
+                cur.execute(
+                    """
+                    SELECT kit_number,
+                        MIN(CAST(final_qty AS REAL) / NULLIF(std_qty, 0)) AS stock_ratio
                     FROM stock_data
                     WHERE (scenario=? OR scenario=?)
                       AND kit=?
                       AND kit_number IS NOT NULL 
                       AND kit_number != 'None'
                       AND final_qty > 0
-                    ORDER BY kit_number
-                """, (str(scenario_id), scenario_name, kit_code))
+                      AND std_qty > 0
+                    GROUP BY kit_number
+                    ORDER BY stock_ratio ASC, kit_number ASC
+                """,
+                    (str(scenario_id), scenario_name, kit_code),
+                )
             else:
                 # All kits in scenario with stock
-                cur.execute("""
-                    SELECT DISTINCT kit_number 
+                # ✅ Prioritize kit numbers with lowest stock ratio
+                cur.execute(
+                    """
+                    SELECT kit_number,
+                        MIN(CAST(final_qty AS REAL) / NULLIF(std_qty, 0)) AS stock_ratio
                     FROM stock_data
                     WHERE (scenario=? OR scenario=?)
-                      AND kit_number IS NOT NULL 
-                      AND kit_number != 'None'
-                      AND final_qty > 0
-                    ORDER BY kit_number
-                """, (str(scenario_id), scenario_name))
-            
-            return [r['kit_number'] for r in cur.fetchall()]
-            
+                    AND kit_number IS NOT NULL 
+                    AND kit_number != 'None'
+                    AND final_qty > 0
+                    AND std_qty > 0
+                    GROUP BY kit_number
+                    ORDER BY stock_ratio ASC, kit_number ASC
+                """,
+                    (str(scenario_id), scenario_name),
+                )
+
+            return [r["kit_number"] for r in cur.fetchall()]
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] fetch_available_kit_numbers error: {e}")
             return []
@@ -1111,57 +1502,63 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def fetch_available_module_numbers(self, scenario_id, kit_code=None, module_code=None):
+    def fetch_available_module_numbers(
+        self, scenario_id, kit_code=None, module_code=None
+    ):
         """
         Fetch module numbers with available stock (final_qty > 0).
         Handles both scenario_id and scenario name in stock_data.scenario.
-        
+
         Args:
             scenario_id: Scenario ID (can be stored as ID or name in stock_data)
             kit_code: Optional kit code to filter by (extracted code only, no description)
             module_code: Optional module code to filter by (extracted code only, no description)
-        
+
         Returns:
             Sorted list of unique module_number values with available stock
         """
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get scenario name for matching
             scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
-            
+
             # Build WHERE clause dynamically
             where_clauses = [
                 "(scenario=? OR scenario=?)",
                 "module_number IS NOT NULL",
                 "module_number != 'None'",
-                "final_qty > 0"
+                "final_qty > 0",
             ]
             params = [str(scenario_id), scenario_name]
-            
+
             if kit_code:
                 where_clauses.append("kit=?")
                 params.append(kit_code)
-            
+
             if module_code:
                 where_clauses.append("module=?")
                 params.append(module_code)
-            
+
+            # ✅ Prioritize module numbers with lowest stock ratio (final_qty/std_qty)
             sql = f"""
-                SELECT DISTINCT module_number 
+                SELECT module_number,
+                    MIN(CAST(final_qty AS REAL) / NULLIF(std_qty, 0)) AS stock_ratio
                 FROM stock_data
                 WHERE {' AND '.join(where_clauses)}
-                ORDER BY module_number
+                AND std_qty > 0
+                GROUP BY module_number
+                ORDER BY stock_ratio ASC, module_number ASC
             """
-            
+
             cur.execute(sql, params)
-            return [r['module_number'] for r in cur.fetchall()]
-            
+            return [r["module_number"] for r in cur.fetchall()]
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] fetch_available_module_numbers error: {e}")
             return []
@@ -1169,47 +1566,246 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
+    def select_best_treecode_by_stock_ratio(
+        self, scenario_id, code, kit_code=None, module_code=None
+    ):
+        """
+        When multiple instances of the same code exist (different treecodes),
+        select the one with the LOWEST stock ratio (final_qty / std_qty).
 
-            
+        This implements a "use-lowest-stock-first" strategy to balance inventory.
+
+        Args:
+            scenario_id: Scenario ID
+            code: Item/module/kit code to look up
+            kit_code: Optional kit context
+            module_code: Optional module context
+
+        Returns:
+            treecode with lowest stock ratio, or None if not found
+        """
+        conn = connect_db()
+        if not conn:
+            return None
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            # Get scenario name for matching
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+
+            # Build WHERE clause
+            where_clauses = [
+                "(scenario=? OR scenario=?)",
+                "final_qty > 0",
+                "std_qty > 0",
+                "treecode IS NOT NULL",
+            ]
+            params = [str(scenario_id), scenario_name]
+
+            # Match by code in kit/module/item columns
+            code_match = "(kit=? OR module=? OR item=?)"
+            where_clauses.append(code_match)
+            params.extend([code, code, code])
+
+            # Add context filters if provided
+            if kit_code:
+                where_clauses.append("kit=?")
+                params.append(kit_code)
+
+            if module_code:
+                where_clauses.append("module=?")
+                params.append(module_code)
+
+            sql = f"""
+                SELECT treecode,
+                       unique_id,
+                    final_qty,
+                    std_qty,
+                    CAST(final_qty AS REAL) / NULLIF(std_qty, 0) AS stock_ratio
+                FROM stock_data
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY stock_ratio ASC, treecode ASC
+                LIMIT 1
+            """
+
+            cur.execute(sql, params)
+            row = cur.fetchone()
+
+            if row:
+                logging.info(
+                    f"[STOCK_RATIO] Selected treecode={row['treecode']} for code={code} "
+                    f"(ratio={row['stock_ratio']:.2f}, qty={row['final_qty']}/{row['std_qty']})"
+                )
+                return row["treecode"]
+            else:
+                logging.debug(
+                    f"[STOCK_RATIO] No treecode found for code={code} with stock"
+                )
+                return None
+
+        except sqlite3.Error as e:
+            logging.error(f"[STOCK_RATIO] Error selecting treecode: {e}")
+            return None
+        finally:
+            cur.close()
+            conn.close()
+
+    def check_module_stock_in_kit(self, scenario_id, kit_code, module_code):
+        """
+        Check if a module already exists in a kit with sufficient stock.
+
+        Returns:
+            tuple: (can_add, min_ratio, message)
+                - can_add: True if module can be added (ratio < 1.0 exists)
+                - min_ratio: Lowest stock ratio found (or None)
+                - message: User-friendly message explaining the situation
+        """
+        conn = connect_db()
+        if not conn:
+            return True, None, ""  # Allow if DB error
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            # Get scenario name
+            scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
+
+            # Find all instances of this module in this kit
+            cur.execute(
+                """
+                SELECT 
+                    kit_number,
+                    module_number,
+                    treecode,
+                    final_qty,
+                    std_qty,
+                    CAST(final_qty AS REAL) / NULLIF(std_qty, 0) AS stock_ratio
+                FROM stock_data
+                WHERE (scenario=? OR scenario=?)
+                  AND kit=?
+                  AND module=?
+                  AND final_qty > 0
+                  AND std_qty > 0
+                ORDER BY stock_ratio ASC
+            """,
+                (str(scenario_id), scenario_name, kit_code, module_code),
+            )
+
+            rows = cur.fetchall()
+
+            if not rows:
+                # No existing instances - OK to add
+                return True, None, ""
+
+            # Get minimum ratio
+            min_ratio = rows[0]["stock_ratio"]
+
+            # Check if ALL instances have ratio >= 1.0
+            all_fully_stocked = all(row["stock_ratio"] >= 1.0 for row in rows)
+
+            if all_fully_stocked:
+                # REFUSE: All instances are fully stocked
+                instance_details = "\n".join(
+                    [
+                        lang.t(
+                            "receive_kit.module_instance_detail",
+                            "  • Kit {kit_number}, Module {module_number}: {final_qty}/{std_qty}",
+                            kit_number=row["kit_number"],
+                            module_number=row["module_number"],
+                            final_qty=row["final_qty"],
+                            std_qty=row["std_qty"],
+                        )
+                        for row in rows[:3]  # Show first 3 instances
+                    ]
+                )
+
+                more_text = ""
+                if len(rows) > 3:
+                    more_text = "\n" + lang.t(
+                        "receive_kit.and_more_instances",
+                        "  ... and {count} more",
+                        count=len(rows) - 3,
+                    )
+
+                message = lang.t(
+                    "receive_kit.cannot_add_module_full",
+                    "Cannot add module '{module_code}' to kit '{kit_code}'.\n\n"
+                    "This module already exists in the kit with full stock:\n\n"
+                    "{instance_details}\n\n"
+                    "Options:\n"
+                    "  1. Add this module as a separate module to '{scenario_name}'\n"
+                    "  2. Add to a different kit",
+                    module_code=module_code,
+                    kit_code=kit_code,
+                    instance_details=instance_details + more_text,
+                    scenario_name=self.selected_scenario_name,
+                )
+
+                return False, min_ratio, message
+            else:
+                # OK to add: At least one instance needs replenishment
+                lowest_instance = rows[0]
+                message = (
+                    f"Adding to existing module instance:\n"
+                    f"Kit {lowest_instance['kit_number']}, "
+                    f"Module {lowest_instance['module_number']}\n"
+                    f"Current stock: {lowest_instance['final_qty']}/{lowest_instance['std_qty']} "
+                    f"(ratio: {min_ratio:.2f})"
+                )
+
+                return True, min_ratio, message
+
+        except sqlite3.Error as e:
+            logging.error(f"[VALIDATE] Error checking module stock: {e}")
+            return True, None, ""  # Allow on error (fail open)
+        finally:
+            cur.close()
+            conn.close()
+
     def fetch_search_results(self, query, scenario_id, mode_key):
         """
-        Fetch search results based on mode with strict type filtering: 
-        - receive_kit:  Only Kit type (primary level)
-        - add_standalone: Only Item type (PRIMARY level)
-        - add_module_scenario: Only Module type (PRIMARY level ONLY)
-     - add_module_kit: Only Module type (secondary level)
-     """
+           Fetch search results based on mode with strict type filtering:
+           - receive_kit:  Only Kit type (primary level)
+           - add_standalone: Only Item type (PRIMARY level)
+           - add_module_scenario: Only Module type (PRIMARY level ONLY)
+        - add_module_kit: Only Module type (secondary level)
+        """
         # Robust mode key handling
-        if not mode_key: 
+        if not mode_key:
             logging.warning("fetch_search_results called with empty mode_key")
             return []
-    
+
         # If mode_key is still a display label (not internal key), convert it
         if hasattr(self, "mode_label_to_key") and mode_key in self.mode_label_to_key:
             mode_key = self.mode_label_to_key[mode_key]
             logging.debug(f"Converted display label to internal key: {mode_key}")
-    
+
         # Ensure mode_key is a string
         if not isinstance(mode_key, str):
             logging.error(f"Invalid mode_key type: {type(mode_key)}")
             return []
-    
+
         # Normalize mode_key
         mode_key = mode_key.strip().lower().replace(" ", "_")
-        logging.debug(f"Final mode_key for search: {mode_key}, scenario:  {scenario_id}")
-    
+        logging.debug(
+            f"Final mode_key for search: {mode_key}, scenario:  {scenario_id}"
+        )
+
         conn = connect_db()
-        if conn is None: 
+        if conn is None:
             return []
-    
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-    
+
         try:
             q = (query or "").lower()
-        
+
             # Build query based on mode
-            if mode_key == "add_standalone": 
+            if mode_key == "add_standalone":
                 # Standalone items - PRIMARY level with type=Item
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
@@ -1241,7 +1837,11 @@ class StockReceiveKit(tk.Frame):
 
             elif mode_key == "add_module_kit":
                 # Modules within a kit - secondary level
-                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
+                kit_code = (
+                    self._extract_code_from_display(self.kit_var.get())
+                    if self.kit_var.get()
+                    else ""
+                )  # ✅ Extract code only
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
                     FROM kit_items ki
@@ -1255,7 +1855,7 @@ class StockReceiveKit(tk.Frame):
                 """
                 params = (scenario_id, kit_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
 
-            elif mode_key == "add_module_scenario": 
+            elif mode_key == "add_module_scenario":
                 # ✅ FIX: Modules at scenario level - PRIMARY level ONLY
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
@@ -1271,10 +1871,14 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-        
-            elif mode_key == "add_items_kit":  
+
+            elif mode_key == "add_items_kit":
                 # Items within a kit - tertiary level
-                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
+                kit_code = (
+                    self._extract_code_from_display(self.kit_var.get())
+                    if self.kit_var.get()
+                    else ""
+                )  # ✅ Extract code only
                 sql = """
                     SELECT DISTINCT ki.code, ki.level
                     FROM kit_items ki
@@ -1287,12 +1891,20 @@ class StockReceiveKit(tk.Frame):
                     ) ORDER BY ki.code
                 """
                 params = (scenario_id, kit_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-        
-            elif mode_key == "add_items_module": 
+
+            elif mode_key == "add_items_module":
                 # Items within a module - tertiary level
-                kit_code = self._extract_code_from_display(self.kit_var.get()) if self.kit_var.get() else ""  # ✅ Extract code only
-                module_code = self._extract_code_from_display(self.module_var.get()) if self.module_var.get() else ""  # ✅ Extract code only
-                if kit_code and module_code:  
+                kit_code = (
+                    self._extract_code_from_display(self.kit_var.get())
+                    if self.kit_var.get()
+                    else ""
+                )  # ✅ Extract code only
+                module_code = (
+                    self._extract_code_from_display(self.module_var.get())
+                    if self.module_var.get()
+                    else ""
+                )  # ✅ Extract code only
+                if kit_code and module_code:
                     sql = """
                         SELECT DISTINCT ki.code, ki.level
                         FROM kit_items ki
@@ -1304,8 +1916,16 @@ class StockReceiveKit(tk.Frame):
                             UPPER(COALESCE(il.designation_sp,'')) LIKE UPPER(?)
                         ) ORDER BY ki.code
                     """
-                    params = (scenario_id, kit_code, module_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-                elif module_code: 
+                    params = (
+                        scenario_id,
+                        kit_code,
+                        module_code,
+                        f"%{q}%",
+                        f"%{q}%",
+                        f"%{q}%",
+                        f"%{q}%",
+                    )
+                elif module_code:
                     sql = """
                         SELECT DISTINCT ki.code, ki.level
                         FROM kit_items ki
@@ -1317,59 +1937,78 @@ class StockReceiveKit(tk.Frame):
                             UPPER(COALESCE(il.designation_sp,'')) LIKE UPPER(?)
                         ) ORDER BY ki.code
                     """
-                    params = (scenario_id, module_code, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+                    params = (
+                        scenario_id,
+                        module_code,
+                        f"%{q}%",
+                        f"%{q}%",
+                        f"%{q}%",
+                        f"%{q}%",
+                    )
                 else:
                     return []
             else:
                 return []
-        
+
             # Execute query
             cur.execute(sql, params)
 
             # Process results with type filtering
             rtn = []
             for row in cur.fetchall():
-                code = row['code']
+                code = row["code"]
                 desc = get_item_description(code)
                 item_type = detect_type(code, desc)
                 item_type_upper = item_type.upper()
 
                 # Apply type filtering based on mode
-                if mode_key == "receive_kit": 
+                if mode_key == "receive_kit":
                     # Only actual kits (not items at primary level)
-                    if item_type_upper != "KIT": 
-                        logging.debug(f"Skipping non-kit in receive_kit mode:  {code} (type={item_type})")
+                    if item_type_upper != "KIT":
+                        logging.debug(
+                            f"Skipping non-kit in receive_kit mode:  {code} (type={item_type})"
+                        )
                         continue
-            
+
                 elif mode_key == "add_standalone":
                     # Only actual standalone items (not modules/kits at primary level)
-                    if item_type_upper != "ITEM": 
-                        logging.debug(f"Skipping non-item in add_standalone mode:  {code} (type={item_type})")
+                    if item_type_upper != "ITEM":
+                        logging.debug(
+                            f"Skipping non-item in add_standalone mode:  {code} (type={item_type})"
+                        )
                         continue
-            
-                elif mode_key == "add_module_scenario": 
+
+                elif mode_key == "add_module_scenario":
                     # Only actual modules at primary level
-                    if item_type_upper != "MODULE": 
-                        logging.debug(f"Skipping non-module in add_module_scenario mode: {code} (type={item_type})")
+                    if item_type_upper != "MODULE":
+                        logging.debug(
+                            f"Skipping non-module in add_module_scenario mode: {code} (type={item_type})"
+                        )
                         continue
-            
+
                 elif mode_key == "add_module_kit":
                     # Only actual modules at secondary level
                     if item_type_upper != "MODULE":
-                        logging.debug(f"Skipping non-module in add_module_kit mode:  {code} (type={item_type})")
+                        logging.debug(
+                            f"Skipping non-module in add_module_kit mode:  {code} (type={item_type})"
+                        )
                         continue
-            
+
                 # If we reach here, item passes all filters
-                rtn.append({
-                    "code": code,
-                    "description": desc,
-                    "level": row['level'],
-                    "type": item_type
-                })
-        
-            logging.debug(f"fetch_search_results returning {len(rtn)} results for mode={mode_key}")
+                rtn.append(
+                    {
+                        "code": code,
+                        "description": desc,
+                        "level": row["level"],
+                        "type": item_type,
+                    }
+                )
+
+            logging.debug(
+                f"fetch_search_results returning {len(rtn)} results for mode={mode_key}"
+            )
             return rtn
-    
+
         except sqlite3.Error as e:
             logging.error(f"fetch_search_results error:  {e}")
             return []
@@ -1379,40 +2018,46 @@ class StockReceiveKit(tk.Frame):
 
     def fetch_kit_items(self, scenario_id, code):
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT ki.code, ki.level, ki.kit, ki.module, ki.item,
                        COALESCE(ki.std_qty,0) AS std_qty, ki.treecode
                 FROM kit_items ki
                 WHERE ki.scenario_id=? AND (
                       ki.code=? OR ki.kit=? OR ki.module=? OR ki.item=?)
                 ORDER BY ki.treecode
-            """, (scenario_id, code, code, code, code))
+            """,
+                (scenario_id, code, code, code, code),
+            )
             out = []
             for r in cur.fetchall():
-                desc = get_item_description(r['code'])
-                out.append({
-                    'code': r['code'],
-                    'description': desc,
-                    'type': detect_type(r['code'], desc),
-                    'kit': r['kit'] or "-----",
-                    'module': r['module'] or "-----",
-                    'item': r['item'] or "-----",
-                    'std_qty': r['std_qty'],
-                    'qty_to_receive': r['std_qty'],
-                    'expiry_date': "",
-                    'batch_no': "",
-                    'treecode': r['treecode']
-                })
+                desc = get_item_description(r["code"])
+                out.append(
+                    {
+                        "code": r["code"],
+                        "description": desc,
+                        "type": detect_type(r["code"], desc),
+                        "kit": r["kit"] or "-----",
+                        "module": r["module"] or "-----",
+                        "item": r["item"] or "-----",
+                        "std_qty": r["std_qty"],
+                        "qty_to_receive": r["std_qty"],
+                        "expiry_date": "",
+                        "batch_no": "",
+                        "treecode": r["treecode"],
+                    }
+                )
             return out
         except sqlite3.Error:
             return []
         finally:
-            cur.close(); conn.close()
-
+            cur.close()
+            conn.close()
 
     def fetch_kits(self, scenario_id):
         """
@@ -1423,38 +2068,41 @@ class StockReceiveKit(tk.Frame):
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get distinct kit codes from kit_items (primary level)
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code 
                 FROM kit_items 
                 WHERE scenario_id=? AND LOWER(level)='primary'
                 ORDER BY code
-            """, (scenario_id,))
-            
-            kit_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id,),
+            )
+
+            kit_codes = [r["code"] for r in cur.fetchall()]
+
             if not kit_codes:
                 return []
-            
+
             # ✅ NEW: Get descriptions and filter by type
             result = []
             for kit_code in kit_codes:
                 desc = get_item_description(kit_code)
                 item_type = detect_type(kit_code, desc).upper()
-                
+
                 # Only include if type is KIT
                 if item_type == "KIT":
                     # Format: "CODE - Description"
                     display = f"{kit_code} - {desc}" if desc else kit_code
                     result.append(display)
-            
+
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] fetch_kits error: {e}")
             return []
@@ -1466,60 +2114,60 @@ class StockReceiveKit(tk.Frame):
         """
         Fetch modules that belong to a specific kit with code and description.
         ✅ Returns formatted "CODE - Description" strings.
-        
+
         Args:
             scenario_id: Scenario ID
             kit_code: Kit code to filter modules
-        
+
         Returns:
             List of formatted strings: "CODE - Description"
         """
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Get modules for this kit (secondary level)
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code 
                 FROM kit_items 
                 WHERE scenario_id=? 
                   AND kit=?
                   AND LOWER(level)='secondary'
                 ORDER BY code
-            """, (scenario_id, kit_code))
-            
-            module_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id, kit_code),
+            )
+
+            module_codes = [r["code"] for r in cur.fetchall()]
+
             if not module_codes:
                 return []
-            
+
             # ✅ NEW: Get descriptions and filter by type
             result = []
             for module_code in module_codes:
                 desc = get_item_description(module_code)
                 item_type = detect_type(module_code, desc).upper()
-                
+
                 # Only include if type is MODULE
                 if item_type == "MODULE":
                     # Format: "CODE - Description"
                     display = f"{module_code} - {desc}" if desc else module_code
                     result.append(display)
-            
+
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] fetch_modules_for_kit error: {e}")
             return []
         finally:
             cur.close()
             conn.close()
-
-
-    
 
     def fetch_all_modules(self, scenario_id):
         """
@@ -1530,39 +2178,42 @@ class StockReceiveKit(tk.Frame):
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # ✅ Updated: Get modules from both primary and secondary levels
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT code 
                 FROM kit_items 
                 WHERE scenario_id=? 
                   AND LOWER(level) IN ('primary', 'secondary')
                 ORDER BY code
-            """, (scenario_id,))
-            
-            module_codes = [r['code'] for r in cur.fetchall()]
-            
+            """,
+                (scenario_id,),
+            )
+
+            module_codes = [r["code"] for r in cur.fetchall()]
+
             if not module_codes:
                 return []
-            
+
             # ✅ NEW: Get descriptions and filter by type
             result = []
             for module_code in module_codes:
                 desc = get_item_description(module_code)
                 item_type = detect_type(module_code, desc).upper()
-                
+
                 # Only include if type is MODULE
                 if item_type == "MODULE":
                     # Format: "CODE - Description"
                     display = f"{module_code} - {desc}" if desc else module_code
                     result.append(display)
-            
+
             return result
-            
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] fetch_all_modules error: {e}")
             return []
@@ -1572,7 +2223,8 @@ class StockReceiveKit(tk.Frame):
 
     def fetch_stock_data_for_kit_number(self, scenario_id, kit_number, kit_code=None):
         conn = connect_db()
-        if conn is None: return []
+        if conn is None:
+            return []
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
@@ -1599,33 +2251,40 @@ class StockReceiveKit(tk.Frame):
             cur.execute(query, params)
             lst = []
             for row in cur.fetchall():
-                desc = get_item_description(row['code'])
-                lst.append({
-                    'code': row['code'],
-                    'description': desc,
-                    'type': detect_type(row['code'], desc),
-                    'kit': row['kit'] or "-----",
-                    'module': row['module'] or "-----",
-                    'item': row['item'] or "-----",
-                    'std_qty': row['std_qty'],
-                    'qty_to_receive': row['qty_in'],
-                    'expiry_date': row['exp_date'] or "",
-                    'batch_no': "",
-                    'treecode': row['treecode'],
-                    'unique_id': row['unique_id'],
-                    'kit_number': row['kit_number'],
-                    'module_number': row['module_number']
-                })
+                desc = get_item_description(row["code"])
+                lst.append(
+                    {
+                        "code": row["code"],
+                        "description": desc,
+                        "type": detect_type(row["code"], desc),
+                        "kit": row["kit"] or "-----",
+                        "module": row["module"] or "-----",
+                        "item": row["item"] or "-----",
+                        "std_qty": row["std_qty"],
+                        "qty_to_receive": row["qty_in"],
+                        "expiry_date": row["exp_date"] or "",
+                        "batch_no": "",
+                        "treecode": row["treecode"],
+                        "unique_id": row["unique_id"],
+                        "kit_number": row["kit_number"],
+                        "module_number": row["module_number"],
+                    }
+                )
             return lst
         except sqlite3.Error as e:
             logging.error(f"fetch_stock_data_for_kit_number: {e}")
             return []
         finally:
-            cur.close(); conn.close()
-    def fetch_stock_data_for_module_number(self, scenario_id, module_number, kit_code=None, module_code=None):
+            cur.close()
+            conn.close()
+
+    def fetch_stock_data_for_module_number(
+        self, scenario_id, module_number, kit_code=None, module_code=None
+    ):
         conn = connect_db()
-        if conn is None: return []
-        conn.row_factory=sqlite3.Row
+        if conn is None:
+            return []
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
             query = """
@@ -1654,29 +2313,33 @@ class StockReceiveKit(tk.Frame):
             cur.execute(query, params)
             lst = []
             for row in cur.fetchall():
-                desc = get_item_description(row['code'])
-                lst.append({
-                    'code': row['code'],
-                    'description': desc,
-                    'type': detect_type(row['code'], desc),
-                    'kit': row['kit'] or "-----",
-                    'module': row['module'] or "-----",
-                    'item': row['item'] or "-----",
-                    'std_qty': row['std_qty'],
-                    'qty_to_receive': row['qty_in'],
-                    'expiry_date': row['exp_date'] or "",
-                    'batch_no': "",
-                    'treecode': row['treecode'],
-                    'unique_id': row['unique_id'],
-                    'kit_number': row['kit_number'],
-                    'module_number': row['module_number']
-                })
+                desc = get_item_description(row["code"])
+                lst.append(
+                    {
+                        "code": row["code"],
+                        "description": desc,
+                        "type": detect_type(row["code"], desc),
+                        "kit": row["kit"] or "-----",
+                        "module": row["module"] or "-----",
+                        "item": row["item"] or "-----",
+                        "std_qty": row["std_qty"],
+                        "qty_to_receive": row["qty_in"],
+                        "expiry_date": row["exp_date"] or "",
+                        "batch_no": "",
+                        "treecode": row["treecode"],
+                        "unique_id": row["unique_id"],
+                        "kit_number": row["kit_number"],
+                        "module_number": row["module_number"],
+                    }
+                )
             return lst
         except sqlite3.Error as e:
             logging.error(f"fetch_stock_data_for_module_number: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     # -----------------------------------------------------------------
     # Module descendant retrieval strategies
     # -----------------------------------------------------------------
@@ -1686,7 +2349,7 @@ class StockReceiveKit(tk.Frame):
         Works for modules at both primary and secondary levels.
         """
         conn = connect_db()
-        if conn is None: 
+        if conn is None:
             return []
 
         conn.row_factory = sqlite3.Row
@@ -1694,30 +2357,37 @@ class StockReceiveKit(tk.Frame):
 
         try:
             # ✅ Check BOTH primary and secondary levels
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT code, level, kit, module, item, COALESCE(std_qty, 0) AS std_qty, treecode
                 FROM kit_items
                 WHERE scenario_id=?   
                 AND code=?  
                 AND (LOWER(level)='primary' OR LOWER(level)='secondary')
                 LIMIT 1
-            """, (scenario_id, module_code))
-        
+            """,
+                (scenario_id, module_code),
+            )
+
             base = cur.fetchone()
-        
-            if not base:  
-                logging.debug(f"fetch_full_module_subtree:   Module {module_code} not found")
+
+            if not base:
+                logging.debug(
+                    f"fetch_full_module_subtree:   Module {module_code} not found"
+                )
                 return []
-        
-            tc = base['treecode']
-            level = (base['level'] or '').lower()
-        
+
+            tc = base["treecode"]
+            level = (base["level"] or "").lower()
+
             if not tc:
-                logging.debug(f"fetch_full_module_subtree:  Module {module_code} has no treecode")
+                logging.debug(
+                    f"fetch_full_module_subtree:  Module {module_code} has no treecode"
+                )
                 return []
-        
+
             # ✅ FIX:   Match on relevant digits based on level
-            if level == 'primary':
+            if level == "primary":
                 # Primary module (SS PPP 000 000) → children are secondary (SS PPP MMM 000)
                 # Match first 5 digits: SS + PPP
                 prefix = tc[:5]  # '01004'
@@ -1727,37 +2397,46 @@ class StockReceiveKit(tk.Frame):
                 # Match first 8 digits: SS + PPP + MMM
                 prefix = tc[:8]  # '01004001'
                 pattern = f"{prefix}%"
-        
-            logging.debug(f"fetch_full_module_subtree: Module {module_code} (level={level}, tc={tc}) → pattern={pattern}")
-        
+
+            logging.debug(
+                f"fetch_full_module_subtree: Module {module_code} (level={level}, tc={tc}) → pattern={pattern}"
+            )
+
             # Fetch all items matching the pattern
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT code, level, kit, module, item, COALESCE(std_qty, 0) AS std_qty, treecode
                 FROM kit_items
                 WHERE scenario_id=?  AND treecode LIKE ?
                 ORDER BY treecode
-            """, (scenario_id, pattern))
-        
+            """,
+                (scenario_id, pattern),
+            )
+
             lst = []
             for r in cur.fetchall():
-                desc = get_item_description(r['code'])
-                lst.append({
-                    'code':  r['code'],
-                    'description': desc,
-                    'type': detect_type(r['code'], desc),
-                    'kit':   r['kit'] or "-----",
-                    'module': r['module'] or "-----",
-                    'item': r['item'] or "-----",
-                    'std_qty': r['std_qty'],
-                    'qty_to_receive': r['std_qty'],
-                    'expiry_date': "",
-                    'batch_no': "",
-                    'treecode': r['treecode']
-                })
-        
-            logging.debug(f"fetch_full_module_subtree:   Returned {len(lst)} items for module {module_code}")
+                desc = get_item_description(r["code"])
+                lst.append(
+                    {
+                        "code": r["code"],
+                        "description": desc,
+                        "type": detect_type(r["code"], desc),
+                        "kit": r["kit"] or "-----",
+                        "module": r["module"] or "-----",
+                        "item": r["item"] or "-----",
+                        "std_qty": r["std_qty"],
+                        "qty_to_receive": r["std_qty"],
+                        "expiry_date": "",
+                        "batch_no": "",
+                        "treecode": r["treecode"],
+                    }
+                )
+
+            logging.debug(
+                f"fetch_full_module_subtree:   Returned {len(lst)} items for module {module_code}"
+            )
             return lst
-    
+
         except sqlite3.Error as e:
             logging.error(f"fetch_full_module_subtree error: {e}")
             return []
@@ -1765,106 +2444,128 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
-
     def fetch_items_by_module_column(self, scenario_id: str, module_code: str):
         conn = connect_db()
-        if conn is None: return []
-        conn.row_factory=sqlite3.Row
-        cur=conn.cursor()
+        if conn is None:
+            return []
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT code, level, kit, module, item, COALESCE(std_qty,0) AS std_qty, treecode
                 FROM kit_items
                 WHERE scenario_id=? AND module=?
                 ORDER BY treecode
-            """, (scenario_id, module_code))
-            lst=[]
+            """,
+                (scenario_id, module_code),
+            )
+            lst = []
             for r in cur.fetchall():
-                desc = get_item_description(r['code'])
-                lst.append({
-                    'code': r['code'],
-                    'description': desc,
-                    'type': detect_type(r['code'], desc),
-                    'kit': r['kit'] or "-----",
-                    'module': r['module'] or "-----",
-                    'item': r['item'] or "-----",
-                    'std_qty': r['std_qty'],
-                    'qty_to_receive': r['std_qty'],
-                    'expiry_date': "",
-                    'batch_no': "",
-                    'treecode': r['treecode']
-                })
+                desc = get_item_description(r["code"])
+                lst.append(
+                    {
+                        "code": r["code"],
+                        "description": desc,
+                        "type": detect_type(r["code"], desc),
+                        "kit": r["kit"] or "-----",
+                        "module": r["module"] or "-----",
+                        "item": r["item"] or "-----",
+                        "std_qty": r["std_qty"],
+                        "qty_to_receive": r["std_qty"],
+                        "expiry_date": "",
+                        "batch_no": "",
+                        "treecode": r["treecode"],
+                    }
+                )
             return lst
         except sqlite3.Error as e:
             logging.error(f"fetch_items_by_module_column error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def fetch_items_by_code_prefix(self, scenario_id: str, module_code: str):
         conn = connect_db()
-        if conn is None: return []
-        conn.row_factory=sqlite3.Row
-        cur=conn.cursor()
+        if conn is None:
+            return []
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         try:
-            like_pattern = module_code + '%'
-            cur.execute("""
+            like_pattern = module_code + "%"
+            cur.execute(
+                """
                 SELECT code, level, kit, module, item, COALESCE(std_qty,0) AS std_qty, treecode
                 FROM kit_items
                 WHERE scenario_id=? AND code LIKE ?
                 ORDER BY treecode
-            """, (scenario_id, like_pattern))
-            lst=[]
+            """,
+                (scenario_id, like_pattern),
+            )
+            lst = []
             for r in cur.fetchall():
-                desc = get_item_description(r['code'])
-                lst.append({
-                    'code': r['code'],
-                    'description': desc,
-                    'type': detect_type(r['code'], desc),
-                    'kit': r['kit'] or "-----",
-                    'module': r['module'] or "-----",
-                    'item': r['item'] or "-----",
-                    'std_qty': r['std_qty'],
-                    'qty_to_receive': r['std_qty'],
-                    'expiry_date': "",
-                    'batch_no': "",
-                    'treecode': r['treecode']
-                })
+                desc = get_item_description(r["code"])
+                lst.append(
+                    {
+                        "code": r["code"],
+                        "description": desc,
+                        "type": detect_type(r["code"], desc),
+                        "kit": r["kit"] or "-----",
+                        "module": r["module"] or "-----",
+                        "item": r["item"] or "-----",
+                        "std_qty": r["std_qty"],
+                        "qty_to_receive": r["std_qty"],
+                        "expiry_date": "",
+                        "batch_no": "",
+                        "treecode": r["treecode"],
+                    }
+                )
             return lst
         except sqlite3.Error as e:
             logging.error(f"fetch_items_by_code_prefix error: {e}")
             return []
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
 
-
-
-    
-                
     # -----------------------------------------------------------------
     # Add Missing Item Dialog
     # -----------------------------------------------------------------
     def add_missing_item(self):
         if not self.selected_scenario_id:
             custom_popup(
-                self.parent, 
-                lang.t("receive_kit.error", "Error"), 
-                lang.t("receive_kit.no_scenario", "Please select a scenario"), 
-                "error"
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t("receive_kit.no_scenario", "Please select a scenario"),
+                "error",
             )
             return
         dialog = tk.Toplevel(self.parent)
-        dialog.title(lang.t("receive_kit.add_missing","Add Missing Item"))
+        dialog.title(lang.t("receive_kit.add_missing", "Add Missing Item"))
         dialog.geometry("520x300")
         dialog.transient(self.parent)
         dialog.grab_set()
-        tk.Label(dialog, text=lang.t("receive_kit.search_item","Search Kit/Module/Item"),
-                 font=("Helvetica",10), pady=10).pack()
+        tk.Label(
+            dialog,
+            text=lang.t("receive_kit.search_item", "Search Kit/Module/Item"),
+            font=("Helvetica", 10),
+            pady=10,
+        ).pack()
         search_var = tk.StringVar()
-        entry = tk.Entry(dialog, textvariable=search_var, font=("Helvetica",10), width=40)
+        entry = tk.Entry(
+            dialog, textvariable=search_var, font=("Helvetica", 10), width=40
+        )
         entry.pack(fill=tk.X, padx=10, pady=5)
-        listbox = tk.Listbox(dialog, font=("Helvetica",10),
-                             selectbackground="#0077CC", selectforeground="white", height=10)
+        listbox = tk.Listbox(
+            dialog,
+            font=("Helvetica", 10),
+            selectbackground="#0077CC",
+            selectforeground="white",
+            height=10,
+        )
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
         def update_list(*_):
             q = search_var.get().strip()
             listbox.delete(0, tk.END)
@@ -1873,9 +2574,13 @@ class StockReceiveKit(tk.Frame):
             for r in res:
                 listbox.insert(tk.END, f"{r['code']} - {r['description']}")
             if not res:
-                listbox.insert(tk.END, lang.t("receive_kit.no_items_found","No items found"))
+                listbox.insert(
+                    tk.END, lang.t("receive_kit.no_items_found", "No items found")
+                )
+
         search_var.trace("w", update_list)
         update_list()
+
         def on_select(_=None):
             idx = listbox.curselection()
             if idx:
@@ -1888,10 +2593,12 @@ class StockReceiveKit(tk.Frame):
                     self.add_to_tree(code)
             else:
                 dialog.destroy()
+
         listbox.bind("<Double-Button-1>", on_select)
         entry.bind("<Return>", on_select)
         entry.focus()
         dialog.wait_window()
+
     # -----------------------------------------------------------------
     # Select Kit Popup (Receive Kit mode)
     # -----------------------------------------------------------------
@@ -1901,7 +2608,7 @@ class StockReceiveKit(tk.Frame):
             return None, None
         dialog = tk.Toplevel(self.parent)
         dialog.withdraw()
-        dialog.title(lang.t("receive_kit.select_kit","Select Kit"))
+        dialog.title(lang.t("receive_kit.select_kit", "Select Kit"))
         dialog.transient(self.parent)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -1909,74 +2616,122 @@ class StockReceiveKit(tk.Frame):
         PAD_X, PAD_Y = 18, 14
         outer = tk.Frame(dialog, bg="#FFFFFF", padx=PAD_X, pady=PAD_Y)
         outer.pack(fill="both", expand=True)
-        tk.Label(outer, text=lang.t("receive_kit.select_kit","Select Kit"),
-                 font=("Helvetica",12,"bold"), bg="#FFFFFF", anchor="w").pack(fill="x", pady=(0,6))
+        tk.Label(
+            outer,
+            text=lang.t("receive_kit.select_kit", "Select Kit"),
+            font=("Helvetica", 12, "bold"),
+            bg="#FFFFFF",
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
         search_var = tk.StringVar()
-        search_entry = tk.Entry(outer, textvariable=search_var, font=("Helvetica",10), width=52)
-        search_entry.pack(fill="x", pady=(0,6))
+        search_entry = tk.Entry(
+            outer, textvariable=search_var, font=("Helvetica", 10), width=52
+        )
+        search_entry.pack(fill="x", pady=(0, 6))
         list_frame = tk.Frame(outer, bg="#FFFFFF")
-        list_frame.pack(fill="both", expand=True, pady=(0,10))
-        listbox = tk.Listbox(list_frame, font=("Helvetica",10), height=6,
-                             activestyle="dotbox", selectbackground="#2563EB",
-                             selectforeground="white", exportselection=False)
+        list_frame.pack(fill="both", expand=True, pady=(0, 10))
+        listbox = tk.Listbox(
+            list_frame,
+            font=("Helvetica", 10),
+            height=6,
+            activestyle="dotbox",
+            selectbackground="#2563EB",
+            selectforeground="white",
+            exportselection=False,
+        )
         listbox.pack(side="left", fill="both", expand=True)
         sb = tk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
         sb.pack(side="right", fill="y")
         listbox.configure(yscrollcommand=sb.set)
-        tk.Label(outer, text=lang.t("receive_kit.kit_number","Kit Number"),
-                 font=("Helvetica",10), bg="#FFFFFF", anchor="w").pack(fill="x", pady=(0,2))
+        tk.Label(
+            outer,
+            text=lang.t("receive_kit.kit_number", "Kit Number"),
+            font=("Helvetica", 10),
+            bg="#FFFFFF",
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
         kit_number_var = tk.StringVar()
-        kit_number_entry = tk.Entry(outer, textvariable=kit_number_var, font=("Helvetica",10), width=26)
-        kit_number_entry.pack(anchor="w", pady=(0,6))
-        error_label = tk.Label(outer, text="", fg="#B91C1C", font=("Helvetica",9),
-                               bg="#FFFFFF", wraplength=400, justify="left", anchor="w")
-        error_label.pack(fill="x", pady=(0,10))
+        kit_number_entry = tk.Entry(
+            outer, textvariable=kit_number_var, font=("Helvetica", 10), width=26
+        )
+        kit_number_entry.pack(anchor="w", pady=(0, 6))
+        error_label = tk.Label(
+            outer,
+            text="",
+            fg="#B91C1C",
+            font=("Helvetica", 9),
+            bg="#FFFFFF",
+            wraplength=400,
+            justify="left",
+            anchor="w",
+        )
+        error_label.pack(fill="x", pady=(0, 10))
         btn_frame = tk.Frame(outer, bg="#FFFFFF")
-        btn_frame.pack(fill="x", pady=(4,0))
-        selected_kit = [None]; selected_kit_number = [None]
+        btn_frame.pack(fill="x", pady=(4, 0))
+        selected_kit = [None]
+        selected_kit_number = [None]
+
         def update_list(*_):
             q = search_var.get().strip().lower()
             listbox.delete(0, tk.END)
-            kits = self.fetch_search_results(q, self.selected_scenario_id, "receive_kit")
+            kits = self.fetch_search_results(
+                q, self.selected_scenario_id, "receive_kit"
+            )
             for k in kits:
                 listbox.insert(tk.END, f"{k['code']} - {k['description']}")
             if not kits:
                 listbox.insert(tk.END, "No kits found")
+
         def validate_kit_number():
             kn = kit_number_var.get().strip()
             if not kn:
                 error_label.config(
-                    text=lang.t("receive_kit.kit_number_required", "Kit Number is required")
+                    text=lang.t(
+                        "receive_kit.kit_number_required", "Kit Number is required"
+                    )
                 )
                 return False
             conn = connect_db()
             if conn is None:
                 error_label.config(
-                    text=lang.t("receive_kit.db_connection_failed", "DB connection failed")
+                    text=lang.t(
+                        "receive_kit.db_connection_failed", "DB connection failed"
+                    )
                 )
                 return False
             cur = conn.cursor()
             try:
-                cur.execute("SELECT COUNT(*) FROM stock_data WHERE kit_number=? AND unique_id LIKE ?",
-                            (kn, f"{self.selected_scenario_id}/%"))
+                cur.execute(
+                    "SELECT COUNT(*) FROM stock_data WHERE kit_number=? AND unique_id LIKE ?",
+                    (kn, f"{self.selected_scenario_id}/%"),
+                )
                 if cur.fetchone()[0] > 0:
                     # Use lang.t for error message
                     error_label.config(
-                text=lang.t("receive_kit.kit_number_exists", "Kit Number already exists")
-            )
+                        text=lang.t(
+                            "receive_kit.kit_number_exists", "Kit Number already exists"
+                        )
+                    )
                     return False
-                error_label.config(text=""); 
+                error_label.config(text="")
                 return True
             finally:
-                cur.close(); conn.close()
+                cur.close()
+                conn.close()
+
         def close_dialog():
-            try: dialog.grab_release()
-            except: pass
+            try:
+                dialog.grab_release()
+            except:
+                pass
             dialog.destroy()
+
         def on_confirm(_=None):
             idx = listbox.curselection()
             if not idx:
-                error_label.config(text=lang.t("receive_kit.select_kit_error", "Please select a kit"))
+                error_label.config(
+                    text=lang.t("receive_kit.select_kit_error", "Please select a kit")
+                )
                 return
             if not validate_kit_number():
                 return
@@ -1984,12 +2739,28 @@ class StockReceiveKit(tk.Frame):
             selected_kit[0] = line.split(" - ")[0]
             selected_kit_number[0] = kit_number_var.get().strip()
             close_dialog()
-        tk.Button(btn_frame, text=lang.t("receive_kit.confirm","Confirm"),
-                  bg="#2563EB", fg="white", font=("Helvetica",10,"bold"), relief="flat",
-                  padx=16, pady=6, command=on_confirm).pack(side="left", padx=(0,10))
-        tk.Button(btn_frame, text=lang.t("receive_kit.cancel","Cancel"),
-                  bg="#E5E7EB", fg="#111827", relief="flat", padx=16, pady=6,
-                  command=close_dialog).pack(side="left")
+
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.confirm", "Confirm"),
+            bg="#2563EB",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=16,
+            pady=6,
+            command=on_confirm,
+        ).pack(side="left", padx=(0, 10))
+        tk.Button(
+            btn_frame,
+            text=lang.t("receive_kit.cancel", "Cancel"),
+            bg="#E5E7EB",
+            fg="#111827",
+            relief="flat",
+            padx=16,
+            pady=6,
+            command=close_dialog,
+        ).pack(side="left")
         listbox.bind("<Double-Button-1>", on_confirm)
         search_entry.bind("<Return>", on_confirm)
         kit_number_entry.bind("<Return>", on_confirm)
@@ -2002,13 +2773,14 @@ class StockReceiveKit(tk.Frame):
         search_entry.focus()
         dialog.wait_window()
         return selected_kit[0], selected_kit_number[0]
+
     # -----------------------------------------------------------------
     # Select Module Popup
     # -----------------------------------------------------------------
     def select_module_popup(self, kit_number, module_code, module_description):
         dialog = tk.Toplevel(self.parent)
         dialog.withdraw()
-        dialog.title(lang.t("receive_kit.select_module","Select Module Number"))
+        dialog.title(lang.t("receive_kit.select_module", "Select Module Number"))
         dialog.transient(self.parent)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -2016,65 +2788,127 @@ class StockReceiveKit(tk.Frame):
         PAD_X, PAD_Y = 18, 14
         outer = tk.Frame(dialog, bg="#FFFFFF", padx=PAD_X, pady=PAD_Y)
         outer.pack(fill="both", expand=True)
-        tk.Label(outer, text=f"{lang.t('receive_kit.module','Module')}: {module_code}",
-                 font=("Helvetica",11,"bold"), bg="#FFFFFF", anchor="w").pack(fill="x", pady=(0,4))
+        tk.Label(
+            outer,
+            text=f"{lang.t('receive_kit.module','Module')}: {module_code}",
+            font=("Helvetica", 11, "bold"),
+            bg="#FFFFFF",
+            anchor="w",
+        ).pack(fill="x", pady=(0, 4))
         if module_description:
-            tk.Label(outer, text=module_description, font=("Helvetica",9),
-                     fg="#374151", bg="#FFFFFF", wraplength=380,
-                     justify="left", anchor="w").pack(fill="x", pady=(0,8))
+            tk.Label(
+                outer,
+                text=module_description,
+                font=("Helvetica", 9),
+                fg="#374151",
+                bg="#FFFFFF",
+                wraplength=380,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x", pady=(0, 8))
         suggested = f"{kit_number}-M" if kit_number else "MOD-"
         module_number_var = tk.StringVar(value=suggested)
-        tk.Label(outer, text=lang.t("receive_kit.module_number","Module Number"),
-                 font=("Helvetica",10), bg="#FFFFFF", anchor="w").pack(fill="x", pady=(0,2))
-        entry = tk.Entry(outer, textvariable=module_number_var, font=("Helvetica",10), width=26)
-        entry.pack(anchor="w", pady=(0,6))
-        error_label = tk.Label(outer, text="", fg="#B91C1C", font=("Helvetica",9),
-                               bg="#FFFFFF", wraplength=380, justify="left", anchor="w")
-        error_label.pack(fill="x", pady=(0,8))
+        tk.Label(
+            outer,
+            text=lang.t("receive_kit.module_number", "Module Number"),
+            font=("Helvetica", 10),
+            bg="#FFFFFF",
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
+        entry = tk.Entry(
+            outer, textvariable=module_number_var, font=("Helvetica", 10), width=26
+        )
+        entry.pack(anchor="w", pady=(0, 6))
+        error_label = tk.Label(
+            outer,
+            text="",
+            fg="#B91C1C",
+            font=("Helvetica", 9),
+            bg="#FFFFFF",
+            wraplength=380,
+            justify="left",
+            anchor="w",
+        )
+        error_label.pack(fill="x", pady=(0, 8))
         btn_bar = tk.Frame(outer, bg="#FFFFFF")
-        btn_bar.pack(fill="x", pady=(4,0))
+        btn_bar.pack(fill="x", pady=(4, 0))
         selected_module_number = [None]
+
         def validate():
             val = module_number_var.get().strip()
-            if not val: 
+            if not val:
                 error_label.config(
-                    text=lang.t("receive_kit.module_number_required", "Module Number is required")
+                    text=lang.t(
+                        "receive_kit.module_number_required",
+                        "Module Number is required",
+                    )
                 )
                 return False
             conn = connect_db()
             if conn is None:
                 error_label.config(
-                    text=lang.t("receive_kit.db_connection_failed", "DB connection failed")
+                    text=lang.t(
+                        "receive_kit.db_connection_failed", "DB connection failed"
+                    )
                 )
                 return False
             cur = conn.cursor()
             try:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT COUNT(*) FROM stock_data
                     WHERE module_number=? AND module_number!='None'
-                """, (val,))
+                """,
+                    (val,),
+                )
                 if cur.fetchone()[0] > 0:
-                    error_label.config(text=lang.t("receive_kit.module_number_exists", "Module Number already exists"))
+                    error_label.config(
+                        text=lang.t(
+                            "receive_kit.module_number_exists",
+                            "Module Number already exists",
+                        )
+                    )
                     return False
-                error_label.config(text=""); return True
+                error_label.config(text="")
+                return True
             finally:
-                cur.close(); conn.close()
+                cur.close()
+                conn.close()
+
         def on_confirm(_=None):
             if validate():
                 selected_module_number[0] = module_number_var.get().strip()
                 close()
+
         def close():
-            try: dialog.grab_release()
-            except: pass
+            try:
+                dialog.grab_release()
+            except:
+                pass
             dialog.destroy()
-        tk.Button(btn_bar, text=lang.t("receive_kit.confirm","Confirm"),
-                  command=on_confirm, bg="#2563EB", fg="white",
-                  relief="flat", padx=14, pady=5,
-                  font=("Helvetica",10,"bold")).pack(side="left", padx=(0,8))
-        tk.Button(btn_bar, text=lang.t("receive_kit.cancel","Cancel"),
-                  command=close, bg="#E5E7EB", fg="#111827",
-                  relief="flat", padx=14, pady=5,
-                  font=("Helvetica",10)).pack(side="left")
+
+        tk.Button(
+            btn_bar,
+            text=lang.t("receive_kit.confirm", "Confirm"),
+            command=on_confirm,
+            bg="#2563EB",
+            fg="white",
+            relief="flat",
+            padx=14,
+            pady=5,
+            font=("Helvetica", 10, "bold"),
+        ).pack(side="left", padx=(0, 8))
+        tk.Button(
+            btn_bar,
+            text=lang.t("receive_kit.cancel", "Cancel"),
+            command=close,
+            bg="#E5E7EB",
+            fg="#111827",
+            relief="flat",
+            padx=14,
+            pady=5,
+            font=("Helvetica", 10),
+        ).pack(side="left")
         entry.bind("<Return>", on_confirm)
         dialog.bind("<Escape>", lambda e: close())
         dialog.update_idletasks()
@@ -2083,148 +2917,275 @@ class StockReceiveKit(tk.Frame):
         entry.focus()
         dialog.wait_window()
         return selected_module_number[0]
+
     # -----------------------------------------------------------------
     # Load hierarchy (Receive Kit)
     # -----------------------------------------------------------------
     def load_hierarchy(self, code):
+        """
+        Load the full kit hierarchy for 'receive_kit' mode.
+        ✅ NEW: Warns if kit instances are already fully stocked.
+        """
+        if not self.selected_scenario_id:
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t("receive_kit.no_scenario", "Please select a scenario"),
+                "error",
+            )
+            return
+
+        # ✅ NEW: Check if kit is already fully stocked
+        kit_code = code
+        conn = connect_db()
+        if conn:
+            try:
+                cur = conn.cursor()
+                scenario_name = self.scenario_map.get(
+                    str(self.selected_scenario_id), str(self.selected_scenario_id)
+                )
+
+                cur.execute(
+                    """
+                    SELECT 
+                        COUNT(*) as total_instances,
+                        SUM(CASE WHEN CAST(final_qty AS REAL) / NULLIF(std_qty, 0) >= 1.0 THEN 1 ELSE 0 END) as fully_stocked
+                    FROM stock_data
+                    WHERE (scenario=? OR scenario=?)
+                      AND kit=?
+                      AND final_qty > 0
+                      AND std_qty > 0
+                """,
+                    (str(self.selected_scenario_id), scenario_name, kit_code),
+                )
+
+                row = cur.fetchone()
+                if row and row[0] > 0:  # Has existing instances
+                    total, fully_stocked = row[0], row[1]
+
+                    if fully_stocked == total:
+                        # ALL instances fully stocked - warn user
+                        warning_msg = (
+                            f"⚠️ Warning: All existing instances of kit '{kit_code}' are fully stocked.\n\n"
+                            f"Total instances: {total}\n"
+                            f"Fully stocked: {fully_stocked}\n\n"
+                            f"Receiving this kit will create a NEW kit instance.\n\n"
+                            f"Continue?"
+                        )
+
+                        if not custom_askyesno(
+                            self.parent, "Kit Fully Stocked", warning_msg
+                        ):
+                            cur.close()
+                            conn.close()
+                            return  # User cancelled
+
+                cur.close()
+            except Exception as e:
+                logging.error(f"Error checking kit stock: {e}")
+            finally:
+                conn.close()
+
+        # ✅ Continue with original load_hierarchy logic...
+        # (rest of the method unchanged)
         # Clear existing tree and metadata
         self.tree.delete(*self.tree.get_children())
         self.row_data.clear()
         self.code_to_iid.clear()
-        
+
         comps = self.fetch_kit_items(self.selected_scenario_id, code)
         if not comps:
             self.status_var.set(
-                lang.t("receive_kit.no_items_for_code", "No items found for code {code}", code=code)
+                lang.t(
+                    "receive_kit.no_items_for_code",
+                    "No items found for code {code}",
+                    code=code,
+                )
             )
             return
+        # ✅ FIX: DEDUPLICATION - Keep only first occurrence of each TREECODE
+        # This allows same item code to appear multiple times (different positions/treecodes)
+        # but prevents true duplicates (same treecode)
+        seen_treecodes = {}
+        deduplicated = []
+
+        for comp in comps:
+            comp_treecode = comp.get("treecode", "")
+
+            # If no treecode, use code as fallback (shouldn't happen but safety measure)
+            unique_key = comp_treecode if comp_treecode else comp["code"]
+
+            if unique_key not in seen_treecodes:
+                seen_treecodes[unique_key] = comp
+                deduplicated.append(comp)
+                logging.debug(
+                    f"[LOAD_HIERARCHY] Keeping {comp['code']} (treecode: {comp_treecode})"
+                )
+            else:
+                logging.debug(
+                    f"[LOAD_HIERARCHY] Skipping duplicate {comp['code']} (treecode: {comp_treecode})"
+                )
+
+        comps = deduplicated  # ✅ Use deduplicated list
+        logging.info(
+            f"[LOAD_HIERARCHY] Deduplicated by treecode: {len(deduplicated)} unique items"
+        )
 
         kit_number_global = self.kit_number_var.get() or None
         treecode_map = {}
         module_number_map = {}
-        
-        for comp in sorted(comps, key=lambda x: x['treecode']):
-            parent_tc = comp['treecode'][:-3] if len(comp['treecode']) >= 3 else ''
-            parent_iid = treecode_map.get(parent_tc, '')
-            qty_to_receive = comp['std_qty']
-            
+
+        for comp in sorted(comps, key=lambda x: x["treecode"]):
+
+            kit_number_global = self.kit_number_var.get() or None
+            treecode_map = {}
+            module_number_map = {}
+
+        for comp in sorted(comps, key=lambda x: x["treecode"]):
+            parent_tc = comp["treecode"][:-3] if len(comp["treecode"]) >= 3 else ""
+            parent_iid = treecode_map.get(parent_tc, "")
+            qty_to_receive = comp["std_qty"]
+
             # ✅ Extract clean codes from database values (safety measure)
-            kit_raw = comp['kit']
+            kit_raw = comp["kit"]
             kit_code = self._extract_code_from_display(kit_raw) if kit_raw else None
             kit_display = kit_code or "-----"
-            
-            module_raw = comp['module']
-            module_code = self._extract_code_from_display(module_raw) if module_raw else None
+
+            module_raw = comp["module"]
+            module_code = (
+                self._extract_code_from_display(module_raw) if module_raw else None
+            )
             module_display = module_code or "-----"
-            
+
             # Inherit kit number from parent if present
             inherited_kn = kit_number_global
             if parent_iid in self.row_data:
-                pn = self.row_data[parent_iid].get('kit_number')
+                pn = self.row_data[parent_iid].get("kit_number")
                 if pn and isinstance(pn, str) and pn.lower() == "none":
                     pn = None
                 inherited_kn = pn or inherited_kn
-            
+
             kit_number = inherited_kn
             module_number = None
-            
-            if comp['type'].upper() == "MODULE":
-                module_number = self.select_module_popup(kit_number, comp['code'], comp['description'])
+
+            if comp["type"].upper() == "MODULE":
+                module_number = self.select_module_popup(
+                    kit_number, comp["code"], comp["description"]
+                )
                 if module_number is None:
                     self.status_var.set(
                         lang.t(
-                            "receive_kit.module_cancelled_for_code", 
-                            "Module number selection cancelled for {code}", 
-                            code=comp['code']
+                            "receive_kit.module_cancelled_for_code",
+                            "Module number selection cancelled for {code}",
+                            code=comp["code"],
                         )
                     )
                     return
-                module_number_map[comp['code']] = module_number
+                module_number_map[comp["code"]] = module_number
             else:
                 # Inherit module number from parent or mapping
                 if parent_iid in self.row_data:
-                    pm = self.row_data[parent_iid].get('module_number')
+                    pm = self.row_data[parent_iid].get("module_number")
                     if pm and isinstance(pm, str) and pm.lower() == "none":
                         pm = None
                     module_number = pm
                 if not module_number and module_code:
                     module_number = module_number_map.get(module_code)
-            
+
             # ✅ Insert with clean codes only
-            iid = self.tree.insert(parent_iid, "end", values=(
-                comp['code'], 
-                comp['description'], 
-                comp['type'], 
-                kit_display,      # ✅ Clean code only
-                module_display,   # ✅ Clean code only
-                comp['std_qty'], 
-                qty_to_receive, 
-                "", "",
-                "", "", "", ""  # hidden columns remain blank
-            ))
-            
-            treecode_map[comp['treecode']] = iid
-            self.code_to_iid[comp['code']] = iid
-            
+            iid = self.tree.insert(
+                parent_iid,
+                "end",
+                values=(
+                    comp["code"],
+                    comp["description"],
+                    comp["type"],
+                    kit_display,  # ✅ Clean code only
+                    module_display,  # ✅ Clean code only
+                    comp["std_qty"],
+                    qty_to_receive,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",  # hidden columns remain blank
+                ),
+            )
+
+            treecode_map[comp["treecode"]] = iid
+            self.code_to_iid[comp["code"]] = iid
+
             # Tag structural rows
-            if comp['type'].upper() == "KIT":
+            if comp["type"].upper() == "KIT":
                 self.tree.item(iid, tags=("kit",))
-            elif comp['type'].upper() == "MODULE":
+            elif comp["type"].upper() == "MODULE":
                 self.tree.item(iid, tags=("module",))
-            
+
             self.row_data[iid] = {
-                'kit_number': kit_number,
-                'module_number': module_number,
-                'treecode': comp['treecode']
+                "kit_number": kit_number,
+                "module_number": module_number,
+                "treecode": comp["treecode"],
             }
-        
+
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t(
-                "receive_kit.loaded_items", 
-                "Loaded {count} top-level children for {code}", 
-                count=len(self.tree.get_children()), 
-                code=code
+                "receive_kit.loaded_items",
+                "Loaded {count} top-level children for {code}",
+                count=len(self.tree.get_children()),
+                code=code,
             )
         )
+
     # -----------------------------------------------------------------
     # Expiry validation toggles
     # -----------------------------------------------------------------
     def activate_global_expiry_validation(self):
         self.expiry_validation_active = True
+
     def update_parent_expiry(self):
-        if not self.expiry_validation_active: return
+        if not self.expiry_validation_active:
+            return
         for top in self.tree.get_children():
             self.update_subtree_expiry(top)
+
     def update_subtree_expiry(self, iid):
-        if not self.tree.exists(iid): return
+        if not self.tree.exists(iid):
+            return
         vals = self.tree.item(iid, "values")
-        if not vals: return
+        if not vals:
+            return
         self._validate_and_tag_row(iid)
         for c in self.tree.get_children(iid):
             self.update_subtree_expiry(c)
+
     def _validate_and_tag_row(self, iid, force=False):
-        if not self.tree.exists(iid): return
+        if not self.tree.exists(iid):
+            return
         vals = self.tree.item(iid, "values")
-        if not vals: return
+        if not vals:
+            return
         rtype = (vals[2] or "").strip().upper()
-        is_struct = rtype in ("KIT","MODULE","PRIMARY","SECONDARY")
+        is_struct = rtype in ("KIT", "MODULE", "PRIMARY", "SECONDARY")
         rd = self.row_data.get(iid, {})
         tags = []
-        if rtype in ("KIT","PRIMARY"):
+        if rtype in ("KIT", "PRIMARY"):
             tags.append("kit")
-        elif rtype in ("MODULE","SECONDARY"):
+        elif rtype in ("MODULE", "SECONDARY"):
             tags.append("module")
-        expiry_cell = (vals[7] or "")
+        expiry_cell = vals[7] or ""
         has_iso = bool(rd.get("expiry_iso"))
         if not has_iso:
-            base = parse_expiry(expiry_cell.replace("(adopted)","").strip())
-            if base: has_iso = True
+            base = parse_expiry(expiry_cell.replace("(adopted)", "").strip())
+            if base:
+                has_iso = True
         if (self.expiry_validation_active or force) and is_struct and not has_iso:
-            tags.insert(0,"light_red")
+            tags.insert(0, "light_red")
         if rd.get("auto_expiry") and not rd.get("user_manual_expiry"):
             tags.append("auto_expiry_gray")
         self.tree.item(iid, tags=tuple(dict.fromkeys(tags)))
+
     # -----------------------------------------------------------------
     # Inline editing (Qty / Expiry / Batch)
     # -----------------------------------------------------------------
@@ -2232,46 +3193,58 @@ class StockReceiveKit(tk.Frame):
         if self.tree.identify("region", event.x, event.y) != "cell":
             return
         row_id = self.tree.identify_row(event.y)
-        col_index = int(self.tree.identify_column(event.x).replace("#","")) - 1
-        if col_index not in [6,7,8]:
+        col_index = int(self.tree.identify_column(event.x).replace("#", "")) - 1
+        if col_index not in [6, 7, 8]:
             return
         if self.editing_cell:
-            try: self.editing_cell.destroy()
-            except Exception: pass
+            try:
+                self.editing_cell.destroy()
+            except Exception:
+                pass
         self.start_edit_cell(row_id, col_index)
+
     def start_edit_cell(self, row_id, col_index):
-        if not self.tree.exists(row_id): return
-        if col_index not in (6,7,8): return
+        if not self.tree.exists(row_id):
+            return
+        if col_index not in (6, 7, 8):
+            return
         bbox = self.tree.bbox(row_id, f"#{col_index+1}")
-        if not bbox: return
-        x,y,w,h = bbox
+        if not bbox:
+            return
+        x, y, w, h = bbox
         original = self.tree.set(row_id, self.tree["columns"][col_index])
         if self.editing_cell:
-            try: self.editing_cell.destroy()
-            except: pass
+            try:
+                self.editing_cell.destroy()
+            except:
+                pass
         entry = tk.Entry(self.tree, font=self.font_normal)
-        entry.place(x=x,y=y,width=w,height=h)
+        entry.place(x=x, y=y, width=w, height=h)
         if original:
             entry.insert(0, original)
         entry.focus()
         self.editing_cell = entry
+
         def finish(edited=False, edited_col=None):
             # Only expiry edits trigger comment + group recompute
             if self.editing_cell is entry:
-                try: entry.destroy()
-                except: pass
+                try:
+                    entry.destroy()
+                except:
+                    pass
                 self.editing_cell = None
             if not edited:
                 return
-            if edited_col == 7: # expiry
+            if edited_col == 7:  # expiry
                 self._validate_and_tag_row(row_id, force=True)
                 self.recompute_exp_groups()
                 self.update_row_comment(row_id, force=True, sticky_mode=True)
-            elif edited_col == 6: # quantity
+            elif edited_col == 6:  # quantity
                 # No expiry/ comment force; just keep tags (no force)
                 self._validate_and_tag_row(row_id, force=False)
-            elif edited_col == 8: # batch
-                pass # nothing extra
+            elif edited_col == 8:  # batch
+                pass  # nothing extra
+
         def save_and_close(event=None):
             if self.editing_cell is not entry:
                 return
@@ -2280,7 +3253,8 @@ class StockReceiveKit(tk.Frame):
             edited_col = col_index
             try:
                 vals = self.tree.item(row_id, "values")
-                if not vals: return
+                if not vals:
+                    return
                 elif col_index == 6:
                     # Quantity (base user quantity)
                     rtype = self._get_row_type(row_id)
@@ -2288,8 +3262,11 @@ class StockReceiveKit(tk.Frame):
                         custom_popup(
                             self.parent,
                             lang.t("receive_kit.info", "Info"),
-                            lang.t("receive_kit.qty_kit_module_fixed", "Quantity for Kit or Module must always remain 1."),
-                            "info"
+                            lang.t(
+                                "receive_kit.qty_kit_module_fixed",
+                                "Quantity for Kit or Module must always remain 1.",
+                            ),
+                            "info",
                         )
                         return  # Prevent change
                     if new == "":
@@ -2298,22 +3275,28 @@ class StockReceiveKit(tk.Frame):
                     else:
                         if not new.isdigit():
                             custom_popup(
-                                self.parent, 
-                                lang.t("receive_kit.invalid", "Invalid"), 
-                                lang.t("receive_kit.qty_must_be_number", "Quantity must be a whole number"), 
-                                "error"
+                                self.parent,
+                                lang.t("receive_kit.invalid", "Invalid"),
+                                lang.t(
+                                    "receive_kit.qty_must_be_number",
+                                    "Quantity must be a whole number",
+                                ),
+                                "error",
                             )
                             return
                         new_qty = int(new)
                         if new_qty < 0:
                             custom_popup(
-                                self.parent, 
-                                lang.t("receive_kit.invalid", "Invalid"), 
-                                lang.t("receive_kit.qty_cannot_be_negative", "Quantity cannot be negative"), 
-                                "error"
+                                self.parent,
+                                lang.t("receive_kit.invalid", "Invalid"),
+                                lang.t(
+                                    "receive_kit.qty_cannot_be_negative",
+                                    "Quantity cannot be negative",
+                                ),
+                                "error",
                             )
                             return
-                    self.row_data[row_id]['user_qty'] = new_qty
+                    self.row_data[row_id]["user_qty"] = new_qty
                     vals = list(self.tree.item(row_id, "values"))
                     vals[6] = str(new_qty)
                     self.tree.item(row_id, values=tuple(vals))
@@ -2336,30 +3319,29 @@ class StockReceiveKit(tk.Frame):
                                 iso = None
                         if not iso:
                             custom_popup(
-                                self.parent, 
+                                self.parent,
                                 lang.t("receive_kit.invalid_expiry", "Invalid Expiry"),
                                 lang.t(
-                                    "receive_kit.expiry_format_error", 
-                                    "Unrecognized date.Examples:\n2029-10-05\n05/10/2029\n10/2029\n2029-10"
+                                    "receive_kit.expiry_format_error",
+                                    "Unrecognized date.Examples:\n2029-10-05\n05/10/2029\n10/2029\n2029-10",
                                 ),
-                                "error"
+                                "error",
                             )
                             return
                         # Validate expiry is not in the past
                         is_valid, error_msg = validate_expiry_not_past(iso)
-                        if not is_valid: 
+                        if not is_valid:
                             custom_popup(
                                 self.parent,
                                 lang.t("receive_kit.invalid_expiry", "Invalid Expiry"),
                                 lang.t(
                                     "receive_kit.expiry_past_date",
                                     "Expiry date {date} is in the past.Please enter a current or future date.",
-                                    date=format_expiry_display(iso)
+                                    date=format_expiry_display(iso),
                                 ),
-                                "error"
+                                "error",
                             )
                             return
-
 
                         rd["expiry_iso"] = iso
                         rd["user_manual_expiry"] = True
@@ -2378,10 +3360,19 @@ class StockReceiveKit(tk.Frame):
                 finish(edited, edited_col)
                 if edited:
                     self.update_row_comment(row_id, force=True, sticky_mode=False)
-                if event and event.keysym in ("Tab","Return","Up","Down","Left","Right"):
+                if event and event.keysym in (
+                    "Tab",
+                    "Return",
+                    "Up",
+                    "Down",
+                    "Left",
+                    "Right",
+                ):
                     self.navigate_tree(event)
+
         def cancel(_=None):
             finish(False, None)
+
         entry.bind("<Return>", save_and_close)
         entry.bind("<Tab>", save_and_close)
         entry.bind("<Escape>", cancel)
@@ -2390,6 +3381,7 @@ class StockReceiveKit(tk.Frame):
         entry.bind("<Down>", save_and_close)
         entry.bind("<Left>", save_and_close)
         entry.bind("<Right>", save_and_close)
+
     # -----------------------------------------------------------------
     # Quantity Propagation & Navigation
     # -----------------------------------------------------------------
@@ -2412,17 +3404,21 @@ class StockReceiveKit(tk.Frame):
             return
         idx = rows.index(current)
         if event.keysym == "Up" and idx > 0:
-            nxt = rows[idx-1]
-            self.tree.selection_set(nxt); self.tree.focus(nxt)
+            nxt = rows[idx - 1]
+            self.tree.selection_set(nxt)
+            self.tree.focus(nxt)
             self.start_edit_cell(nxt, 6)
-        elif event.keysym == "Down" and idx < len(rows)-1:
-            nxt = rows[idx+1]
-            self.tree.selection_set(nxt); self.tree.focus(nxt)
+        elif event.keysym == "Down" and idx < len(rows) - 1:
+            nxt = rows[idx + 1]
+            self.tree.selection_set(nxt)
+            self.tree.focus(nxt)
             self.start_edit_cell(nxt, 6)
-        elif event.keysym in ("Tab","Return"):
-            nxt = rows[(idx+1) % len(rows)]
-            self.tree.selection_set(nxt); self.tree.focus(nxt)
+        elif event.keysym in ("Tab", "Return"):
+            nxt = rows[(idx + 1) % len(rows)]
+            self.tree.selection_set(nxt)
+            self.tree.focus(nxt)
             self.start_edit_cell(nxt, 6)
+
     # -----------------------------------------------------------------
     # Search / Selection
     # -----------------------------------------------------------------
@@ -2445,14 +3441,18 @@ class StockReceiveKit(tk.Frame):
         for r in res:
             self.search_listbox.insert(tk.END, f"{r['code']} - {r['description']}")
         self.status_var.set(
-            lang.t("receive_kit.found_items", "Found {count} items", count=self.search_listbox.size())
+            lang.t(
+                "receive_kit.found_items",
+                "Found {count} items",
+                count=self.search_listbox.size(),
+            )
         )
-    
-    
+
     def select_first_result(self, event=None):
         if self.search_listbox.size() > 0:
             self.search_listbox.selection_set(0)
             self.fill_from_search()
+
     def fill_from_search(self, event=None):
         sel = self.search_listbox.curselection()
         if not sel:
@@ -2468,96 +3468,165 @@ class StockReceiveKit(tk.Frame):
                 self.load_hierarchy(kit_code)
         else:
             self.add_to_tree(code)
+
     # -----------------------------------------------------------------
     # Add single code (mode-dependent)
     # -----------------------------------------------------------------
     def add_to_tree(self, code):
         """
-        Add an item/module/kit to the tree based on current mode.
-        For modules: prompts for module number and loads all descendants (deduplicated).
-        ✅ Lookups correct std_qty from kit_items table.
+        Add a single item/module to the tree (non-kit mode).
+        ✅ NEW: Validates that module doesn't already exist with full stock in target kit.
+                Add an item/module/kit to the tree based on current mode.
+            For modules: prompts for module number and loads all descendants (deduplicated).
+            ✅ Lookups correct std_qty from kit_items table.
         """
+        mode_key = self.ensure_mode_ready()
+        if not mode_key:
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t("receive_kit.no_mode", "No mode selected"),
+                "error",
+            )
+            return
+
+        # ✅ NEW: Validate module addition to kit
+        if mode_key in ["add_module_kit", "add_items_module"]:
+            # Get kit code from dropdown
+            kit_display = self.kit_var.get() if self.kit_var else ""
+            kit_code = (
+                self._extract_code_from_display(kit_display) if kit_display else None
+            )
+
+            # Check if we're adding a module
+            desc = get_item_description(code)
+            item_type = detect_type(code, desc).upper()
+
+            if item_type == "MODULE" and kit_code:
+                # Validate if this module can be added to this kit
+                can_add, min_ratio, message = self.check_module_stock_in_kit(
+                    self.selected_scenario_id, kit_code, code
+                )
+
+                if not can_add:
+                    # REFUSE: Show error and stop
+                    custom_popup(
+                        self.parent,
+                        lang.t("receive_kit.module_exists", "Module Already Exists"),
+                        message,
+                        "warning",
+                    )
+                    return  # ✅ Stop here - don't add
+                elif message:
+                    # INFORM: Show info about replenishment
+                    logging.info(f"[ADD_MODULE] {message}")
+                    # Optionally show notification (comment out if too intrusive)
+                    # custom_popup(self.parent, "Info", message, "info")
+
         mode_key = self.current_mode_key()
-        scen_module_mode = (mode_key == "add_module_scenario")
+        scen_module_mode = mode_key == "add_module_scenario"
 
         # ✅ Extract codes from dropdown displays
-        kit_display_raw = self.kit_var.get() if mode_key in [
-            "add_module_kit", "add_items_kit", "add_items_module"
-        ] else None
-        kit_code = self._extract_code_from_display(kit_display_raw) if kit_display_raw else None
+        kit_display_raw = (
+            self.kit_var.get()
+            if mode_key in ["add_module_kit", "add_items_kit", "add_items_module"]
+            else None
+        )
+        kit_code = (
+            self._extract_code_from_display(kit_display_raw)
+            if kit_display_raw
+            else None
+        )
 
-        module_display_raw = self.module_var.get() if mode_key == "add_items_module" else None
-        module_code_selected = self._extract_code_from_display(module_display_raw) if module_display_raw else None
-    
-        kit_number = self.kit_number_var.get().strip() if self.kit_number_var.get() else None
-        module_number = (self.module_number_var.get().strip()
-                        if (mode_key == "add_items_module" and self.module_number_var.get())
-                        else None)
+        module_display_raw = (
+            self.module_var.get() if mode_key == "add_items_module" else None
+        )
+        module_code_selected = (
+            self._extract_code_from_display(module_display_raw)
+            if module_display_raw
+            else None
+        )
+
+        kit_number = (
+            self.kit_number_var.get().strip() if self.kit_number_var.get() else None
+        )
+        module_number = (
+            self.module_number_var.get().strip()
+            if (mode_key == "add_items_module" and self.module_number_var.get())
+            else None
+        )
 
         # Validation per mode
-        if mode_key == "add_module_kit": 
-            if not kit_code: 
+        if mode_key == "add_module_kit":
+            if not kit_code:
                 custom_popup(
-                    self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_kit_error", "Select a Kit."), 
-                    "error"
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t("receive_kit.select_kit_error", "Select a Kit."),
+                    "error",
                 )
                 return
             if not kit_number:
                 custom_popup(
-                    self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_kit_number_error", "Select a Kit Number."), 
-                    "error"
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.select_kit_number_error", "Select a Kit Number."
+                    ),
+                    "error",
                 )
                 return
 
         elif mode_key == "add_items_kit":
             if not kit_number:
                 custom_popup(
-                    self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_kit_number_error", "Select a Kit Number."), 
-                    "error"
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.select_kit_number_error", "Select a Kit Number."
+                    ),
+                    "error",
                 )
                 return
 
-        elif mode_key == "add_items_module": 
+        elif mode_key == "add_items_module":
             if not module_code_selected:
                 custom_popup(
-                    self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_module_error", "Select a Module."), 
-                    "error"
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t("receive_kit.select_module_error", "Select a Module."),
+                    "error",
                 )
                 return
-            if not module_number: 
+            if not module_number:
                 custom_popup(
-                    self.parent, 
-                    lang.t("receive_kit.error", "Error"), 
-                    lang.t("receive_kit.select_module_number_error", "Select a Module Number."), 
-                    "error"
+                    self.parent,
+                    lang.t("receive_kit.error", "Error"),
+                    lang.t(
+                        "receive_kit.select_module_number_error",
+                        "Select a Module Number.",
+                    ),
+                    "error",
                 )
                 return
 
         # Get item details
         desc = get_item_description(code)
         item_type = detect_type(code, desc)
-        qty_to_receive = 1 if item_type.upper() in ('KIT', 'MODULE') else 1
+        qty_to_receive = 1 if item_type.upper() in ("KIT", "MODULE") else 1
         exp_date = ""
 
         # Determine parent iid
         if mode_key == "add_module_kit":
-            parent_iid = ''
-        elif scen_module_mode: 
-            parent_iid = ''
+            parent_iid = ""
+        elif scen_module_mode:
+            parent_iid = ""
         elif mode_key == "add_items_module":
-            parent_iid = self.code_to_iid.get(module_code_selected, '')
+            parent_iid = self.code_to_iid.get(module_code_selected, "")
         elif mode_key == "add_items_kit":
-            parent_iid = self.code_to_iid.get(kit_code, '')
+            parent_iid = self.code_to_iid.get(kit_code, "")
         else:
-            parent_iid = ''
+            parent_iid = ""
 
         kit_number_for_id = kit_number or "None"
         module_number_for_id = module_number or "None"
@@ -2567,43 +3636,52 @@ class StockReceiveKit(tk.Frame):
         # Check if already in tree
         if code in self.code_to_iid:
             self.status_var.set(
-                lang.t("receive_kit.item_already_in_tree", "Item {code} already in tree", code=code)
+                lang.t(
+                    "receive_kit.item_already_in_tree",
+                    "Item {code} already in tree",
+                    code=code,
+                )
             )
             return
 
         # ✅ SPECIAL HANDLING: MODULE with descendants
-        if item_type.upper() == "MODULE" and mode_key in ("add_module_kit", "add_module_scenario"):
+        if item_type.upper() == "MODULE" and mode_key in (
+            "add_module_kit",
+            "add_module_scenario",
+        ):
             # Prompt for module number
             module_number_for_id = self.select_module_popup(
-                kit_number if not scen_module_mode else None, 
-                code, 
-                desc
+                kit_number if not scen_module_mode else None, code, desc
             )
-    
-            if not module_number_for_id: 
+
+            if not module_number_for_id:
                 self.status_var.set(
-                    lang.t("receive_kit.cancelled_adding_module", "Cancelled adding module {code}", code=code)
+                    lang.t(
+                        "receive_kit.cancelled_adding_module",
+                        "Cancelled adding module {code}",
+                        code=code,
+                    )
                 )
                 return
-    
+
             # ✅ Try multiple retrieval strategies
             comps1 = self.fetch_full_module_subtree(self.selected_scenario_id, code)
             comps2 = self.fetch_items_by_module_column(self.selected_scenario_id, code)
             comps3 = self.fetch_items_by_code_prefix(self.selected_scenario_id, code)
-    
+
             # Choose strategy with most results
             candidates = [
-                ("treecode_subtree", comps1), 
-                ("module_column", comps2), 
-                ("code_prefix", comps3)
+                ("treecode_subtree", comps1),
+                ("module_column", comps2),
+                ("code_prefix", comps3),
             ]
-    
+
             chosen_label, components = None, []
             for lbl, lst in sorted(candidates, key=lambda x: len(x[1]), reverse=True):
                 if lst:
                     chosen_label, components = lbl, lst
                     break
-    
+
             if not components:
                 # No descendants found - insert only the module row
                 # ✅ Lookup std_qty for module
@@ -2611,113 +3689,146 @@ class StockReceiveKit(tk.Frame):
                     self.selected_scenario_id,
                     None if scen_module_mode else (kit_code or code),
                     code,
-                    code
+                    code,
                 )
-            
-                iid_only = self.tree.insert(parent_iid, "end", values=(
-                    code, desc, "Module", kit_display, code,
-                    module_std_qty,  # ✅ Use looked-up value
-                    1,  # qty_to_receive=1 for module
-                    "", "",
-                    "", "", "", ""
-                ))
+
+                iid_only = self.tree.insert(
+                    parent_iid,
+                    "end",
+                    values=(
+                        code,
+                        desc,
+                        "Module",
+                        kit_display,
+                        code,
+                        module_std_qty,  # ✅ Use looked-up value
+                        1,  # qty_to_receive=1 for module
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ),
+                )
                 self.tree.item(iid_only, tags=("module",))
                 self.code_to_iid[code] = iid_only
 
+                # ✅ Lookup treecode for module
+                treecode_for_module = self.lookup_treecode_from_kit_items(
+                    self.selected_scenario_id,
+                    None if scen_module_mode else (kit_code or code),
+                    code,
+                    code,
+                )
+
                 self.row_data[iid_only] = {
-                    'unique_id': self.generate_unique_id(
+                    "unique_id": self.generate_unique_id(
                         self.selected_scenario_id,
                         None if scen_module_mode else (kit_code or code),
-                        code, None, 
+                        code,
+                        None,
                         module_std_qty,  # ✅ Use looked-up value
                         "",
                         kit_number_for_id if not scen_module_mode else "None",
-                        module_number_for_id
+                        module_number_for_id,
+                        treecode_for_module,  # ✅ NEW: pass treecode
                     ),
-                    'kit_number': None if scen_module_mode else kit_number_for_id,
-                    'module_number': module_number_for_id,
-                    'treecode': None,
-                    'std_qty': module_std_qty  # ✅ Store in row_data
+                    "kit_number": None if scen_module_mode else kit_number_for_id,
+                    "module_number": module_number_for_id,
+                    "treecode": None,
+                    "std_qty": module_std_qty,  # ✅ Store in row_data
                 }
 
                 self.recompute_exp_groups()
                 self.status_var.set(
                     lang.t(
-                        "receive_kit.added_module_no_descendants", 
-                        "Added module {code} (no descendants found)", 
-                        code=code
+                        "receive_kit.added_module_no_descendants",
+                        "Added module {code} (no descendants found)",
+                        code=code,
                     )
                 )
                 return
-    
+
             # ✅ DEDUPLICATION: Keep only first occurrence of each code
             seen_codes = {}
             deduplicated = []
-    
+
             for comp in components:
-                comp_code = comp['code']
+                comp_code = comp["code"]
                 if comp_code not in seen_codes:
                     seen_codes[comp_code] = comp
                     deduplicated.append(comp)
-    
+
             components = deduplicated
-    
+
             # ✅ Build tree hierarchy with deduplicated components
             SEG = 3
             tc_map = {}
 
-            for comp in sorted(components, key=lambda x: x.get('treecode', '') or ''):
-                tc = comp.get('treecode')
+            for comp in sorted(components, key=lambda x: x.get("treecode", "") or ""):
+                tc = comp.get("treecode")
                 parent_tc = tc[:-SEG] if tc and len(tc) > SEG else None
                 parent_ref = tc_map.get(parent_tc, parent_iid)
-        
-                comp_type = comp['type'].upper()
-                comp_code = comp['code']
+
+                comp_type = comp["type"].upper()
+                comp_code = comp["code"]
 
                 # Determine display values
                 if comp_type == "MODULE":
                     module_disp = comp_code
                 else:
-                    module_disp = comp.get('module', '-----')
+                    module_disp = comp.get("module", "-----")
                     if module_disp == "-----" or not module_disp:
                         module_disp = code  # Use parent module code
-        
+
                 # ✅ std_qty should come from comp (fetched from kit_items)
-                comp_std_qty = comp.get('std_qty', 0)
+                comp_std_qty = comp.get("std_qty", 0)
 
                 # Insert into tree
-                iid = self.tree.insert(parent_ref, "end", values=(
-                    comp_code, 
-                    comp['description'], 
-                    comp['type'],
-                    kit_display,
-                    module_disp,
-                    comp_std_qty,  # ✅ From kit_items
-                    comp_std_qty,  # qty_to_receive = std_qty
-                    "", "",
-                    "", "", "", ""
-                ))
+                iid = self.tree.insert(
+                    parent_ref,
+                    "end",
+                    values=(
+                        comp_code,
+                        comp["description"],
+                        comp["type"],
+                        kit_display,
+                        module_disp,
+                        comp_std_qty,  # ✅ From kit_items
+                        comp_std_qty,  # qty_to_receive = std_qty
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ),
+                )
 
                 # Apply tags
-                if comp_type == "MODULE": 
+                if comp_type == "MODULE":
                     self.tree.item(iid, tags=("module",))
                 elif comp_type == "KIT":
                     self.tree.item(iid, tags=("kit",))
-        
+
                 tc_map[tc] = iid
                 self.code_to_iid[comp_code] = iid
 
                 # Generate unique_id
-                if scen_module_mode: 
+                if scen_module_mode:
                     kit_part_for_id = None
                     kit_number_part = "None"
                 else:
-                    kit_part_for_id = kit_code if comp_type != 'KIT' else comp_code
+                    kit_part_for_id = kit_code if comp_type != "KIT" else comp_code
                     kit_number_part = kit_number_for_id
-        
-                module_part_for_id = comp.get('module') if comp_type != 'MODULE' else comp_code
-                item_part_for_id = comp.get('item') if comp_type == 'ITEM' else None
 
+                module_part_for_id = (
+                    comp.get("module") if comp_type != "MODULE" else comp_code
+                )
+                item_part_for_id = comp.get("item") if comp_type == "ITEM" else None
+
+                # ✅ treecode is already in tc variable from comp
                 unique_id = self.generate_unique_id(
                     self.selected_scenario_id,
                     kit_part_for_id,
@@ -2726,40 +3837,53 @@ class StockReceiveKit(tk.Frame):
                     comp_std_qty,  # ✅ Use correct value
                     None,
                     kit_number_part,
-                    module_number_for_id
+                    module_number_for_id,
+                    tc,  # ✅ NEW: pass treecode
                 )
-        
+
                 self.row_data[iid] = {
-                    'unique_id': unique_id,
-                    'kit_number': None if scen_module_mode else kit_number_for_id,
-                    'module_number': module_number_for_id,
-                    'treecode': tc,
-                    'std_qty': comp_std_qty  # ✅ Store in row_data
+                    "unique_id": unique_id,
+                    "kit_number": None if scen_module_mode else kit_number_for_id,
+                    "module_number": module_number_for_id,
+                    "treecode": tc,
+                    "std_qty": comp_std_qty,  # ✅ Store in row_data
                 }
 
             self.recompute_exp_groups()
             self.status_var.set(
                 lang.t(
-                    "receive_kit.added_module_with_descendants", 
-                    "Added module {code} with {count} items (strategy: {strategy})", 
+                    "receive_kit.added_module_with_descendants",
+                    "Added module {code} with {count} items (strategy: {strategy})",
                     code=code,
                     count=len(components),
-                    strategy=chosen_label
+                    strategy=chosen_label,
                 )
             )
             return
 
         # ✅ Simple single row insertion (for non-module items)
-        kit_for_id = None if scen_module_mode else (kit_code if item_type.upper() != "KIT" else code)
+        kit_for_id = (
+            None
+            if scen_module_mode
+            else (kit_code if item_type.upper() != "KIT" else code)
+        )
         module_for_id = module_code_selected if item_type.upper() != "MODULE" else code
         item_for_id = code if item_type.upper() == "ITEM" else None
-    
+
         # ✅ Lookup std_qty from kit_items table
         std_qty = self.lookup_std_qty_from_kit_items(
             self.selected_scenario_id,
             kit_for_id,
             module_for_id,
-            item_for_id or module_for_id or kit_for_id or code
+            item_for_id or module_for_id or kit_for_id or code,
+        )
+
+        # ✅ NEW: Lookup treecode
+        treecode = self.lookup_treecode_from_kit_items(
+            self.selected_scenario_id,
+            kit_for_id,
+            module_for_id,
+            item_for_id or module_for_id or kit_for_id or code,
         )
 
         unique_id = self.generate_unique_id(
@@ -2770,18 +3894,29 @@ class StockReceiveKit(tk.Frame):
             std_qty,  # ✅ Use looked-up value
             exp_date,
             kit_number_for_id,
-            module_number_for_id
+            module_number_for_id,
+            treecode,  # ✅ NEW: pass treecode
         )
 
-        iid = self.tree.insert(parent_iid, "end", values=(
-            code, desc, item_type,
-            kit_display if not scen_module_mode else "-----",
-            module_display,
-            std_qty,  # ✅ Use looked-up value
-            qty_to_receive, 
-            "", "",
-            "", "", "", ""
-        ))
+        iid = self.tree.insert(
+            parent_iid,
+            "end",
+            values=(
+                code,
+                desc,
+                item_type,
+                kit_display if not scen_module_mode else "-----",
+                module_display,
+                std_qty,  # ✅ Use looked-up value
+                qty_to_receive,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ),
+        )
 
         self.code_to_iid[code] = iid
 
@@ -2792,48 +3927,60 @@ class StockReceiveKit(tk.Frame):
             self.tree.item(iid, tags=("module",))
 
         self.row_data[iid] = {
-            'unique_id': unique_id,
-            'kit_number': None if scen_module_mode else kit_number_for_id,
-            'module_number': module_number_for_id,
-            'std_qty': std_qty  # ✅ Store in row_data
+            "unique_id": unique_id,
+            "kit_number": None if scen_module_mode else kit_number_for_id,
+            "module_number": module_number_for_id,
+            "std_qty": std_qty,  # ✅ Store in row_data
         }
 
         self.recompute_exp_groups()
         self.status_var.set(
             lang.t("receive_kit.added_item", "Added item {code}", code=code)
         )
-        
+
     # -----------------------------------------------------------------
     # Uniqueness helpers
     # -----------------------------------------------------------------
     def is_kit_number_unique(self, kit_number: str) -> bool:
-        if not kit_number or kit_number.strip().lower() == 'none':
+        if not kit_number or kit_number.strip().lower() == "none":
             return False
         conn = connect_db()
-        if conn is None: return False
+        if conn is None:
+            return False
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT COUNT(*) FROM stock_data
                 WHERE kit_number=? AND kit_number!='None'
-            """, (kit_number.strip(),))
+            """,
+                (kit_number.strip(),),
+            )
             return cur.fetchone()[0] == 0
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def is_module_number_unique(self, kit_number: str, module_number: str) -> bool:
-        if not module_number or module_number.strip().lower() == 'none':
+        if not module_number or module_number.strip().lower() == "none":
             return False
         conn = connect_db()
-        if conn is None: return False
+        if conn is None:
+            return False
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT COUNT(*) FROM stock_data
                 WHERE module_number=? AND module_number!='None'
-            """, (module_number.strip(),))
+            """,
+                (module_number.strip(),),
+            )
             return cur.fetchone()[0] == 0
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
+
     def _tc_len_type(self, treecode: str | None):
         """
         Return a synthetic structural type based strictly on treecode length:
@@ -2852,29 +3999,54 @@ class StockReceiveKit(tk.Frame):
         if L == 11:
             return "ITEM"
         return None
-   
-    def generate_unique_id(self, scenario_id, kit, module, item, std_qty, exp_date, kit_number, module_number):
-        return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
-    
+
+    def generate_unique_id(
+        self,
+        scenario_id,
+        kit,
+        module,
+        item,
+        std_qty,
+        exp_date,
+        kit_number,
+        module_number,
+        treecode=None,
+    ):
+        """
+        Generate unique_id with treecode included for better traceability.
+        Format: scenario_id/kit/module/item/std_qty/exp_date/kit_number/module_number/treecode
+        """
+        return (
+            f"{scenario_id}/"
+            f"{kit or 'None'}/"
+            f"{module or 'None'}/"
+            f"{item or 'None'}/"
+            f"{std_qty}/"
+            f"{exp_date or 'None'}/"
+            f"{kit_number or 'None'}/"
+            f"{module_number or 'None'}/"
+            f"{treecode or 'None'}"
+        )
+
     def _extract_code_from_display(self, display_string: str) -> str:
         """
         Extract code from 'CODE - Description' format.
-        
+
         Args:
             display_string: String in format "CODE - Description"
-        
+
         Returns:
             Just the CODE part
         """
         if not display_string:
             return ""
-        
+
         # Split on " - " and take first part
         if " - " in display_string:
             code = display_string.split(" - ", 1)[0].strip()
             logging.debug(f"[EXTRACT] '{display_string}' -> '{code}'")
             return code
-        
+
         # If no separator, return as-is
         logging.debug(f"[EXTRACT] No separator in '{display_string}', returning as-is")
         return display_string.strip()
@@ -2882,13 +4054,13 @@ class StockReceiveKit(tk.Frame):
     def lookup_std_qty_from_kit_items(self, scenario_id, kit, module, item):
         """
         Lookup std_qty from kit_items table based on exact context.
-        
+
         Args:
             scenario_id: Scenario ID
             kit:  Kit code (can be None)
             module: Module code (can be None)
             item: Item code (can be None)
-        
+
         Returns:
             std_qty from kit_items, or 0 if not found
         """
@@ -2896,26 +4068,27 @@ class StockReceiveKit(tk.Frame):
         if not conn:
             logging.error("[RECEIVE] Cannot connect to DB for std_qty lookup")
             return 0
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             # Normalize None values
-            kit_val = kit if kit and kit.upper() != 'NONE' else None
-            module_val = module if module and module.upper() != 'NONE' else None
-            item_val = item if item and item.upper() != 'NONE' else None
-            
+            kit_val = kit if kit and kit.upper() != "NONE" else None
+            module_val = module if module and module.upper() != "NONE" else None
+            item_val = item if item and item.upper() != "NONE" else None
+
             # Determine which code to lookup
             code_to_lookup = item_val or module_val or kit_val
-            
+
             if not code_to_lookup:
                 return 0
-            
+
             # Build query based on context
             if item_val:
                 # Item level - most specific
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT std_qty FROM kit_items
                     WHERE scenario_id=? 
                       AND (kit=? OR kit IS NULL)
@@ -2925,34 +4098,46 @@ class StockReceiveKit(tk.Frame):
                       CASE WHEN kit IS NOT NULL THEN 1 ELSE 2 END,
                       CASE WHEN module IS NOT NULL THEN 1 ELSE 2 END
                     LIMIT 1
-                """, (scenario_id, kit_val, module_val, code_to_lookup))
+                """,
+                    (scenario_id, kit_val, module_val, code_to_lookup),
+                )
             elif module_val:
                 # Module level
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT std_qty FROM kit_items
                     WHERE scenario_id=?  
                       AND (kit=? OR kit IS NULL)
                       AND code=?
                     ORDER BY CASE WHEN kit IS NOT NULL THEN 1 ELSE 2 END
                     LIMIT 1
-                """, (scenario_id, kit_val, code_to_lookup))
+                """,
+                    (scenario_id, kit_val, code_to_lookup),
+                )
             else:
                 # Kit level
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT std_qty FROM kit_items
                     WHERE scenario_id=? AND code=?
                     LIMIT 1
-                """, (scenario_id, code_to_lookup))
-            
+                """,
+                    (scenario_id, code_to_lookup),
+                )
+
             row = cur.fetchone()
-            if row and row['std_qty']:
-                std_qty = row['std_qty']
-                logging.debug(f"[RECEIVE] Found std_qty={std_qty} for code={code_to_lookup} in context kit={kit_val}, module={module_val}")
+            if row and row["std_qty"]:
+                std_qty = row["std_qty"]
+                logging.debug(
+                    f"[RECEIVE] Found std_qty={std_qty} for code={code_to_lookup} in context kit={kit_val}, module={module_val}"
+                )
                 return std_qty
             else:
-                logging.warning(f"[RECEIVE] No std_qty found for code={code_to_lookup} in kit_items")
+                logging.warning(
+                    f"[RECEIVE] No std_qty found for code={code_to_lookup} in kit_items"
+                )
                 return 0
-                
+
         except sqlite3.Error as e:
             logging.error(f"[RECEIVE] Error looking up std_qty: {e}")
             return 0
@@ -2960,7 +4145,109 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
-    def fetch_module_numbers_for_module_instance(self, scenario_id, module_code, kit_number=None):
+    def lookup_treecode_from_kit_items(self, scenario_id, kit, module, item):
+        """
+        Lookup treecode from kit_items table based on exact context.
+        ✅ NEW: When multiple treecodes exist, prefers the one with lowest stock ratio.
+
+        Args:
+            scenario_id: Scenario ID
+            kit: Kit code (can be None)
+            module: Module code (can be None)
+            item: Item code (can be None)
+
+        Returns:
+            treecode from kit_items, or None if not found
+        """
+        # ✅ NEW: First try to get treecode from stock_data based on lowest stock ratio
+        kit_val = kit if kit and kit.upper() != "NONE" else None
+        module_val = module if module and module.upper() != "NONE" else None
+        item_val = item if item and item.upper() != "NONE" else None
+
+        code_to_lookup = item_val or module_val or kit_val
+
+        if code_to_lookup:
+            # Try to find in stock_data with lowest stock ratio
+            best_treecode = self.select_best_treecode_by_stock_ratio(
+                scenario_id, code_to_lookup, kit_val, module_val
+            )
+            if best_treecode:
+                return best_treecode
+
+        # ✅ Fallback: Look up from kit_items (original logic)
+        conn = connect_db()
+        if not conn:
+            logging.error("[RECEIVE] Cannot connect to DB for treecode lookup")
+            return None
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            if not code_to_lookup:
+                return None
+
+            # Build query based on context (original logic preserved)
+            if item_val:
+                cur.execute(
+                    """
+                    SELECT treecode FROM kit_items
+                    WHERE scenario_id=? 
+                      AND (kit=? OR kit IS NULL)
+                      AND (module=? OR module IS NULL)
+                      AND code=?
+                    ORDER BY 
+                      CASE WHEN kit IS NOT NULL THEN 1 ELSE 2 END,
+                      CASE WHEN module IS NOT NULL THEN 1 ELSE 2 END
+                    LIMIT 1
+                """,
+                    (scenario_id, kit_val, module_val, code_to_lookup),
+                )
+            elif module_val:
+                cur.execute(
+                    """
+                    SELECT treecode FROM kit_items
+                    WHERE scenario_id=? 
+                      AND (kit=? OR kit IS NULL)
+                      AND code=?
+                    ORDER BY CASE WHEN kit IS NOT NULL THEN 1 ELSE 2 END
+                    LIMIT 1
+                """,
+                    (scenario_id, kit_val, code_to_lookup),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT treecode FROM kit_items
+                    WHERE scenario_id=? AND code=?
+                    LIMIT 1
+                """,
+                    (scenario_id, code_to_lookup),
+                )
+
+            row = cur.fetchone()
+            if row and row["treecode"]:
+                treecode = row["treecode"]
+                logging.debug(
+                    f"[RECEIVE] Found treecode={treecode} from kit_items for code={code_to_lookup}"
+                )
+                return treecode
+            else:
+                logging.debug(
+                    f"[RECEIVE] No treecode found for code={code_to_lookup} in kit_items"
+                )
+                return None
+
+        except sqlite3.Error as e:
+            logging.error(f"[RECEIVE] Error looking up treecode: {e}")
+            return None
+        finally:
+            cur.close()
+            conn.close()
+
+    def fetch_module_numbers_for_module_instance(
+        self, scenario_id, module_code, kit_number=None
+    ):
         """
         Fetch module numbers for a specific module instance.
         Filters by scenario, module code, and optionally kit number.
@@ -2968,49 +4255,51 @@ class StockReceiveKit(tk.Frame):
         if not module_code:
             logging.debug("[FETCH_MODULE_NUMS] No module_code provided")
             return []
-        
+
         # ✅ Extract code if it has description
         module_code = self._extract_code_from_display(module_code)
-        
+
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
-            
+
             where_clauses = [
                 "(scenario=? OR scenario=?)",
                 "module=?",
                 "module_number IS NOT NULL",
                 "module_number != 'None'",
-                "final_qty > 0"
+                "final_qty > 0",
             ]
             params = [str(scenario_id), scenario_name, module_code]
-            
+
             if kit_number:
                 where_clauses.append("kit_number=?")
                 params.append(kit_number)
-            
+
             sql = f"""
                 SELECT DISTINCT module_number 
                 FROM stock_data
                 WHERE {' AND '.join(where_clauses)}
                 ORDER BY module_number
             """
-            
+
             logging.debug(f"[FETCH_MODULE_NUMS] SQL: {sql}")
             logging.debug(f"[FETCH_MODULE_NUMS] Params: {params}")
-            
+
             cur.execute(sql, params)
-            results = [r['module_number'] for r in cur.fetchall()]
-            
-            logging.debug(f"[FETCH_MODULE_NUMS] Found {len(results)} module numbers: {results}")
+            results = [r["module_number"] for r in cur.fetchall()]
+
+            logging.debug(
+                f"[FETCH_MODULE_NUMS] Found {len(results)} module numbers: {results}"
+            )
             return results
-            
+
         except sqlite3.Error as e:
             logging.error(f"[FETCH_MODULE_NUMS] Error: {e}")
             return []
@@ -3018,18 +4307,16 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
-
-
     def _extract_code_from_display(self, display_string: str) -> str:
         """
         Extract code from 'CODE - Description' format.
-        
+
         Args:
             display_string: String in format "CODE - Description"
-        
+
         Returns:
             Just the CODE part
-        
+
         Examples:
             "KMEDKCHO1-- - Cholera Kit" → "KMEDKCHO1--"
             "KMEDMCHO01- - Cholera Module 01" → "KMEDMCHO01-"
@@ -3038,81 +4325,97 @@ class StockReceiveKit(tk.Frame):
         """
         if not display_string:
             return ""
-        
+
         # Split on " - " and take first part
         if " - " in display_string:
             return display_string.split(" - ", 1)[0].strip()
-        
+
         # If no separator, return as-is
         return display_string.strip()
 
-    def fetch_module_numbers(self, scenario_id: str, kit_code: str = None, module_code: str = None, kit_number: str = None):
+    def fetch_module_numbers(
+        self,
+        scenario_id: str,
+        kit_code: str = None,
+        module_code: str = None,
+        kit_number: str = None,
+    ):
         """
         Fetch module numbers with available stock (final_qty > 0).
-        
+
         Args:
             scenario_id: Scenario ID
             kit_code: NOT USED (kept for compatibility)
             module_code: Module code to filter by
             kit_number: Kit number to filter by (actual kit instance number)
-        
+
         Returns:
             List of unique module_number values with available stock
         """
-        logging.debug(f"[FETCH_MODULE_NUMBERS] scenario_id={scenario_id}, kit_number={kit_number}, module_code={module_code}")
-        
+        logging.debug(
+            f"[FETCH_MODULE_NUMBERS] scenario_id={scenario_id}, kit_number={kit_number}, module_code={module_code}"
+        )
+
         # ✅ Extract module code if it has description
         if module_code:
             module_code = self._extract_code_from_display(module_code)
-        
-        logging.debug(f"[FETCH_MODULE_NUMBERS] After extraction: module_code={module_code}")
-        
+
+        logging.debug(
+            f"[FETCH_MODULE_NUMBERS] After extraction: module_code={module_code}"
+        )
+
         conn = connect_db()
         if conn is None:
             return []
-        
+
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
+
         try:
             scenario_name = self.scenario_map.get(str(scenario_id), str(scenario_id))
-            
+
             where_clauses = [
                 "(scenario=? OR scenario=?)",
                 "module_number IS NOT NULL",
                 "module_number != 'None'",
-                "final_qty > 0"
+                "final_qty > 0",
             ]
             params = [str(scenario_id), scenario_name]
-            
+
             # ✅ Filter by kit_number (the actual kit instance)
             if kit_number:
                 where_clauses.append("kit_number=?")
                 params.append(kit_number)
-                logging.debug(f"[FETCH_MODULE_NUMBERS] Added kit_number filter: {kit_number}")
-            
+                logging.debug(
+                    f"[FETCH_MODULE_NUMBERS] Added kit_number filter: {kit_number}"
+                )
+
             # ✅ Filter by module code
             if module_code:
                 where_clauses.append("module=?")
                 params.append(module_code)
-                logging.debug(f"[FETCH_MODULE_NUMBERS] Added module filter: {module_code}")
-            
+                logging.debug(
+                    f"[FETCH_MODULE_NUMBERS] Added module filter: {module_code}"
+                )
+
             sql = f"""
                 SELECT DISTINCT module_number 
                 FROM stock_data
                 WHERE {' AND '.join(where_clauses)}
                 ORDER BY module_number
             """
-            
+
             logging.debug(f"[FETCH_MODULE_NUMBERS] SQL: {sql}")
             logging.debug(f"[FETCH_MODULE_NUMBERS] Params: {params}")
-            
+
             cur.execute(sql, params)
-            results = [r['module_number'] for r in cur.fetchall()]
-            
-            logging.debug(f"[FETCH_MODULE_NUMBERS] Found {len(results)} module numbers: {results}")
+            results = [r["module_number"] for r in cur.fetchall()]
+
+            logging.debug(
+                f"[FETCH_MODULE_NUMBERS] Found {len(results)} module numbers: {results}"
+            )
             return results
-            
+
         except sqlite3.Error as e:
             logging.error(f"[FETCH_MODULE_NUMBERS] Error: {e}")
             return []
@@ -3123,32 +4426,38 @@ class StockReceiveKit(tk.Frame):
     def ensure_module_number_consistency(self):
         for top_iid in self.tree.get_children():
             self._ensure_module_subtree(top_iid)
+
     def _ensure_module_subtree(self, iid):
         vals = self.tree.item(iid, "values")
-        if not vals: return
+        if not vals:
+            return
         code, desc, tfield = vals[0], vals[1], vals[2]
         if (tfield or "").upper() == "MODULE":
             rd = self.row_data.get(iid, {})
-            mod_num = rd.get('module_number')
-            kit_num = rd.get('kit_number')
+            mod_num = rd.get("module_number")
+            kit_num = rd.get("kit_number")
             if mod_num:
                 self.propagate_module_number_to_children(iid, kit_num, mod_num)
         for child in self.tree.get_children(iid):
             self._ensure_module_subtree(child)
-    def propagate_module_number_to_children(self, module_iid, kit_number, module_number):
+
+    def propagate_module_number_to_children(
+        self, module_iid, kit_number, module_number
+    ):
         if module_iid not in self.row_data:
             return
         stack = list(self.tree.get_children(module_iid))
         while stack:
             child_iid = stack.pop()
             vals = self.tree.item(child_iid, "values")
-            if not vals: continue
+            if not vals:
+                continue
             ctype = (vals[2] or "").upper()
             if ctype == "MODULE":
                 continue
             rd = self.row_data.setdefault(child_iid, {})
-            rd['kit_number'] = kit_number
-            rd['module_number'] = module_number
+            rd["kit_number"] = kit_number
+            rd["module_number"] = module_number
             kit_for_id = None if vals[3] == "-----" else vals[3]
             module_for_id = None if vals[4] == "-----" else vals[4]
             item_for_id = vals[0] if ctype == "ITEM" else None
@@ -3157,7 +4466,10 @@ class StockReceiveKit(tk.Frame):
                 std_qty_num = int(vals[5]) if str(vals[5]).isdigit() else 0
             except Exception:
                 std_qty_num = 0
-            rd['unique_id'] = self.generate_unique_id(
+            # ✅ treecode is already in row_data for these items
+            treecode = rd.get("treecode")
+
+            rd["unique_id"] = self.generate_unique_id(
                 self.selected_scenario_id,
                 kit_for_id,
                 module_for_id,
@@ -3165,9 +4477,11 @@ class StockReceiveKit(tk.Frame):
                 std_qty_num,
                 parsed_exp,
                 kit_number,
-                module_number
+                module_number,
+                treecode,  # ✅ NEW: pass treecode
             )
             stack.extend(self.tree.get_children(child_iid))
+
     def ensure_unique_numbers_interactively(self):
         """
         Enforce uniqueness for kit_number (KIT rows) and module_number (MODULE rows).
@@ -3175,50 +4489,60 @@ class StockReceiveKit(tk.Frame):
         Returns True if uniqueness satisfied or user resolved all; False if user cancels.
         """
         try:
+
             def build_signature():
                 entries = []
                 for iid in self._gather_full_tree_nodes():
                     vals = self.tree.item(iid, "values")
-                    if not vals: continue
+                    if not vals:
+                        continue
                     rtype = (vals[2] or "").upper()
-                    if rtype not in ("KIT","MODULE"): continue
+                    if rtype not in ("KIT", "MODULE"):
+                        continue
                     rd = self.row_data.get(iid, {})
-                    num = rd.get('kit_number') if rtype == "KIT" else rd.get('module_number')
+                    num = (
+                        rd.get("kit_number")
+                        if rtype == "KIT"
+                        else rd.get("module_number")
+                    )
                     entries.append((rtype, (num or ""), vals[0]))
                 entries.sort()
                 return tuple(entries)
+
             def collect_maps():
                 kit_map = {}
                 mod_map = {}
                 for iid in self._gather_full_tree_nodes():
                     vals = self.tree.item(iid, "values")
-                    if not vals: continue
+                    if not vals:
+                        continue
                     rtype = (vals[2] or "").upper()
-                    if rtype not in ("KIT","MODULE"): continue
+                    if rtype not in ("KIT", "MODULE"):
+                        continue
                     rd = self.row_data.get(iid, {})
                     if rtype == "KIT":
-                        num = rd.get('kit_number')
+                        num = rd.get("kit_number")
                         if num and str(num).lower() != "none":
                             kit_map.setdefault(num, []).append(iid)
                     else:
-                        num = rd.get('module_number')
+                        num = rd.get("module_number")
                         if num and str(num).lower() != "none":
                             mod_map.setdefault(num, []).append(iid)
                 return kit_map, mod_map
+
             def prompt_single_rename(kind_label, iid, current_number):
                 vals = self.tree.item(iid, "values")
                 code = vals[0] if vals else "UNKNOWN"
                 # Translate kind_label for display
                 kind_label_display = lang.t(
-                    f"receive_kit.type_{kind_label.lower()}", 
-                    kind_label
+                    f"receive_kit.type_{kind_label.lower()}", kind_label
                 )
                 while True:
                     new_val = simpledialog.askstring(
                         lang.t(
-                            "receive_kit.rename_number_title", 
-                            "Rename {type} Number", 
-                            type=kind_label_display
+                            "receive_kit.rename_number_title",
+                            "Rename {type} Number",
+                            type=kind_label_display,
                         ),
                         lang.t(
                             "receive_kit.rename_number_message",
@@ -3226,20 +4550,20 @@ class StockReceiveKit(tk.Frame):
                             "Enter NEW {type} Number (Cancel aborts SAVE):",
                             type=kind_label_display,
                             code=code,
-                            number=current_number
+                            number=current_number,
                         ),
-                        parent=self.parent
+                        parent=self.parent,
                     )
                     if new_val is None:
                         custom_popup(
-                            self.parent, 
-                    lang.t("receive_kit.cancelled_title", "Cancelled"),
+                            self.parent,
+                            lang.t("receive_kit.cancelled_title", "Cancelled"),
                             lang.t(
                                 "receive_kit.number_resolution_cancelled",
                                 "{type} number resolution cancelled.Save aborted.",
-                                type=kind_label_display
+                                type=kind_label_display,
                             ),
-                            "warning"
+                            "warning",
                         )
                         return False
                     new_val = new_val.strip()
@@ -3249,35 +4573,40 @@ class StockReceiveKit(tk.Frame):
                     present_map = kit_map_now if kind_label == "Kit" else mod_map_now
                     if new_val in present_map and iid not in present_map[new_val]:
                         custom_popup(
-                            self.parent, 
+                            self.parent,
                             lang.t("receive_kit.duplicate", "Duplicate"),
                             lang.t(
                                 "receive_kit.number_already_used",
                                 "{type} Number '{number}' already used.Try another.",
                                 type=kind_label_display,
-                                number=new_val
+                                number=new_val,
                             ),
-                            "error"
+                            "error",
                         )
                         continue
                     rd = self.row_data.setdefault(iid, {})
                     if kind_label == "Kit":
-                        rd['kit_number'] = new_val
+                        rd["kit_number"] = new_val
                     else:
-                        old_mod = rd.get('module_number')
+                        old_mod = rd.get("module_number")
                         if old_mod != new_val:
-                            rd['module_number'] = new_val
+                            rd["module_number"] = new_val
                             module_code = vals[4] or vals[0]
-                            self.renamed_modules.append({
-                                'module_code': module_code,
-                                'old_module_number': old_mod,
-                                'new_module_number': new_val,
-                                'kit_number': rd.get('kit_number'),
-                                'scenario_id': self.selected_scenario_id
-                            })
+                            self.renamed_modules.append(
+                                {
+                                    "module_code": module_code,
+                                    "old_module_number": old_mod,
+                                    "new_module_number": new_val,
+                                    "kit_number": rd.get("kit_number"),
+                                    "scenario_id": self.selected_scenario_id,
+                                }
+                            )
                             if (vals[2] or "").upper() == "MODULE":
-                                self.propagate_module_number_to_children(iid, rd.get('kit_number'), new_val)
+                                self.propagate_module_number_to_children(
+                                    iid, rd.get("kit_number"), new_val
+                                )
                     return True
+
             current_sig = build_signature()
             if getattr(self, "_last_uniqueness_signature", None) == current_sig:
                 return True
@@ -3306,27 +4635,35 @@ class StockReceiveKit(tk.Frame):
             conn = connect_db()
             if conn:
                 cur = conn.cursor()
+
                 def db_in_use(field, value):
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         SELECT COUNT(*) FROM stock_data
                         WHERE {field}=? AND unique_id LIKE ?
-                    """, (value, f"{self.selected_scenario_id}/%"))
+                    """,
+                        (value, f"{self.selected_scenario_id}/%"),
+                    )
                     return cur.fetchone()[0] > 0
+
                 while True:
                     conflict = False
                     kit_map, mod_map = collect_maps()
                     for number, iids in kit_map.items():
                         if db_in_use("kit_number", number):
                             if not prompt_single_rename("Kit", iids[0], number):
-                                cur.close(); conn.close()
+                                cur.close()
+                                conn.close()
                                 return False
                             conflict = True
                             break
-                    if conflict: continue
+                    if conflict:
+                        continue
                     for number, iids in mod_map.items():
                         if db_in_use("module_number", number):
                             if not prompt_single_rename("Module", iids[0], number):
-                                cur.close(); conn.close()
+                                cur.close()
+                                conn.close()
                                 return False
                             conflict = True
                             break
@@ -3338,7 +4675,8 @@ class StockReceiveKit(tk.Frame):
             return True
         except Exception as e:
             logging.error("ensure_unique_numbers_interactively error", exc_info=True)
-            return True # fail-open
+            return True  # fail-open
+
     # -----------------------------------------------------------------
     # Document number & transaction log
     # -----------------------------------------------------------------
@@ -3354,23 +4692,29 @@ class StockReceiveKit(tk.Frame):
             "In Supply Non-MSF": "ISNM",
             "In Borrowing": "IBR",
             "In Return of Loan": "IRL",
-            "In Correction of Previous Transaction": "ICOR"
+            "In Correction of Previous Transaction": "ICOR",
         }
         raw = (in_type_text or "").strip()
         abbr = None
         for k, v in base_map.items():
-            if re.sub(r'[^a-z0-9]+','', k.lower()) == re.sub(r'[^a-z0-9]+','', raw.lower()):
-                abbr = v; break
+            if re.sub(r"[^a-z0-9]+", "", k.lower()) == re.sub(
+                r"[^a-z0-9]+", "", raw.lower()
+            ):
+                abbr = v
+                break
         if not abbr:
-            tokens = re.split(r'\s+', raw.upper())
-            stop = {"OF","FROM","THE","AND","DE","DU","DES","LA","LE","LES"}
+            tokens = re.split(r"\s+", raw.upper())
+            stop = {"OF", "FROM", "THE", "AND", "DE", "DU", "DES", "LA", "LE", "LES"}
             letters = []
             for t in tokens:
-                if not t or t in stop: continue
-                if t == "MSF": letters.append("MSF")
-                else: letters.append(t[0])
+                if not t or t in stop:
+                    continue
+                if t == "MSF":
+                    letters.append("MSF")
+                else:
+                    letters.append(t[0])
             if not letters:
-                abbr = (raw[:4].upper() or "DOC").replace(" ","")
+                abbr = (raw[:4].upper() or "DOC").replace(" ", "")
             else:
                 abbr = "".join(letters)
             if len(abbr) > 8:
@@ -3382,46 +4726,53 @@ class StockReceiveKit(tk.Frame):
         if conn:
             cur = conn.cursor()
             try:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT document_number FROM stock_transactions
                     WHERE document_number LIKE ?
                     ORDER BY document_number DESC
                     LIMIT 1
-                """, (prefix + "/%",))
+                """,
+                    (prefix + "/%",),
+                )
                 row = cur.fetchone()
                 if row and row[0]:
-                    last_serial = row[0].rsplit("/",1)[-1]
+                    last_serial = row[0].rsplit("/", 1)[-1]
                     if last_serial.isdigit():
                         serial = int(last_serial) + 1
             except Exception:
                 pass
             finally:
-                cur.close(); conn.close()
+                cur.close()
+                conn.close()
         document_number = f"{prefix}/{serial:04d}"
         self.current_document_number = document_number
         return document_number
-    def log_transaction(self,
-                    unique_id,
-                    code,
-                    description,
-                    expiry_date,
-                    batch_number,
-                    scenario,
-                    kit,
-                    module,
-                    qty_in,
-                    in_type,
-                    qty_out,
-                    out_type,
-                    third_party,
-                    end_user,
-                    remarks,
-                    movement_type,
-                    document_number,
-                    comments=None):
+
+    def log_transaction(
+        self,
+        unique_id,
+        code,
+        description,
+        expiry_date,
+        batch_number,
+        scenario,
+        kit,
+        module,
+        qty_in,
+        in_type,
+        qty_out,
+        out_type,
+        third_party,
+        end_user,
+        remarks,
+        movement_type,
+        document_number,
+        comments=None,
+    ):
         """
         Insert a transaction row.
-    
+
         IMPORTANT:  Canonicalize UI values to English before storing.
         """
         conn = connect_db()
@@ -3439,38 +4790,72 @@ class StockReceiveKit(tk.Frame):
             # Detect if Comments column exists (case-insensitive)
             cur.execute("PRAGMA table_info(stock_transactions)")
             cols = {row[1].lower(): row[1] for row in cur.fetchall()}
-            has_comments = 'comments' in cols
+            has_comments = "comments" in cols
 
             if has_comments:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO stock_transactions
                     (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
                      Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type, Third_Party,
                     End_User, Remarks, Movement_Type, document_number, Comments)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    _dt.today().strftime('%Y-%m-%d'),
-                    _dt.now().time().strftime('%H:%M:%S'),
-                    unique_id, code, description, expiry_date, batch_number,
-                    scenario, kit, module, qty_in, in_type_canon, qty_out, out_type_canon,
-                    third_party, end_user, remarks, movement_type_canon, document_number,
-                    comments_canon
-                ))
+                """,
+                    (
+                        _dt.today().strftime("%Y-%m-%d"),
+                        _dt.now().time().strftime("%H:%M:%S"),
+                        unique_id,
+                        code,
+                        description,
+                        expiry_date,
+                        batch_number,
+                        scenario,
+                        kit,
+                        module,
+                        qty_in,
+                        in_type_canon,
+                        qty_out,
+                        out_type_canon,
+                        third_party,
+                        end_user,
+                        remarks,
+                        movement_type_canon,
+                        document_number,
+                        comments_canon,
+                    ),
+                )
             else:
                 # Backward compatibility if Comments column missing
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO stock_transactions
                     (Date, Time, unique_id, code, Description, Expiry_date, Batch_Number,
                      Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type, Third_Party,
                      End_User, Remarks, Movement_Type, document_number)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    _dt.today().strftime('%Y-%m-%d'),
-                    _dt.now().time().strftime('%H:%M:%S'),
-                    unique_id, code, description, expiry_date, batch_number,
-                    scenario, kit, module, qty_in, in_type_canon, qty_out, out_type_canon,
-                    third_party, end_user, remarks, movement_type_canon, document_number
-                ))
+                """,
+                    (
+                        _dt.today().strftime("%Y-%m-%d"),
+                        _dt.now().time().strftime("%H:%M:%S"),
+                        unique_id,
+                        code,
+                        description,
+                        expiry_date,
+                        batch_number,
+                        scenario,
+                        kit,
+                        module,
+                        qty_in,
+                        in_type_canon,
+                        qty_out,
+                        out_type_canon,
+                        third_party,
+                        end_user,
+                        remarks,
+                        movement_type_canon,
+                        document_number,
+                    ),
+                )
 
             conn.commit()
 
@@ -3483,7 +4868,6 @@ class StockReceiveKit(tk.Frame):
             cur.close()
             conn.close()
 
-
     # -----------------------------------------------------------------
     # Tree iteration helpers
     # -----------------------------------------------------------------
@@ -3495,6 +4879,7 @@ class StockReceiveKit(tk.Frame):
             result.append(iid)
             stack.extend(self.tree.get_children(iid))
         return result
+
     def _module_subtree_iids(self, module_iid):
         out = []
         stack = list(self.tree.get_children(module_iid))
@@ -3504,20 +4889,16 @@ class StockReceiveKit(tk.Frame):
             stack.extend(self.tree.get_children(nid))
         return out
 
-
-
-
-
     def update_row_comment(self, iid, force=False, sticky_mode=True):
         """
         Comment updater - displays "Adopted_Expiration/Caducidad" when expiry matches module/kit earliest.
-    
+
         Storage/display rule:
         - Structural rows (KIT/MODULE): comment always blank
         - ITEM rows:
             * Blank if missing expiry OR user manually entered expiry
             * "Adopted_Expiration/Caducidad" if expiry matches exp_module_iso
-            * "Adopted_Expiration/Caducidad" if expiry matches exp_kit_iso  
+            * "Adopted_Expiration/Caducidad" if expiry matches exp_kit_iso
             * Blank otherwise
         """
         if not self.tree or not self.tree.exists(iid):
@@ -3533,7 +4914,7 @@ class StockReceiveKit(tk.Frame):
         # Structural rows: comment always blank
         if row_type in ("KIT", "PRIMARY", "MODULE", "SECONDARY"):
             rd["comment_key"] = ""
-            if vals[11] != "": 
+            if vals[11] != "":
                 vals[11] = ""
                 self.tree.item(iid, values=tuple(vals))
             return
@@ -3544,7 +4925,7 @@ class StockReceiveKit(tk.Frame):
         manual = rd.get("user_manual_expiry")
 
         # Decide if expiry is adopted
-        if not expiry_iso or manual: 
+        if not expiry_iso or manual:
             comment_key = ""
         elif exp_mod_iso and expiry_iso == exp_mod_iso:
             comment_key = "adopted"
@@ -3561,7 +4942,7 @@ class StockReceiveKit(tk.Frame):
         else:
             new_comment = ""
 
-        if vals[11] != new_comment or force: 
+        if vals[11] != new_comment or force:
             vals[11] = new_comment
             self.tree.item(iid, values=tuple(vals))
 
@@ -3576,7 +4957,6 @@ class StockReceiveKit(tk.Frame):
         "Emprunt": "In Borrowing",
         "Retour de prêt": "In Return of Loan",
         "Correction transaction précédente": "In Correction of Previous Transaction",
-
         # English -> English canonical (safe)
         "In MSF": "In MSF",
         "In Local Purchase": "In Local Purchase",
@@ -3587,37 +4967,39 @@ class StockReceiveKit(tk.Frame):
         "In Borrowing": "In Borrowing",
         "In Return of Loan": "In Return of Loan",
         "In Correction of Previous Transaction": "In Correction of Previous Transaction",
-
-
         # SPANISH -> Spanish Conical
         "Desde cuarentena": "In from Quarantine",
         "Retorno de usuario final": "Return from End User",
         "Compra local": "In Local Purchase",
-        "Donación":  "In Donation",
+        "Donación": "In Donation",
         "Entrada MSF": "In MSF",
         "Suministro no-MSF": "In Supply Non-MSF",
-        "Préstamo":  "In Borrowing",
+        "Préstamo": "In Borrowing",
         "Devolución de préstamo": "In Return of Loan",
-        "Corrección de transacción previa": "In Correction of Previous Transaction"
+        "Corrección de transacción previa": "In Correction of Previous Transaction",
     }
-
 
     def _structural_iids(self):
         out = []
         for iid in self._gather_full_tree_nodes():
-            if not self.tree.exists(iid): continue
+            if not self.tree.exists(iid):
+                continue
             vals = self.tree.item(iid, "values")
-            if not vals: continue
+            if not vals:
+                continue
             rt = (vals[2] or "").strip().upper()
-            if rt in ("KIT","MODULE","PRIMARY","SECONDARY"):
+            if rt in ("KIT", "MODULE", "PRIMARY", "SECONDARY"):
                 out.append(iid)
         return out
+
     def _get_row_type(self, iid):
-        if not self.tree.exists(iid): return ""
+        if not self.tree.exists(iid):
+            return ""
         vals = self.tree.item(iid, "values")
-        if not vals: return ""
+        if not vals:
+            return ""
         return (vals[2] or "").strip().upper()
-    
+
     def _canon_in_type(self, display_value: str) -> str:
         """
         Convert UI IN Type (translated) -> canonical English for DB.
@@ -3627,7 +5009,11 @@ class StockReceiveKit(tk.Frame):
             return v
 
         # Try language-manager enum mapping first
-        for map_key in ("enum.in_types_map", "stock_in.in_types_map", "receive_kit.in_types_map"):
+        for map_key in (
+            "enum.in_types_map",
+            "stock_in.in_types_map",
+            "receive_kit.in_types_map",
+        ):
             try:
                 canon = lang.enum_to_canonical(map_key, v, fallback=None)
             except Exception:
@@ -3641,17 +5027,16 @@ class StockReceiveKit(tk.Frame):
             # French mappings
             "Entrée MSF": "In MSF",
             "Achat local": "In Local Purchase",
-            "Depuis la quarantaine":  "In from Quarantine",
+            "Depuis la quarantaine": "In from Quarantine",
             "Donation": "In Donation",
             "Retour utilisateur final": "Return from End User",
             "Approvisionnement non-MSF": "In Supply Non-MSF",
             "Emprunt": "In Borrowing",
-            "Retour de prêt":  "In Return of Loan",
+            "Retour de prêt": "In Return of Loan",
             "Correction transaction précédente": "In Correction of Previous Transaction",
-        
             # Spanish mappings
             "Entrada MSF": "In MSF",
-            "Compra local":  "In Local Purchase",
+            "Compra local": "In Local Purchase",
             "Desde cuarentena": "In from Quarantine",
             "Donación": "In Donation",
             "Retorno de usuario final": "Return from End User",
@@ -3669,7 +5054,6 @@ class StockReceiveKit(tk.Frame):
         # If already in English, return as-is
         return v
 
-
     def _canon_out_type(self, display_value: str) -> str:
         """
         Convert UI OUT Type (translated) -> canonical English for DB.
@@ -3678,10 +5062,14 @@ class StockReceiveKit(tk.Frame):
         if not v:
             return v
 
-        for map_key in ("enum.out_types_map", "stock_out.out_types_map", "dispatch_kit.out_types_map"):
+        for map_key in (
+            "enum.out_types_map",
+            "stock_out.out_types_map",
+            "dispatch_kit.out_types_map",
+        ):
             try:
                 canon = lang.enum_to_canonical(map_key, v, fallback=None)
-            except Exception:  
+            except Exception:
                 canon = None
 
                 if canon and canon.strip():
@@ -3700,7 +5088,6 @@ class StockReceiveKit(tk.Frame):
             "Prêt": "Loan",
             "Retour d'emprunt": "Return of Borrowing",
             "Quarantaine": "Quarantine",
-        
             # Spanish mappings
             "Salida a usuario final": "Issue to End User",
             "Artículos expirados": "Expired Items",
@@ -3722,7 +5109,6 @@ class StockReceiveKit(tk.Frame):
 
         return v
 
-
     def _canon_movement_type(self, display_value: str) -> str:
         """
         Store movement type in DB as English canonical text.
@@ -3738,12 +5124,12 @@ class StockReceiveKit(tk.Frame):
         if not key:
             if hasattr(self, "mode_label_to_key") and v in self.mode_label_to_key:
                 key = self.mode_label_to_key[v]
-            else: 
+            else:
                 key = v
 
         # Map internal keys to canonical English
         movement_map = {
-            "receive_kit":  "Receive Kit",
+            "receive_kit": "Receive Kit",
             "add_standalone": "Add standalone item(s) to scenario",
             "add_module_scenario": "Add module to scenario",
             "add_module_kit": "Add module to a kit",
@@ -3753,30 +5139,29 @@ class StockReceiveKit(tk.Frame):
 
         return movement_map.get(key, str(key))
 
-
-    def _canon_comment(self, display_value:  str) -> str:
+    def _canon_comment(self, display_value: str) -> str:
         """
         Convert UI/display comment value to canonical DB storage.
-    
+
         Now using fixed bilingual string, so just return as-is.
         """
         v = (display_value or "").strip()
-    
+
         # Direct bilingual string - store as-is
         if v == "Adopted_Expiration/Caducidad":
             return "Adopted_Expiration/Caducidad"
-    
+
         # Backward compatibility for old values
         if v in ("adopted_module", "adopted_kit"):
             return "Adopted_Expiration/Caducidad"
-    
+
         return ""  # Default to blank
-    
+
     def _split_treecode(self, tc: str | None):
         if not tc:
             return []
         # 3-char chunks
-        return [tc[i:i+3] for i in range(0, len(tc), 3)]
+        return [tc[i : i + 3] for i in range(0, len(tc), 3)]
 
     def _recalc_after_quantity_edit(self, edited_iid, was_structural):
         """
@@ -3790,7 +5175,12 @@ class StockReceiveKit(tk.Frame):
         if was_structural:
             changed = self._compute_multiplicative_quantities()
             if changed > 1:
-                self.status_var.set(lang.t("receive_kit.qty_recalculated_descendants", "Qty recalculated for {descendants} descendant row(s) due to structural change.").format(descendants=changed - 1))
+                self.status_var.set(
+                    lang.t(
+                        "receive_kit.qty_recalculated_descendants",
+                        "Qty recalculated for {descendants} descendant row(s) due to structural change.",
+                    ).format(descendants=changed - 1)
+                )
             else:
                 self.status_var.set(lang.t("receive_kit.qty_updated", "Qty updated."))
         else:
@@ -3800,6 +5190,7 @@ class StockReceiveKit(tk.Frame):
             changed = self._compute_multiplicative_quantities()
             if changed > 0:
                 self.status_var.set(lang.t("receive_kit.qty_updated", "Qty updated."))
+
     # -----------------------------------------------------------------
     # Group expiry computation + auto-fill + comments
     # -----------------------------------------------------------------
@@ -3820,7 +5211,7 @@ class StockReceiveKit(tk.Frame):
             if not vals or len(vals) < 13:
                 continue
             rd = self.row_data.setdefault(iid, {})
-            tc = rd.get('treecode')
+            tc = rd.get("treecode")
             if not tc:
                 continue
             iso = rd.get("expiry_iso")
@@ -3847,7 +5238,7 @@ class StockReceiveKit(tk.Frame):
             if len(vals) < 13:
                 continue
             rd = self.row_data.setdefault(iid, {})
-            tc = rd.get('treecode')
+            tc = rd.get("treecode")
             exp_mod_disp = ""
             exp_kit_disp = ""
             rd["exp_module_iso"] = None
@@ -3867,26 +5258,32 @@ class StockReceiveKit(tk.Frame):
         self._auto_fill_expiry_with_precedence()
         # Force upgrade for all non-manual items if module differs from current/kit
         for iid in self._gather_full_tree_nodes():
-            if not self.tree.exists(iid): continue
+            if not self.tree.exists(iid):
+                continue
             rd = self.row_data.get(iid, {})
-            if rd.get("user_manual_expiry"): continue  # Skip manuals
+            if rd.get("user_manual_expiry"):
+                continue  # Skip manuals
             current = rd.get("expiry_iso")
             exp_mod = rd.get("exp_module_iso")
             exp_kit = rd.get("exp_kit_iso")
-            if exp_mod and current != exp_mod:  # Always upgrade to module if available and not matching
+            if (
+                exp_mod and current != exp_mod
+            ):  # Always upgrade to module if available and not matching
                 rd["expiry_iso"] = exp_mod
                 vals = list(self.tree.item(iid, "values"))
                 vals[7] = format_expiry_display(exp_mod)
                 self.tree.item(iid, values=tuple(vals))
                 # Clear auto tag if needed
                 tags = list(self.tree.item(iid, "tags") or [])
-                if "auto_expiry_gray" in tags: tags.remove("auto_expiry_gray")
+                if "auto_expiry_gray" in tags:
+                    tags.remove("auto_expiry_gray")
                 self.tree.item(iid, tags=tuple(tags))
         # Tag + comments
         for iid in self._gather_full_tree_nodes():
             self._validate_and_tag_row(iid, force=False)
         self._rederive_comments(force=False, sticky_mode=True)
         self.update_unique_ids_and_column()
+
     def _auto_fill_expiry_with_precedence(self):
         """
         Improved precedence logic:
@@ -3927,6 +5324,7 @@ class StockReceiveKit(tk.Frame):
                 # Update expiry cell (no '(adopted)' suffix)
                 vals[7] = format_expiry_display(rd["expiry_iso"])
                 self.tree.item(iid, values=tuple(vals))
+
     def _rederive_comments(self, force=False, sticky_mode=True):
         """
         Bulk comment updater applying the new adoption rules.
@@ -3936,7 +5334,6 @@ class StockReceiveKit(tk.Frame):
             return
         for iid in self._gather_full_tree_nodes():
             self.update_row_comment(iid, force=True, sticky_mode=False)
-
 
     def _auto_adopt_mandatory_item_expiries(self):
         """
@@ -3974,11 +5371,12 @@ class StockReceiveKit(tk.Frame):
             adopted += 1
         self._rederive_comments()
         return adopted
+
     def _prompt_for_structural_expiries(self):
         structural = self._structural_iids()
         if not structural:
             return True
-        title = lang.t("receive_kit.expiry_prompt_title","Expiry Required")
+        title = lang.t("receive_kit.expiry_prompt_title", "Expiry Required")
         for iid in structural:
             if not self.tree.exists(iid):
                 continue
@@ -4000,15 +5398,21 @@ class StockReceiveKit(tk.Frame):
                 prompt_msg = lang.t(
                     "receive_kit.expiry_prompt_message",
                     "Enter expiry (YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, etc.) for {code} - {desc}:",
-                    code=code, desc=desc
+                    code=code,
+                    desc=desc,
                 )
-                user_input = simpledialog.askstring(title, prompt_msg, parent=self.parent)
+                user_input = simpledialog.askstring(
+                    title, prompt_msg, parent=self.parent
+                )
                 if user_input is None:
                     custom_popup(
                         self.parent,
-                        lang.t("receive_kit.cancelled_title","Cancelled"),
-                        lang.t("receive_kit.expiry_cancelled","Save cancelled: missing structural expiry."),
-                        "warning"
+                        lang.t("receive_kit.cancelled_title", "Cancelled"),
+                        lang.t(
+                            "receive_kit.expiry_cancelled",
+                            "Save cancelled: missing structural expiry.",
+                        ),
+                        "warning",
                     )
                     return False
                 user_input = user_input.strip()
@@ -4023,13 +5427,15 @@ class StockReceiveKit(tk.Frame):
                 if not parsed:
                     custom_popup(
                         self.parent,
-                        lang.t("receive_kit.invalid_expiry_title","Invalid Expiry"),
-                        lang.t("receive_kit.invalid_expiry_msg",
-                               "Format not recognized.Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10"),
-                        "error"
+                        lang.t("receive_kit.invalid_expiry_title", "Invalid Expiry"),
+                        lang.t(
+                            "receive_kit.invalid_expiry_msg",
+                            "Format not recognized.Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10",
+                        ),
+                        "error",
                     )
                     continue
-                
+
                 # Validate expiry is not in the past
                 is_valid, error_msg = validate_expiry_not_past(parsed)
                 if not is_valid:
@@ -4039,16 +5445,17 @@ class StockReceiveKit(tk.Frame):
                         lang.t(
                             "receive_kit.expiry_past_date",
                             "Expiry date {date} is in the past.Please enter a current or future date.",
-                            date=format_expiry_display(parsed)
+                            date=format_expiry_display(parsed),
                         ),
-                        "error"
+                        "error",
                     )
                     continue  # Loop back to prompt again
-                
+
                 # Only set if validation passed
                 rd["expiry_iso"] = parsed
                 self.tree.set(iid, "expiry_date", format_expiry_display(parsed))
         return True
+
     def _propagate_structural_expiries_top_down(self):
         """
         Propagate structural (KIT / MODULE) expiries to descendant ITEM rows that
@@ -4058,10 +5465,11 @@ class StockReceiveKit(tk.Frame):
         structural = []
         for iid in self._structural_iids():
             rd = self.row_data.get(iid, {})
-            tc = rd.get('treecode') or ""
+            tc = rd.get("treecode") or ""
             depth = len(tc) // 3 if tc else 0
             structural.append((depth, iid))
         structural.sort(reverse=True)
+
         def propagate_from(struct_iid, iso, is_module):
             stack = list(self.tree.get_children(struct_iid))
             while stack:
@@ -4073,7 +5481,7 @@ class StockReceiveKit(tk.Frame):
                 if not vals:
                     continue
                 rtype = (vals[2] or "").strip().upper()
-                if rtype in ("KIT","MODULE","PRIMARY","SECONDARY"):
+                if rtype in ("KIT", "MODULE", "PRIMARY", "SECONDARY"):
                     continue
                 rd = self.row_data.setdefault(nid, {})
                 if rd.get("user_manual_expiry"):
@@ -4085,11 +5493,16 @@ class StockReceiveKit(tk.Frame):
                     new_vals[7] = format_expiry_display(iso)
                     self.tree.item(nid, values=tuple(new_vals))
                 else:
-                    if is_module and current_iso != iso and not rd.get("user_manual_expiry"):
+                    if (
+                        is_module
+                        and current_iso != iso
+                        and not rd.get("user_manual_expiry")
+                    ):
                         rd["expiry_iso"] = iso
                         new_vals = list(vals)
                         new_vals[7] = format_expiry_display(iso)
                         self.tree.item(nid, values=tuple(new_vals))
+
         for _depth, iid in structural:
             rd = self.row_data.get(iid, {})
             iso = rd.get("expiry_iso")
@@ -4099,11 +5512,12 @@ class StockReceiveKit(tk.Frame):
             if not vals:
                 continue
             rtype = (vals[2] or "").strip().upper()
-            if rtype in ("MODULE","SECONDARY"):
+            if rtype in ("MODULE", "SECONDARY"):
                 propagate_from(iid, iso, is_module=True)
-            elif rtype in ("KIT","PRIMARY"):
+            elif rtype in ("KIT", "PRIMARY"):
                 propagate_from(iid, iso, is_module=False)
         self._rederive_comments()
+
     def _ensure_expiry_when_no_structurals(self) -> bool:
         """
         If there are no KIT/MODULE structural rows, ensure every row has an expiry.
@@ -4115,19 +5529,22 @@ class StockReceiveKit(tk.Frame):
         have_any = any(self.row_data.get(iid, {}).get("expiry_iso") for iid in all_iids)
         if have_any:
             return True
-        title = lang.t("receive_kit.expiry_prompt_title","Expiry Required")
+        title = lang.t("receive_kit.expiry_prompt_title", "Expiry Required")
         prompt_msg = lang.t(
             "receive_kit.expiry_prompt_message",
-            "Enter expiry (YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, etc.) for ALL items:"
+            "Enter expiry (YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, etc.) for ALL items:",
         )
         while True:
             user_input = simpledialog.askstring(title, prompt_msg, parent=self.parent)
             if user_input is None:
                 custom_popup(
                     self.parent,
-                    lang.t("receive_kit.cancelled_title","Cancelled"),
-                    lang.t("receive_kit.expiry_cancelled","Save cancelled:  missing expiry."),
-                    "warning"
+                    lang.t("receive_kit.cancelled_title", "Cancelled"),
+                    lang.t(
+                        "receive_kit.expiry_cancelled",
+                        "Save cancelled:  missing expiry.",
+                    ),
+                    "warning",
                 )
                 return False
             user_input = user_input.strip()
@@ -4135,20 +5552,22 @@ class StockReceiveKit(tk.Frame):
                 continue
             parsed = parse_expiry(user_input)
             if not parsed:
-                try: 
+                try:
                     parsed = strict_parse_expiry(user_input)
                 except Exception:
                     parsed = None
             if not parsed:
                 custom_popup(
                     self.parent,
-                    lang.t("receive_kit.invalid_expiry_title","Invalid Expiry"),
-                    lang.t("receive_kit.invalid_expiry_msg",
-                       "Format not recognized.Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10"),
-                    "error"
+                    lang.t("receive_kit.invalid_expiry_title", "Invalid Expiry"),
+                    lang.t(
+                        "receive_kit.invalid_expiry_msg",
+                        "Format not recognized.Examples:\n05/10/2029\n2029-10-05\n10/2029\n2029-10",
+                    ),
+                    "error",
                 )
                 continue
-        
+
             # Validate expiry is not in the past
             is_valid, error_msg = validate_expiry_not_past(parsed)
             if not is_valid:
@@ -4158,24 +5577,25 @@ class StockReceiveKit(tk.Frame):
                     lang.t(
                         "receive_kit.expiry_past_date",
                         "Expiry date {date} is in the past.Please enter a current or future date.",
-                        date=format_expiry_display(parsed)
+                        date=format_expiry_display(parsed),
                     ),
-                    "error"
+                    "error",
                 )
                 continue  # Loop back to prompt user again
-        
+
             # Only apply to all items if validation passed
-            for iid in all_iids: 
+            for iid in all_iids:
                 rd = self.row_data.setdefault(iid, {})
                 if not rd.get("expiry_iso"):
                     rd["expiry_iso"] = parsed
                     vals = self.tree.item(iid, "values")
-                    if vals: 
+                    if vals:
                         new_vals = list(vals)
                         new_vals[7] = format_expiry_display(parsed)
                         self.tree.item(iid, values=tuple(new_vals))
             self._rederive_comments()
             return True
+
     # -----------------------------------------------------------------
     # Duplicate Row (Add New Row), only for items and not for Module and Kits.
     # -----------------------------------------------------------------
@@ -4190,97 +5610,101 @@ class StockReceiveKit(tk.Frame):
                 self.parent,
                 lang.t("receive_kit.error", "Error"),
                 lang.t("receive_kit.no_row_selected", "No row selected"),
-                "error"
+                "error",
             )
             return
-    
+
         iid = sel[0]
         vals = self.tree.item(iid, "values")
-    
+
         if not vals or len(vals) < 3:
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.error", "Error"),
                 lang.t("receive_kit.invalid_row", "Invalid row data"),
-                "error"
+                "error",
             )
             return
-    
-        # ✅ FIX:  Check if row is Kit or Module
+
+        # ✅ FIX: Check if row is Kit or Module
         row_type = (vals[2] or "").strip().upper()
-    
+
         # Check for Kit/Module in English and other language variants
         if row_type in ("KIT", "MODULE"):
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.error", "Error"),
                 lang.t(
-                    "receive_kit.cannot_duplicate_structural", 
+                    "receive_kit.cannot_duplicate_structural",
                     "Cannot duplicate Kits or Modules.\n\n"
-                    "The 'Add new row' feature is only for Items with different expiry dates."
+                    "The 'Add new row' feature is only for Items with different expiry dates.",
                 ),
-                "warning"
+                "warning",
             )
             return
-    
+
         # Also check the actual type from detect_type (in case display differs)
         code = vals[0]
         desc = vals[1] if len(vals) > 1 else ""
         detected_type = detect_type(code, desc).upper()
-    
         if detected_type in ("KIT", "MODULE"):
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.error", "Error"),
                 lang.t(
-                    "receive_kit.cannot_duplicate_structural", 
+                    "receive_kit.cannot_duplicate_structural",
                     "Cannot duplicate Kits or Modules.\n\n"
-                    "The 'Add new row' feature is only for Items with different expiry dates."
+                    "The 'Add new row' feature is only for Items with different expiry dates.",
                 ),
-                "warning"
+                "warning",
             )
             return
-    
+
         # ✅ Proceed with duplication for Items only
         parent = self.tree.parent(iid)
         idx = self.tree.index(iid)
-    
+
         # Create new row with same values but blank expiry
         new_vals = list(vals)
         new_vals[7] = ""  # Clear expiry_date
         new_vals[8] = ""  # Clear batch_no
-    
+
         # Insert after current row
         new_iid = self.tree.insert(parent, idx + 1, values=tuple(new_vals))
-    
-        # Copy row_data but generate new unique_id
+
+        # ✅ Copy row_data including treecode
         if iid in self.row_data:
             rd = self.row_data[iid].copy()
             rd.pop("expiry_iso", None)  # Remove old expiry
-            rd.pop("unique_id", None)   # Will regenerate
+            rd.pop("unique_id", None)  # Will regenerate with treecode during save
+            # ✅ treecode is preserved from source row via .copy()
             self.row_data[new_iid] = rd
+
+            logging.debug(
+                f"[ADD_NEW_ROW] Duplicated row {iid} -> {new_iid}, "
+                f"treecode preserved: {rd.get('treecode')}"
+            )
         else:
             self.row_data[new_iid] = {}
-    
+
         # Update code_to_iid mapping (don't overwrite, multiple rows can have same code)
         # Don't update self.code_to_iid since multiple items can have same code
-    
+
         # Select and focus the new row
         self.tree.selection_set(new_iid)
         self.tree.focus(new_iid)
         self.tree.see(new_iid)
-    
+
         self.status_var.set(
             lang.t(
-                "receive_kit.row_duplicated", 
-                "Row duplicated.Please enter a different expiry date."
+                "receive_kit.row_duplicated",
+                "Row duplicated. Please enter a different expiry date.",
             )
         )
-    
+
         # Auto-open edit for expiry column
         self.after(100, lambda: self.start_edit_cell(new_iid, 7))
 
-        
     # -----------------------------------------------------------------
     # Dropdown visibility
     # -----------------------------------------------------------------
@@ -4289,18 +5713,24 @@ class StockReceiveKit(tk.Frame):
         self.end_user_cb.config(state="disabled")
         self.third_party_cb.config(state="disabled")
         self.remarks_entry.config(state="normal")
-        self.end_user_var.set(""); self.third_party_var.set("")
+        self.end_user_var.set("")
+        self.third_party_var.set("")
         self.remarks_entry.delete(0, tk.END)
         if ttype in [
-            lang.t("receive_kit.in_donation","In Donation"),
-            lang.t("receive_kit.in_borrowing","In Borrowing"),
-            lang.t("receive_kit.in_return_loan","In Return of Loan")
+            lang.t("receive_kit.in_donation", "In Donation"),
+            lang.t("receive_kit.in_borrowing", "In Borrowing"),
+            lang.t("receive_kit.in_return_loan", "In Return of Loan"),
         ]:
             self.third_party_cb.config(state="readonly")
-        elif ttype == lang.t("receive_kit.return_from_end_user","Return from End User"):
+        elif ttype == lang.t(
+            "receive_kit.return_from_end_user", "Return from End User"
+        ):
             self.end_user_cb.config(state="readonly")
-        elif ttype == lang.t("receive_kit.in_correction","In Correction of Previous Transaction"):
+        elif ttype == lang.t(
+            "receive_kit.in_correction", "In Correction of Previous Transaction"
+        ):
             self.remarks_entry.config(state="normal")
+
     # -----------------------------------------------------------------
     # Rewrite module numbers in DB after renames
     # -----------------------------------------------------------------
@@ -4309,7 +5739,7 @@ class StockReceiveKit(tk.Frame):
             return
         compressed = {}
         for r in self.renamed_modules:
-            key = (r['scenario_id'], r['kit_number'], r['module_code'])
+            key = (r["scenario_id"], r["kit_number"], r["module_code"])
             compressed[key] = r
         renames = list(compressed.values())
         conn = connect_db()
@@ -4318,72 +5748,114 @@ class StockReceiveKit(tk.Frame):
         cur = conn.cursor()
         try:
             for entry in renames:
-                scenario_id = entry['scenario_id']
-                kit_number = entry['kit_number']
-                module_code = entry['module_code']
-                old_mod_num = entry['old_module_number']
-                new_mod_num = entry['new_module_number']
-                like_pattern = f"{scenario_id}/%/{module_code}/%/%/%/{kit_number}/{old_mod_num}"
-                cur.execute("""
+                scenario_id = entry["scenario_id"]
+                kit_number = entry["kit_number"]
+                module_code = entry["module_code"]
+                old_mod_num = entry["old_module_number"]
+                new_mod_num = entry["new_module_number"]
+                like_pattern = (
+                    f"{scenario_id}/%/{module_code}/%/%/%/{kit_number}/{old_mod_num}"
+                )
+                cur.execute(
+                    """
                     SELECT unique_id, qty_in, qty_out
                     FROM stock_data
                     WHERE unique_id LIKE ?
-                """, (like_pattern,))
+                """,
+                    (like_pattern,),
+                )
                 sd_rows = cur.fetchall()
-                for (unique_id, qty_in, qty_out) in sd_rows:
-                    parts = unique_id.split('/')
-                    if len(parts) != 8: continue
+                for unique_id, qty_in, qty_out in sd_rows:
+                    parts = unique_id.split("/")
+                    if len(parts) != 8:
+                        continue
                     if parts[-1] != old_mod_num:
                         continue
-                    new_unique_id = '/'.join(parts[:-1] + [new_mod_num])
-                    cur.execute("SELECT qty_in, qty_out FROM stock_data WHERE unique_id=?",
-                                (new_unique_id,))
+                    new_unique_id = "/".join(parts[:-1] + [new_mod_num])
+                    cur.execute(
+                        "SELECT qty_in, qty_out FROM stock_data WHERE unique_id=?",
+                        (new_unique_id,),
+                    )
                     existing = cur.fetchone()
                     if existing:
                         merged_in = existing[0] + qty_in
                         merged_out = existing[1] + qty_out
-                        cur.execute("""
+                        cur.execute(
+                            """
                             UPDATE stock_data
                             SET qty_in=?, qty_out=?, module_number=?, updated_at=?
                             WHERE unique_id=?
-                        """, (merged_in, merged_out, new_mod_num,
-                              _dt.now().strftime('%Y-%m-%d %H:%M:%S'), new_unique_id))
-                        cur.execute("DELETE FROM stock_data WHERE unique_id=?", (unique_id,))
+                        """,
+                            (
+                                merged_in,
+                                merged_out,
+                                new_mod_num,
+                                _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                new_unique_id,
+                            ),
+                        )
+                        cur.execute(
+                            "DELETE FROM stock_data WHERE unique_id=?", (unique_id,)
+                        )
                     else:
-                        cur.execute("""
+                        cur.execute(
+                            """
                             UPDATE stock_data
                             SET unique_id=?, module_number=?, updated_at=?
                             WHERE unique_id=?
-                        """, (new_unique_id, new_mod_num,
-                              _dt.now().strftime('%Y-%m-%d %H:%M:%S'), unique_id))
-                cur.execute("""
+                        """,
+                            (
+                                new_unique_id,
+                                new_mod_num,
+                                _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                unique_id,
+                            ),
+                        )
+                cur.execute(
+                    """
                     SELECT rowid, unique_id, Module FROM stock_transactions
                     WHERE unique_id LIKE ?
-                """, (like_pattern,))
+                """,
+                    (like_pattern,),
+                )
                 tx_rows = cur.fetchall()
-                for (rowid, tx_unique_id, tx_module_val) in tx_rows:
-                    parts = tx_unique_id.split('/')
-                    if len(parts) != 8: continue
-                    if parts[-1] != old_mod_num: continue
-                    new_tx_unique_id = '/'.join(parts[:-1] + [new_mod_num])
-                    cur.execute("""
+                for rowid, tx_unique_id, tx_module_val in tx_rows:
+                    parts = tx_unique_id.split("/")
+                    if len(parts) != 8:
+                        continue
+                    if parts[-1] != old_mod_num:
+                        continue
+                    new_tx_unique_id = "/".join(parts[:-1] + [new_mod_num])
+                    cur.execute(
+                        """
                         UPDATE stock_transactions
                         SET unique_id=?, Module=?
                         WHERE rowid=?
-                    """, (new_tx_unique_id, new_mod_num, rowid))
+                    """,
+                        (new_tx_unique_id, new_mod_num, rowid),
+                    )
             conn.commit()
         except sqlite3.Error as e:
             conn.rollback()
             logging.error(f"rewrite_module_number_rows error: {e}")
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()
         self.renamed_modules.clear()
+
     # -----------------------------------------------------------------
     # Recursive save subtree
     # -----------------------------------------------------------------
-    def save_subtree(self, iid, invalid_items, exported_rows,
-                     kit_number=None, module_number=None,
-                     document_number=None, effective_expiry=None):
+    def save_subtree(
+        self,
+        iid,
+        invalid_items,
+        exported_rows,
+        kit_number=None,
+        module_number=None,
+        document_number=None,
+        effective_expiry=None,
+    ):
         """
         Modified to:
           - Capture the 'Comments' column text and persist it to stock_data (comments)
@@ -4395,27 +5867,49 @@ class StockReceiveKit(tk.Frame):
             if not self.tree.exists(iid):
                 return True
 
-            vals = list(self.tree.item(iid, "values"))  # ✅ Changed to list for mutability
+            vals = list(
+                self.tree.item(iid, "values")
+            )  # ✅ Changed to list for mutability
             if not vals or len(vals) < 13:
                 return True
 
-            (code, desc, type_field, kit_val, mod_val, std_qty_display, qty_str,
-             display_expiry, batch_no, exp_module_col, exp_kit_col,
-             comments_col, _unique_visible) = vals
+            (
+                code,
+                desc,
+                type_field,
+                kit_val,
+                mod_val,
+                std_qty_display,
+                qty_str,
+                display_expiry,
+                batch_no,
+                exp_module_col,
+                exp_kit_col,
+                comments_col,
+                _unique_visible,
+            ) = vals
 
             # ✅ Extract clean codes from tree columns (safety measure)
-            kit_code = self._extract_code_from_display(kit_val) if kit_val and kit_val != "-----" else None
-            module_code = self._extract_code_from_display(mod_val) if mod_val and mod_val != "-----" else None
+            kit_code = (
+                self._extract_code_from_display(kit_val)
+                if kit_val and kit_val != "-----"
+                else None
+            )
+            module_code = (
+                self._extract_code_from_display(mod_val)
+                if mod_val and mod_val != "-----"
+                else None
+            )
 
             rd_local = self.row_data.get(iid, {})
 
-            node_iso = rd_local.get('expiry_iso')
+            node_iso = rd_local.get("expiry_iso")
             if not node_iso:
                 clean_disp = (display_expiry or "").replace("(adopted)", "").strip()
                 if clean_disp:
                     try:
                         node_iso = strict_parse_expiry(clean_disp)
-                        rd_local['expiry_iso'] = node_iso
+                        rd_local["expiry_iso"] = node_iso
                     except ValueError:
                         node_iso = None
 
@@ -4424,8 +5918,8 @@ class StockReceiveKit(tk.Frame):
 
             parent_kn = kit_number
             parent_mn = module_number
-            rd_kn = rd_local.get('kit_number')
-            rd_mn = rd_local.get('module_number')
+            rd_kn = rd_local.get("kit_number")
+            rd_mn = rd_local.get("module_number")
 
             def norm(v):
                 return None if (isinstance(v, str) and v.lower() == "none") else v
@@ -4436,50 +5930,67 @@ class StockReceiveKit(tk.Frame):
             # Ensure kit/module numbers for structural nodes
             if type_field.upper() == "KIT":
                 while not kit_number:
-                    entered = simpledialog.askstring("Kit Number",
-                                                     f"Enter Kit Number for {code}",
-                                                     parent=self.parent)
+                    entered = simpledialog.askstring(
+                        "Kit Number", f"Enter Kit Number for {code}", parent=self.parent
+                    )
                     if entered is None:
                         return False
                     if entered.strip() and self.is_kit_number_unique(entered.strip()):
                         kit_number = entered.strip()
                         break
-                    custom_popup(self.parent, "Error", "Kit Number exists or invalid.", "error")
+                    custom_popup(
+                        self.parent, "Error", "Kit Number exists or invalid.", "error"
+                    )
 
             if type_field.upper() == "MODULE":
                 while not module_number:
-                    entered = simpledialog.askstring("Module Number",
-                                                     f"Enter Module Number for {code}",
-                                                     parent=self.parent)
+                    entered = simpledialog.askstring(
+                        "Module Number",
+                        f"Enter Module Number for {code}",
+                        parent=self.parent,
+                    )
                     if entered is None:
                         return False
-                    if entered.strip() and self.is_module_number_unique(kit_number, entered.strip()):
+                    if entered.strip() and self.is_module_number_unique(
+                        kit_number, entered.strip()
+                    ):
                         module_number = entered.strip()
                         break
-                    custom_popup(self.parent, "Error", "Module Number exists or invalid.", "error")
+                    custom_popup(
+                        self.parent,
+                        "Error",
+                        "Module Number exists or invalid.",
+                        "error",
+                    )
 
             # Track module renames (propagate)
-            original_mod_num = rd_local.get('module_number')
-            if type_field.upper() == "MODULE" and original_mod_num and original_mod_num != module_number:
-                self.renamed_modules.append({
-                    'module_code': module_code or code,  # ✅ Use clean code
-                    'old_module_number': original_mod_num,
-                    'new_module_number': module_number,
-                    'kit_number': kit_number,
-                    'scenario_id': self.selected_scenario_id
-                })
+            original_mod_num = rd_local.get("module_number")
+            if (
+                type_field.upper() == "MODULE"
+                and original_mod_num
+                and original_mod_num != module_number
+            ):
+                self.renamed_modules.append(
+                    {
+                        "module_code": module_code or code,  # ✅ Use clean code
+                        "old_module_number": original_mod_num,
+                        "new_module_number": module_number,
+                        "kit_number": kit_number,
+                        "scenario_id": self.selected_scenario_id,
+                    }
+                )
                 self.propagate_module_number_to_children(iid, kit_number, module_number)
 
-            rd_local['kit_number'] = kit_number
-            rd_local['module_number'] = module_number
+            rd_local["kit_number"] = kit_number
+            rd_local["module_number"] = module_number
             if final_expiry:
-                rd_local['expiry_iso'] = final_expiry
+                rd_local["expiry_iso"] = final_expiry
 
             # ✅ Determine context for std_qty lookup using clean codes
             kit_for_id = kit_code  # ✅ Already clean
             module_for_id = module_code  # ✅ Already clean
             item_part = code if type_field.upper() == "ITEM" else None
-            
+
             # Determine which code to use for lookup
             if type_field.upper() == "KIT":
                 lookup_code = kit_for_id or code
@@ -4487,31 +5998,47 @@ class StockReceiveKit(tk.Frame):
                 lookup_code = module_for_id or code
             else:  # ITEM
                 lookup_code = item_part or code
-            
+
             # ✅ Lookup correct std_qty from kit_items table
             std_qty_correct = self.lookup_std_qty_from_kit_items(
-                self.selected_scenario_id,
-                kit_for_id,
-                module_for_id,
-                lookup_code
+                self.selected_scenario_id, kit_for_id, module_for_id, lookup_code
             )
-            
+
+            # ✅ NEW: Get treecode from row_data or lookup from kit_items
+            treecode = rd_local.get("treecode")
+            if not treecode:
+                treecode = self.lookup_treecode_from_kit_items(
+                    self.selected_scenario_id, kit_for_id, module_for_id, lookup_code
+                )
+                if treecode:
+                    rd_local["treecode"] = treecode
+                    logging.debug(
+                        f"[SAVE] Looked up treecode={treecode} for code={code}"
+                    )
+
             # ✅ Update tree display with correct std_qty
             vals[5] = std_qty_correct
-            
-            # ✅ Generate unique_id with clean codes only
+
+            # ✅ Generate unique_id with clean codes AND treecode
             unique_id = self.generate_unique_id(
                 self.selected_scenario_id,
-                kit_for_id,      # ✅ Clean code
-                module_for_id,   # ✅ Clean code
-                item_part,       # ✅ Already clean
-                std_qty_correct, # ✅ Correct value
+                kit_for_id,  # ✅ Clean code
+                module_for_id,  # ✅ Clean code
+                item_part,  # ✅ Already clean
+                std_qty_correct,  # ✅ Correct value
                 final_expiry,
                 kit_number,
-                module_number
+                module_number,
+                treecode,  # ✅ NEW: pass treecode
             )
-            rd_local['unique_id'] = unique_id
-            rd_local['std_qty'] = std_qty_correct  # ✅ Store in row_data
+
+            # ✅ Log the generated unique_id for debugging
+            logging.debug(
+                f"[SAVE] Generated unique_id for {code}: {unique_id} (treecode={treecode})"
+            )
+
+            rd_local["unique_id"] = unique_id
+            rd_local["std_qty"] = std_qty_correct  # ✅ Store in row_data
 
             # ✅ Update tree with new values
             vals[12] = unique_id
@@ -4519,7 +6046,9 @@ class StockReceiveKit(tk.Frame):
 
             # Persist only if quantity > 0 (movement)
             if qty_to_receive > 0:
-                scenario_name = self.scenario_map.get(self.selected_scenario_id, "Unknown")
+                scenario_name = self.scenario_map.get(
+                    self.selected_scenario_id, "Unknown"
+                )
                 # Save to stock_data (comments)
                 StockData.add_or_update(
                     unique_id=unique_id,
@@ -4528,7 +6057,7 @@ class StockReceiveKit(tk.Frame):
                     exp_date=final_expiry,
                     kit_number=kit_number,
                     module_number=module_number,
-                    comments=comments_col or None
+                    comments=comments_col or None,
                 )
                 # Transaction log
                 self.log_transaction(
@@ -4549,24 +6078,26 @@ class StockReceiveKit(tk.Frame):
                     remarks=self.remarks_entry.get().strip() or None,
                     movement_type=self.mode_var.get() or "stock_in",
                     document_number=document_number,
-                    comments=comments_col or None
+                    comments=comments_col or None,
                 )
 
-                exported_rows.append({
-                    'code': code,
-                    'description': desc,
-                    'type': type_field,
-                    'kit': kit_code or "-----",      # ✅ Clean code
-                    'module': module_code or "-----", # ✅ Clean code
-                    'std_qty': std_qty_correct,      # ✅ Correct value
-                    'qty_to_receive': qty_to_receive,
-                    'expiry_date': final_expiry or '',
-                    'batch_no': batch_no,
-                    'exp_module': exp_module_col,
-                    'exp_kit': exp_kit_col,
-                    'comments': comments_col,
-                    'unique_id': unique_id
-                })
+                exported_rows.append(
+                    {
+                        "code": code,
+                        "description": desc,
+                        "type": type_field,
+                        "kit": kit_code or "-----",  # ✅ Clean code
+                        "module": module_code or "-----",  # ✅ Clean code
+                        "std_qty": std_qty_correct,  # ✅ Correct value
+                        "qty_to_receive": qty_to_receive,
+                        "expiry_date": final_expiry or "",
+                        "batch_no": batch_no,
+                        "exp_module": exp_module_col,
+                        "exp_kit": exp_kit_col,
+                        "comments": comments_col,
+                        "unique_id": unique_id,
+                    }
+                )
 
             # Recurse
             for child in self.tree.get_children(iid):
@@ -4577,7 +6108,7 @@ class StockReceiveKit(tk.Frame):
                     kit_number,
                     module_number,
                     document_number,
-                    effective_expiry=final_expiry
+                    effective_expiry=final_expiry,
                 )
                 if not ok:
                     return False
@@ -4586,7 +6117,7 @@ class StockReceiveKit(tk.Frame):
         except Exception as e:
             logging.error(f"save_subtree error iid={iid}: {e}", exc_info=True)
             return False
-               
+
     # -----------------------------------------------------------------
     # Export
     # -----------------------------------------------------------------
@@ -4600,85 +6131,129 @@ class StockReceiveKit(tk.Frame):
             current_time = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
             in_type_raw = self.trans_type_var.get() or "Unknown"
             movement_type_raw = self.mode_var.get() or "Unknown"
+
             def sanitize(s: str) -> str:
-                s = re.sub(r'[^A-Za-z0-9]+','_',s)
-                s = re.sub(r'_+','_',s)
-                return s.strip('_') or "Unknown"
+                s = re.sub(r"[^A-Za-z0-9]+", "_", s)
+                s = re.sub(r"_+", "_", s)
+                return s.strip("_") or "Unknown"
+
             file_name = f"IsEPREP_{sanitize(movement_type_raw)}_{sanitize(in_type_raw)}_{current_time.replace(':','-')}.xlsx"
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
-                filetypes=[("Excel Files","*.xlsx")],
+                filetypes=[("Excel Files", "*.xlsx")],
                 initialfile=file_name,
-                initialdir=default_dir
+                initialdir=default_dir,
             )
             if not file_path:
-                self.status_var.set(lang.t("receive_kit.export_cancelled", "Export cancelled"))
+                self.status_var.set(
+                    lang.t("receive_kit.export_cancelled", "Export cancelled")
+                )
                 return
             wb = openpyxl.Workbook()
             ws = wb.active
             ws_title_base = lang.t("receive_kit.title", "Receive Kit-Module")
-            ws.title = (ws_title_base[:15] + "-" + sanitize(movement_type_raw)[:12])[:31]
+            ws.title = (ws_title_base[:15] + "-" + sanitize(movement_type_raw)[:12])[
+                :31
+            ]
             doc_number = getattr(self, "current_document_number", None)
             if doc_number:
-                ws['A1'] = f"Date: {current_time} Document Number: {doc_number}"
+                ws["A1"] = f"Date: {current_time} Document Number: {doc_number}"
             else:
-                ws['A1'] = f"Date: {current_time}"
-            ws['A1'].font = Font(name="Helvetica", size=10)
-            ws['A1'].alignment = Alignment(horizontal="left")
+                ws["A1"] = f"Date: {current_time}"
+            ws["A1"].font = Font(name="Helvetica", size=10)
+            ws["A1"].alignment = Alignment(horizontal="left")
             project_name, project_code = fetch_project_details()
-            ws['A2'] = f"{ws_title_base} – Movement: {movement_type_raw}"
-            ws['A2'].font = Font(name="Helvetica", size=14)
-            ws['A2'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A2:L2')
-            ws['A3'] = f"{project_name} - {project_code}"
-            ws['A3'].font = Font(name="Helvetica", size=14)
-            ws['A3'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A3:L3')
-            ws['A4'] = f"IN Type: {in_type_raw}"
-            ws['A4'].font = Font(name="Helvetica", size=12)
-            ws['A4'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A4:L4')
-            ws['A5'] = f"Movement Type: {movement_type_raw}"
-            ws['A5'].font = Font(name="Helvetica", size=12)
-            ws['A5'].alignment = Alignment(horizontal="right")
-            ws.merge_cells('A5:L5')
+            ws["A2"] = f"{ws_title_base} – Movement: {movement_type_raw}"
+            ws["A2"].font = Font(name="Helvetica", size=14)
+            ws["A2"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A2:L2")
+            ws["A3"] = f"{project_name} - {project_code}"
+            ws["A3"].font = Font(name="Helvetica", size=14)
+            ws["A3"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A3:L3")
+            ws["A4"] = f"IN Type: {in_type_raw}"
+            ws["A4"].font = Font(name="Helvetica", size=12)
+            ws["A4"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A4:L4")
+            ws["A5"] = f"Movement Type: {movement_type_raw}"
+            ws["A5"].font = Font(name="Helvetica", size=12)
+            ws["A5"].alignment = Alignment(horizontal="right")
+            ws.merge_cells("A5:L5")
             ws.append([])
-            headers = ["Code","Description","Type","Kit","Module","Std Qty","Qty to Receive",
-                       "Expiry Date","Batch No","Exp Module","Exp Kit","Comments"]
+            headers = [
+                "Code",
+                "Description",
+                "Type",
+                "Kit",
+                "Module",
+                "Std Qty",
+                "Qty to Receive",
+                "Expiry Date",
+                "Batch No",
+                "Exp Module",
+                "Exp Kit",
+                "Comments",
+            ]
             ws.append(headers)
-            kit_fill = PatternFill(start_color="228B22", end_color="228B22", fill_type="solid")
-            module_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+            kit_fill = PatternFill(
+                start_color="228B22", end_color="228B22", fill_type="solid"
+            )
+            module_fill = PatternFill(
+                start_color="ADD8E6", end_color="ADD8E6", fill_type="solid"
+            )
             if rows_to_export:
                 source = rows_to_export
             else:
                 source = []
                 for iid in self._gather_full_tree_nodes():
-                    vals = self.tree.item(iid,"values")
-                    if not vals: continue
+                    vals = self.tree.item(iid, "values")
+                    if not vals:
+                        continue
                     qty = vals[6]
                     if qty and qty.isdigit() and int(qty) > 0:
-                        source.append({
-                            "code":vals[0],"description":vals[1],"type":vals[2],"kit":vals[3],
-                            "module":vals[4],"std_qty":vals[5],"qty_to_receive":qty,
-                            "expiry_date":vals[7],"batch_no":vals[8],
-                            "exp_module":vals[9],"exp_kit":vals[10],"comments":vals[11]
-                        })
+                        source.append(
+                            {
+                                "code": vals[0],
+                                "description": vals[1],
+                                "type": vals[2],
+                                "kit": vals[3],
+                                "module": vals[4],
+                                "std_qty": vals[5],
+                                "qty_to_receive": qty,
+                                "expiry_date": vals[7],
+                                "batch_no": vals[8],
+                                "exp_module": vals[9],
+                                "exp_kit": vals[10],
+                                "comments": vals[11],
+                            }
+                        )
             for r in source:
-                ws.append([
-                    r['code'], r['description'], r['type'], r['kit'], r['module'],
-                    r['std_qty'], r['qty_to_receive'], r.get('expiry_date',""),
-                    r.get('batch_no',""), r.get('exp_module',""), r.get('exp_kit',""), r.get('comments',"")
-                ])
+                ws.append(
+                    [
+                        r["code"],
+                        r["description"],
+                        r["type"],
+                        r["kit"],
+                        r["module"],
+                        r["std_qty"],
+                        r["qty_to_receive"],
+                        r.get("expiry_date", ""),
+                        r.get("batch_no", ""),
+                        r.get("exp_module", ""),
+                        r.get("exp_kit", ""),
+                        r.get("comments", ""),
+                    ]
+                )
                 row_idx = ws.max_row
-                if r['type'].upper()=="KIT":
+                if r["type"].upper() == "KIT":
                     for cell in ws[row_idx]:
-                        cell.fill=kit_fill
-                elif r['type'].upper()=="MODULE":
+                        cell.fill = kit_fill
+                elif r["type"].upper() == "MODULE":
                     for cell in ws[row_idx]:
-                        cell.fill=module_fill
+                        cell.fill = module_fill
             for col in ws.columns:
-                max_len=0
-                letter=get_column_letter(col[0].column)
+                max_len = 0
+                letter = get_column_letter(col[0].column)
                 for cell in col:
                     val = str(cell.value) if cell.value is not None else ""
                     if len(val) > max_len:
@@ -4690,83 +6265,97 @@ class StockReceiveKit(tk.Frame):
             ws.page_setup.fitToWidth = 1
             wb.save(file_path)
             custom_popup(
-            self.parent, 
-            lang.t("receive_kit.success", "Success"), 
-            lang.t("receive_kit.export_success_with_path", "Export successful: {path}", path=file_path), 
-            "info"
+                self.parent,
+                lang.t("receive_kit.success", "Success"),
+                lang.t(
+                    "receive_kit.export_success_with_path",
+                    "Export successful: {path}",
+                    path=file_path,
+                ),
+                "info",
             )
-            self.status_var.set(lang.t("receive_kit.export_success_with_path", "Export successful: {path}", path=file_path))
+            self.status_var.set(
+                lang.t(
+                    "receive_kit.export_success_with_path",
+                    "Export successful: {path}",
+                    path=file_path,
+                )
+            )
         except Exception as e:
             logging.error(f"Export failed: {e}")
             custom_popup(
-            self.parent, 
-            lang.t("receive_kit.error", "Error"), 
-            lang.t("receive_kit.export_failed_with_error", "Export failed: {error}", error=str(e)), 
-            "error"
+                self.parent,
+                lang.t("receive_kit.error", "Error"),
+                lang.t(
+                    "receive_kit.export_failed_with_error",
+                    "Export failed: {error}",
+                    error=str(e),
+                ),
+                "error",
             )
 
     # -----------------------------------------------------------------
     # Clear / Context Menu
     # -----------------------------------------------------------------
     def clear_search(self):
-                self.search_var.set("")
-                self.search_listbox.delete(0, tk.END)
-                self.tree.delete(*self.tree.get_children())
+        self.search_var.set("")
+        self.search_listbox.delete(0, tk.END)
+        self.tree.delete(*self.tree.get_children())
 
-                self.row_data.clear()
-                self.code_to_iid.clear()
-                self.parent_expiry_map.clear()
+        self.row_data.clear()
+        self.code_to_iid.clear()
+        self.parent_expiry_map.clear()
 
-                self.status_var.set(lang.t("receive_kit.ready", "Ready"))
-                self.expiry_validation_active = False
+        self.status_var.set(lang.t("receive_kit.ready", "Ready"))
+        self.expiry_validation_active = False
+
     def clear_form(self):
-                self.search_var.set("")
-                self.search_listbox.delete(0, tk.END)
-                self.tree.delete(*self.tree.get_children())
+        self.search_var.set("")
+        self.search_listbox.delete(0, tk.END)
+        self.tree.delete(*self.tree.get_children())
 
-                self.row_data.clear()
-                self.code_to_iid.clear()
-                self.parent_expiry_map.clear()
+        self.row_data.clear()
+        self.code_to_iid.clear()
+        self.parent_expiry_map.clear()
 
-                self.scenario_var.set("")
-                self.mode_var.set("")
-                self.kit_var.set("")
-                self.kit_number_var.set("")
-                self.module_var.set("")
-                self.module_number_var.set("")
-                self.trans_type_var.set("")
-                self.end_user_var.set("")
-                self.third_party_var.set("")
+        self.scenario_var.set("")
+        self.mode_var.set("")
+        self.kit_var.set("")
+        self.kit_number_var.set("")
+        self.module_var.set("")
+        self.module_number_var.set("")
+        self.trans_type_var.set("")
+        self.end_user_var.set("")
+        self.third_party_var.set("")
 
-                try:
-                    self.remarks_entry.delete(0, tk.END)
-                except Exception:
-                    pass
+        try:
+            self.remarks_entry.delete(0, tk.END)
+        except Exception:
+            pass
 
-                self.end_user_cb.config(state="disabled")
-                self.third_party_cb.config(state="disabled")
-                self.remarks_entry.config(state="disabled")
+        self.end_user_cb.config(state="disabled")
+        self.third_party_cb.config(state="disabled")
+        self.remarks_entry.config(state="disabled")
 
-                self.status_var.set(lang.t("receive_kit.ready", "Ready"))
-                self.expiry_validation_active = False
-                self.load_scenarios()
+        self.status_var.set(lang.t("receive_kit.ready", "Ready"))
+        self.expiry_validation_active = False
+        self.load_scenarios()
+
     def show_context_menu(self, event):
         iid = self.tree.identify_row(event.y)
         if not iid:
             return
         self.tree.selection_set(iid)
         menu = tk.Menu(self.tree, tearoff=0)
-        menu.add_command(label=lang.t("receive_kit.add_new_row","Add New Row"),
-                         command=self.add_new_row)
+        menu.add_command(
+            label=lang.t("receive_kit.add_new_row", "Add New Row"),
+            command=self.add_new_row,
+        )
         menu.post(event.x_root, event.y_root)
+
     # Legacy alias
     def save(self, *args, **kwargs):
         self.save_all()
-
-
-
-
-
 
     # -----------------------------------------------------------------
     # Save Workflow
@@ -4777,40 +6366,43 @@ class StockReceiveKit(tk.Frame):
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.permission_denied_title", "Permission Denied"),
-                lang.t("receive_kit.permission_denied_msg", "Only admin or manager can save."),
-                "error"
+                lang.t(
+                    "receive_kit.permission_denied_msg",
+                    "Only admin or manager can save.",
+                ),
+                "error",
             )
             return
-    
+
         # Check if there are rows
         if not self.tree.get_children():
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.no_rows_title", "Nothing to Save"),
                 lang.t("receive_kit.no_rows_msg", "No rows present."),
-                "info"
+                "info",
             )
             return
-    
+
         # Get IN Type and canonicalize it
         in_type_display = self.trans_type_var.get().strip()
-        if not in_type_display: 
+        if not in_type_display:
             custom_popup(
                 self.parent,
                 lang.t("receive_kit.in_type_missing_title", "IN Type Missing"),
                 lang.t("receive_kit.in_type_missing_msg", "Please select an IN Type."),
-                "warning"
+                "warning",
             )
             return
-    
+
         # Convert to canonical English for validation
         in_type_canonical = self._canon_in_type(in_type_display)
-    
+
         # Get other fields
         third_party = self.third_party_var.get().strip()
         end_user = self.end_user_var.get().strip()
         remarks = self.remarks_entry.get().strip() if self.remarks_entry else ""
-    
+
         # Validation Rule 1: Third Party required for specific IN Types
         if in_type_canonical in ["In Donation", "In Borrowing", "In Return of Loan"]:
             if not third_party:
@@ -4822,12 +6414,12 @@ class StockReceiveKit(tk.Frame):
                     lang.t(
                         "receive_kit.third_party_required",
                         "A valid Third Party must be selected for {in_type}.",
-                        in_type=display_value
+                        in_type=display_value,
                     ),
-                    "error"
+                    "error",
                 )
                 return
-    
+
         # Validation Rule 2: End User required for "Return from End User"
         if in_type_canonical == "Return from End User":
             if not end_user:
@@ -4839,14 +6431,19 @@ class StockReceiveKit(tk.Frame):
                     lang.t(
                         "receive_kit.end_user_required",
                         "A valid End User must be selected for {in_type}.",
-                        in_type=display_value
+                        in_type=display_value,
                     ),
-                    "error"
+                    "error",
                 )
                 return
-    
+
         # Validation Rule 3: Remarks (min 10 words) for all other IN Types
-        if in_type_canonical not in ["In Donation", "In Borrowing", "In Return of Loan", "Return from End User"]: 
+        if in_type_canonical not in [
+            "In Donation",
+            "In Borrowing",
+            "In Return of Loan",
+            "Return from End User",
+        ]:
             if not remarks:
                 # Use the original display value from the combobox
                 display_value = self.trans_type_var.get().strip()
@@ -4856,12 +6453,12 @@ class StockReceiveKit(tk.Frame):
                     lang.t(
                         "receive_kit.remarks_required",
                         "Remarks are required for {in_type}.",
-                        in_type=display_value
+                        in_type=display_value,
                     ),
-                    "error"
+                    "error",
                 )
                 return
-        
+
             # Count words (split by whitespace)
             word_count = len(remarks.split())
             if word_count < 0:
@@ -4871,12 +6468,12 @@ class StockReceiveKit(tk.Frame):
                     lang.t(
                         "receive_kit.remarks_min_words",
                         "Remarks must contain at least 1 words (currently: {count} words).",
-                        count=word_count
+                        count=word_count,
                     ),
-                    "error"
+                    "error",
                 )
                 return
-        
+
         if not self.ensure_unique_numbers_interactively():
             return
         self.activate_global_expiry_validation()
@@ -4884,14 +6481,18 @@ class StockReceiveKit(tk.Frame):
         if structural_nodes:
             if not self._prompt_for_structural_expiries():
                 return
-            still_missing = [self.tree.item(iid,"values")[0]
-                             for iid in structural_nodes
-                             if not self.row_data.get(iid,{}).get("expiry_iso")]
+            still_missing = [
+                self.tree.item(iid, "values")[0]
+                for iid in structural_nodes
+                if not self.row_data.get(iid, {}).get("expiry_iso")
+            ]
             if still_missing:
-                custom_popup(self.parent,
-                             lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
-                             "Still missing expiry for:\n" + "\n".join(still_missing),
-                             "error")
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.missing_expiry_title", "Missing Expiry"),
+                    "Still missing expiry for:\n" + "\n".join(still_missing),
+                    "error",
+                )
                 return
             self._propagate_structural_expiries_top_down()
         else:
@@ -4909,61 +6510,100 @@ class StockReceiveKit(tk.Frame):
             if not self.row_data.get(iid, {}).get("expiry_iso")
         ]
         if missing_struct_final:
-            custom_popup(self.parent,
-                         lang.t("receive_kit.missing_expiry_title","Missing Expiry"),
-                         "Structural rows still missing expiry:\n" + "\n".join(missing_struct_final),
-                         "error")
+            custom_popup(
+                self.parent,
+                lang.t("receive_kit.missing_expiry_title", "Missing Expiry"),
+                "Structural rows still missing expiry:\n"
+                + "\n".join(missing_struct_final),
+                "error",
+            )
             return
         for iid in self._gather_full_tree_nodes():
             self._validate_and_tag_row(iid, force=True)
         self.update_unique_ids_and_column()
-        review_title = lang.t("receive_kit.review_title","Review Before Saving")
-        base_msg = lang.t("receive_kit.base_msg", "Structural expiries captured.Mandatory item expiries auto-adopted where possible.")
+        review_title = lang.t("receive_kit.review_title", "Review Before Saving")
+        base_msg = lang.t(
+            "receive_kit.base_msg",
+            "Structural expiries captured.Mandatory item expiries auto-adopted where possible.",
+        )
         if adopted_items:
-            base_msg += lang.t("receive_kit.adopted_items_msg", "\n{adopted_items} mandatory item(s) received an adopted expiry.").format(adopted_items=adopted_items)
-        review_message = base_msg + lang.t("receive_kit.proceed_with_save", "\nProceed with save?")
+            base_msg += lang.t(
+                "receive_kit.adopted_items_msg",
+                "\n{adopted_items} mandatory item(s) received an adopted expiry.",
+            ).format(adopted_items=adopted_items)
+        review_message = base_msg + lang.t(
+            "receive_kit.proceed_with_save", "\nProceed with save?"
+        )
         try:
             choice = custom_dialog(
                 self.parent,
                 review_title,
                 review_message,
                 buttons=[
-                    {"key":"save","text":lang.t("receive_kit.button_save","Save"),
-                     "style":"Primary.Popup.TButton"},
-                    {"key":"review","text":lang.t("receive_kit.button_review","Review"),
-                     "style":"Secondary.Popup.TButton"}
-                ]
+                    {
+                        "key": "save",
+                        "text": lang.t("receive_kit.button_save", "Save"),
+                        "style": "Primary.Popup.TButton",
+                    },
+                    {
+                        "key": "review",
+                        "text": lang.t("receive_kit.button_review", "Review"),
+                        "style": "Secondary.Popup.TButton",
+                    },
+                ],
             )
         except Exception:
             choice = "save" if win_confirm(review_title, review_message) else "review"
         if choice != "save":
-            self.status_var.set(lang.t("receive_kit.review_mode_status","Review mode - not saved yet."))
+            self.status_var.set(
+                lang.t("receive_kit.review_mode_status", "Review mode - not saved yet.")
+            )
             return
         document_number = self.generate_document_number(self.trans_type_var.get())
         self.ensure_module_number_consistency()
         exported_rows = []
         for root in self.tree.get_children(""):
-            if not self.save_subtree(root, [], exported_rows, document_number=document_number):
-                custom_popup(self.parent,
-                             lang.t("receive_kit.save_error_title","Save Error"),
-                             lang.t("receive_kit.save_error_msg","An error occurred during save."),
-                             "error")
+            if not self.save_subtree(
+                root, [], exported_rows, document_number=document_number
+            ):
+                custom_popup(
+                    self.parent,
+                    lang.t("receive_kit.save_error_title", "Save Error"),
+                    lang.t(
+                        "receive_kit.save_error_msg", "An error occurred during save."
+                    ),
+                    "error",
+                )
                 return
         self.rewrite_module_number_rows()
-        custom_popup(self.parent,
-                     lang.t("receive_kit.save_success_title","Success"),
-                     lang.t("receive_kit.save_success_msg","Data saved successfully."),
-                     "success")
-        self.status_var.set(
-            lang.t("receive_kit.saved_doc_status","Saved.Document Number: {doc}", doc=document_number)
-        )
-        if exported_rows and custom_askyesno(
+        custom_popup(
             self.parent,
-            lang.t("receive_kit.export_confirm_title","Export"),
-            lang.t("receive_kit.export_confirm_msg","Export this movement to Excel?")
-        ) == "yes":
+            lang.t("receive_kit.save_success_title", "Success"),
+            lang.t("receive_kit.save_success_msg", "Data saved successfully."),
+            "success",
+        )
+        self.status_var.set(
+            lang.t(
+                "receive_kit.saved_doc_status",
+                "Saved.Document Number: {doc}",
+                doc=document_number,
+            )
+        )
+        if (
+            exported_rows
+            and custom_askyesno(
+                self.parent,
+                lang.t("receive_kit.export_confirm_title", "Export"),
+                lang.t(
+                    "receive_kit.export_confirm_msg", "Export this movement to Excel?"
+                ),
+            )
+            == "yes"
+        ):
             self.export_data(exported_rows)
         self.clear_form()
+
+
 # ---------------------------------------------------------------------
 # VERSION
 # ---------------------------------------------------------------------

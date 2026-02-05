@@ -3192,15 +3192,17 @@ class StockInKit(tk.Frame):
                     f"[IN_KIT] ----- Calling insert_item_batches for {comp['code']} -----"
                 )
                 logging.info(f"[IN_KIT] parent_iid='{parent_iid}' (verified in tree)")
+                logging.info(f"[IN_KIT] item treecode='{tc}'")  # ✅ NEW: Log treecode
 
                 self.insert_item_batches(
                     code=comp["code"],
-                    parent_iid=parent_iid,  # ✅ Verified non-empty parent
+                    parent_iid=parent_iid,
                     kit_number=kit_number,
                     module_number=module_number,
                     structural_kit=kit_disp if kit_disp != "-----" else None,
                     structural_module=module_disp if module_disp != "-----" else None,
                     std_qty=std_qty,
+                    treecode=tc,  # ✅ NEW: Pass item's treecode
                 )
 
                 logging.info(
@@ -3237,6 +3239,7 @@ class StockInKit(tk.Frame):
         structural_kit,
         structural_module,
         std_qty,
+        treecode=None,  # ✅ NEW: Accept treecode parameter
     ):
         """
         Insert item batches into tree, allocating from longest expiry stock.
@@ -3307,6 +3310,7 @@ class StockInKit(tk.Frame):
                 "management_mode": "on_shelf",
                 "expiry_key": "",
                 "line_id": None,
+                "treecode": treecode,  # ✅ NEW: Store treecode even for warning rows
             }
             return
 
@@ -3405,14 +3409,15 @@ class StockInKit(tk.Frame):
                 ),
             )
 
-            # ✅ Store metadata with max_qty
+            # ✅ Store metadata with max_qty and treecode
             self.row_data[iid] = {
                 "kit_number": kit_number,
                 "module_number": module_number,
-                "max_qty": final_qty,  # ✅ For edit validation
+                "max_qty": final_qty,
                 "management_mode": b["management_mode"],
                 "expiry_key": expiry,
                 "line_id": line_id,
+                "treecode": treecode,  # ✅ NEW: Store treecode
             }
 
             # ✅ CRITICAL FIX: Pass parent_iid to record_suggested
@@ -3462,6 +3467,7 @@ class StockInKit(tk.Frame):
                 "management_mode": "on_shelf",
                 "expiry_key": longest_expiry or "",
                 "line_id": None,
+                "treecode": treecode,  # ✅ NEW: Store treecode
             }
 
         # Debug: Verify insertion
@@ -3952,15 +3958,64 @@ class StockInKit(tk.Frame):
     def generate_unique_id(
         self,
         scenario_id,
-        kit,
-        module,
-        item,
+        kit_code,  # ✅ Kit CODE (structural)
+        module_code,  # ✅ Module CODE (structural)
+        item_code,  # ✅ Item CODE
         std_qty,
-        exp_date,
-        kit_number,
-        module_number,
+        expiry_date,
+        kit_number,  # ✅ Kit NUMBER (instance)
+        module_number,  # ✅ Module NUMBER (instance)
+        treecode,  # ✅ Treecode
     ):
-        return f"{scenario_id}/{kit or 'None'}/{module or 'None'}/{item or 'None'}/{std_qty}/{exp_date or 'None'}/{kit_number or 'None'}/{module_number or 'None'}"
+        """
+        Generate unique_id for stock_data (in-box items).
+
+        ✅ FORMAT (9 parts):
+        scenario_id / kit_code / module_code / item_code / std_qty / expiry / kit_number / module_number / treecode
+
+        Example:
+        3/KMEDKFAI5RS/KMEDMCHO01-/DINJCEFL1V-/1000/2026-11-30/Measles-03/Measles-03-M1/03001001002
+
+        Args:
+            scenario_id: Scenario ID (e.g., "3")
+            kit_code: Kit code (e.g., "KMEDKFAI5RS")
+            module_code: Module code (e.g., "KMEDMCHO01-")
+            item_code: Item code (e.g., "DINJCEFL1V-")
+            std_qty: Standard quantity (e.g., "1000")
+            expiry_date: Expiry date YYYY-MM-DD (e.g., "2026-11-30")
+            kit_number: Kit instance number (e.g., "Measles-03")
+            module_number: Module instance number (e.g., "Measles-03-M1")
+            treecode: Treecode from kit_items (e.g., "03001001002")
+
+        Returns:
+            Formatted unique_id string with 9 parts
+        """
+        # Normalize None/empty values to "None"
+        kit_code_str = str(kit_code) if kit_code else "None"
+        module_code_str = str(module_code) if module_code else "None"
+        item_code_str = str(item_code) if item_code else "None"
+        std_qty_str = str(std_qty) if std_qty else "1"
+        expiry_str = str(expiry_date) if expiry_date else "None"
+        kit_number_str = str(kit_number) if kit_number else "None"
+        module_number_str = str(module_number) if module_number else "None"
+        treecode_str = str(treecode) if treecode else "None"
+
+        # ✅ Build unique_id with correct order
+        unique_id = (
+            f"{scenario_id}/"  # 1. Scenario ID
+            f"{kit_code_str}/"  # 2. Kit CODE
+            f"{module_code_str}/"  # 3. Module CODE
+            f"{item_code_str}/"  # 4. Item CODE
+            f"{std_qty_str}/"  # 5. Std Qty
+            f"{expiry_str}/"  # 6. Expiry Date
+            f"{kit_number_str}/"  # 7. Kit NUMBER (instance)
+            f"{module_number_str}/"  # 8. Module NUMBER (instance)
+            f"{treecode_str}"  # 9. Treecode
+        )
+
+        logging.debug(f"[IN_KIT] Generated unique_id: {unique_id}")
+
+        return unique_id
 
     # ------------- Document & Logging -------------
     def generate_document_number(self, in_type_text: str) -> str:
@@ -4528,24 +4583,40 @@ class StockInKit(tk.Frame):
                     continue
 
                 # ===== BUILD NEW UNIQUE_ID FOR COMPOSITION =====
-                kit_struct = kit_col if kit_col and kit_col != "-----" else None
-                module_struct = (
+                # Extract kit/module CODES (structural) from tree columns
+                kit_code = kit_col if kit_col and kit_col != "-----" else None
+                module_code = (
                     module_col if module_col and module_col != "-----" else None
                 )
-                item_part = code
+                item_code = code
                 std_numeric = int(std_qty) if str(std_qty).isdigit() else 0
 
-                # Generate new unique_id (8-part format)
+                # ✅ Get treecode from row_data
+                treecode = meta.get("treecode")  # Already fetched above
+
+                # ✅ Generate new unique_id (9-part format)
+                # Format: scenario_id/kit_code/module_code/item_code/std_qty/expiry/kit_number/module_number/treecode
                 new_unique_id = self.generate_unique_id(
-                    scenario_id,
-                    kit_struct,
-                    module_struct,
-                    item_part,
-                    std_numeric,
-                    parsed_exp,
-                    kit_number,
-                    module_number,
+                    scenario_id=scenario_id,  # 1. Scenario ID
+                    kit_code=kit_code,  # 2. Kit CODE (structural)
+                    module_code=module_code,  # 3. Module CODE (structural)
+                    item_code=item_code,  # 4. Item CODE
+                    std_qty=std_numeric,  # 5. Std Qty
+                    expiry_date=parsed_exp,  # 6. Expiry
+                    kit_number=kit_number,  # 7. Kit NUMBER (instance)
+                    module_number=module_number,  # 8. Module NUMBER (instance)
+                    treecode=treecode,  # 9. Treecode
                 )
+
+                # ✅ Log what was generated
+                logging.info(f"[IN_KIT] Generated unique_id for {code}:")
+                logging.info(f"[IN_KIT]   Kit CODE: {kit_code}")
+                logging.info(f"[IN_KIT]   Module CODE: {module_code}")
+                logging.info(f"[IN_KIT]   Item CODE: {item_code}")
+                logging.info(f"[IN_KIT]   Kit NUMBER: {kit_number}")
+                logging.info(f"[IN_KIT]   Module NUMBER: {module_number}")
+                logging.info(f"[IN_KIT]   Treecode: {treecode}")
+                logging.info(f"[IN_KIT]   Result: {new_unique_id}")
 
                 new_slash_count = new_unique_id.count("/")
                 logging.info(f"[IN_KIT] ✅ Generated new unique_id: {new_unique_id}")
