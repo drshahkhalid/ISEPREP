@@ -2190,7 +2190,16 @@ class StockInventory(tk.Frame):
         max_retries = 4
 
         def attempt(sql, params):
-            """Execute SQL with retry logic for database locks"""
+            """
+            Execute SQL with retry logic for database locks.
+            
+            Args:
+                sql (str): SQL query to execute
+                params (tuple): Query parameters
+                
+            Returns:
+                bool: True if successful, False if failed after retries
+            """
             for attempt_i in range(max_retries):
                 try:
                     cur.execute(sql, params)
@@ -2217,7 +2226,15 @@ class StockInventory(tk.Frame):
         )
 
         def final_qty(row):
-            """Calculate final quantity from stock_data row"""
+            """
+            Calculate final quantity from stock_data row.
+            
+            Args:
+                row (tuple): Stock data row with (qty_in, qty_out, [discrepancy])
+                
+            Returns:
+                int: Final quantity calculated as qty_in - qty_out + discrepancy
+            """
             if has_discrepancy:
                 return (row[0] or 0) - (row[1] or 0) + (row[2] or 0)
             return (row[0] or 0) - (row[1] or 0)
@@ -2298,6 +2315,8 @@ class StockInventory(tk.Frame):
                 # Parse physical quantity
                 physical = int(phys_str) if phys_str.isdigit() else None
                 if physical is None or physical < 0:
+                    # Log warning for data quality tracking
+                    print(f"Warning: Skipping row with invalid physical quantity for item {code}: '{phys_str}'")
                     continue  # Skip rows without valid physical quantity
 
                 # Parse unique_id components
@@ -2337,7 +2356,14 @@ class StockInventory(tk.Frame):
 
                 # Helper to insert new batch with qty_in = physical
                 def insert_new_batch(new_uid, exp_val, qty_in_amount):
-                    """Insert new batch with qty_in = physical, discrepancy = 0"""
+                    """
+                    Insert new batch with qty_in = physical, discrepancy = 0.
+                    
+                    Args:
+                        new_uid (str): Unique identifier for the new batch
+                        exp_val (str): Expiry date in ISO format
+                        qty_in_amount (int): Physical quantity to insert as qty_in
+                    """
                     cols = [
                         "unique_id",
                         "scenario",
