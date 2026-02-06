@@ -2211,11 +2211,6 @@ class StockInventory(tk.Frame):
                     errors.append(str(e))
                     return False
 
-        # Detect if discrepancy column exists in stock_data table
-        cur.execute("PRAGMA table_info(stock_data)")
-        colset = {r[1].lower() for r in cur.fetchall()}
-        has_discrepancy = "discrepancy" in colset
-
         # Determine inventory type abbreviation for logging
         inv_type_label = self.inv_type_var.get()
         inv_abbr = (
@@ -2227,16 +2222,14 @@ class StockInventory(tk.Frame):
 
         def final_qty(row):
             """
-            Calculate final quantity from stock_data row.
+            Calculate final quantity matching trigger logic: qty_in - qty_out.
             
             Args:
-                row (tuple): Stock data row with (qty_in, qty_out, [discrepancy])
+                row (tuple): Stock data row with (qty_in, qty_out, ...)
                 
             Returns:
-                int: Final quantity calculated as qty_in - qty_out + discrepancy
+                int: Final quantity calculated as qty_in - qty_out
             """
-            if has_discrepancy:
-                return (row[0] or 0) - (row[1] or 0) + (row[2] or 0)
             return (row[0] or 0) - (row[1] or 0)
 
         def log_transaction(
@@ -2244,6 +2237,7 @@ class StockInventory(tk.Frame):
             exp,
             qty_in=None,
             qty_out=None,
+            discrepancy=None,
             remarks=None,
             code=None,
             scen=None,
@@ -2251,8 +2245,10 @@ class StockInventory(tk.Frame):
             mod=None,
         ):
             """
-            Log transaction to stock_transactions table.
-            Note: Discrepancy is always NULL - actual movements are logged as qty_in/qty_out.
+            Log transaction to stock_transactions table with discrepancy for audit trail.
+            
+            Args:
+                discrepancy: Variance (positive=surplus, negative=shortage)
             """
             # Only log if there's actual movement
             if not qty_in and not qty_out:
@@ -2284,7 +2280,7 @@ class StockInventory(tk.Frame):
                     inv_abbr if qty_out and qty_out > 0 else None,
                     None,
                     None,
-                    None,  # Discrepancy is always NULL in transactions
+                    discrepancy if discrepancy else None,
                     remarks if remarks else None,
                     "stock_inv",
                 ),
@@ -2335,16 +2331,10 @@ class StockInventory(tk.Frame):
                 )
 
                 # Fetch existing stock_data row
-                if has_discrepancy:
-                    cur.execute(
-                        "SELECT qty_in, qty_out, discrepancy FROM stock_data WHERE unique_id = ?",
-                        (unique_id,),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
-                        (unique_id,),
-                    )
+                cur.execute(
+                    "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
+                    (unique_id,),
+                )
                 existing = cur.fetchone()
 
                 # Determine if this is in-box format (8-segment unique_id)
@@ -2357,7 +2347,7 @@ class StockInventory(tk.Frame):
                 # Helper to insert new batch with qty_in = physical
                 def insert_new_batch(new_uid, exp_val, qty_in_amount):
                     """
-                    Insert new batch with qty_in = physical, discrepancy = 0.
+                    Insert new batch. Triggers calculate final_qty = qty_in - qty_out.
                     
                     Args:
                         new_uid (str): Unique identifier for the new batch
@@ -2375,6 +2365,7 @@ class StockInventory(tk.Frame):
                         "std_qty",
                         "qty_in",
                         "qty_out",
+                        "exp_date",
                     ]
                     vals_ = [
                         new_uid,
@@ -2387,12 +2378,8 @@ class StockInventory(tk.Frame):
                         std_qty_val,
                         qty_in_amount,  # qty_in = physical
                         0,  # qty_out = 0
+                        exp_val,
                     ]
-                    if has_discrepancy:
-                        cols.append("discrepancy")
-                        vals_.append(0)  # discrepancy = 0
-                    cols.append("exp_date")
-                    vals_.append(exp_val)
                     attempt(
                         f"INSERT INTO stock_data ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})",
                         tuple(vals_),
@@ -2420,13 +2407,14 @@ class StockInventory(tk.Frame):
                             force_box_format=had_box,
                             treecode=treecode,
                         )
-                        # Insert with qty_in = physical (not discrepancy!)
+                        # Insert with qty_in = physical
                         insert_new_batch(new_uid, target_exp, physical)
-                        # Log as Qty_IN movement
+                        # Log as Qty_IN movement with discrepancy
                         log_transaction(
                             new_uid,
                             target_exp,
                             qty_in=physical,
+                            discrepancy=physical,
                             code=code,
                             scen=scenario_id,
                             kit=kit_number,
@@ -2440,39 +2428,36 @@ class StockInventory(tk.Frame):
                 old_qty_out = existing[1] or 0
                 old_final = final_qty(existing)
 
-                # CASE 2: Existing row with expiry change
+                # CASE 2: Existing row with expiry change - Smart Split Logic
                 if expiry_changed:
-                    # Step A: Close old batch by setting qty_out = qty_in + discrepancy
-                    # This zeros the batch: final = qty_in - qty_out + 0 = 0
-                    adjustment_to_zero = old_final
-                    new_qty_out = old_qty_out + adjustment_to_zero
+                    # Determine split strategy based on physical vs old_final
                     
-                    if has_discrepancy:
-                        attempt(
-                            "UPDATE stock_data SET qty_out = ?, discrepancy = 0 WHERE unique_id = ?",
-                            (new_qty_out, unique_id),
-                        )
-                    else:
+                    if physical < old_final:
+                        # SCENARIO 1: SPLIT - Move physical to new batch, keep rest in old
+                        qty_to_move = physical  # Amount moving to new batch with new expiry
+                        qty_to_keep = old_final - physical  # Amount staying with old expiry
+                        new_qty_out = old_qty_out + qty_to_move
+                        
+                        # Update old batch (removes qty_to_move, keeps qty_to_keep with old expiry)
                         attempt(
                             "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                             (new_qty_out, unique_id),
                         )
-                    
-                    # Log closing of old batch
-                    if adjustment_to_zero > 0:
+                        
+                        # Log removal from old batch
                         log_transaction(
                             unique_id,
                             old_exp,
-                            qty_out=adjustment_to_zero,
+                            qty_out=qty_to_move,
+                            discrepancy=-qty_to_move,
                             code=code,
                             scen=scenario_id,
                             kit=kit_number,
                             mod=module_number,
-                            remarks=f"Expiry changed to {new_exp}",
+                            remarks=f"Split: moving {qty_to_move} units to new expiry {new_exp}",
                         )
-
-                    # Step B: Create new batch with new expiry
-                    if physical > 0:
+                        
+                        # Create new batch with the moved amount
                         treecode = (
                             get_treecode(scenario_id, kit_code, module_code, item_code)
                             if had_box
@@ -2490,43 +2475,153 @@ class StockInventory(tk.Frame):
                             force_box_format=had_box,
                             treecode=treecode,
                         )
-                        # Insert with qty_in = physical
-                        insert_new_batch(new_uid, new_exp, physical)
-                        # Log as Qty_IN movement
+                        insert_new_batch(new_uid, new_exp, qty_to_move)
+                        
+                        # Log new batch creation
                         log_transaction(
                             new_uid,
                             new_exp,
-                            qty_in=physical,
+                            qty_in=qty_to_move,
+                            discrepancy=qty_to_move,
                             code=code,
                             scen=scenario_id,
                             kit=kit_number,
                             mod=module_number,
-                            remarks=remarks or "New batch after expiry change",
+                            remarks=f"New batch from split of {old_exp}",
                         )
-                    continue
+                        
+                    elif physical == old_final:
+                        # SCENARIO 2: MOVE ALL - Close old batch, create new with same qty
+                        new_qty_out = old_qty_out + old_final
+                        
+                        # Close old batch
+                        attempt(
+                            "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
+                            (new_qty_out, unique_id),
+                        )
+                        
+                        # Log closing
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_out=old_final,
+                            discrepancy=-old_final,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_number,
+                            mod=module_number,
+                            remarks=f"Closed: moving all stock to new expiry {new_exp}",
+                        )
+                        
+                        # Create new batch
+                        treecode = (
+                            get_treecode(scenario_id, kit_code, module_code, item_code)
+                            if had_box
+                            else None
+                        )
+                        new_uid = construct_unique_id(
+                            scenario_id=scenario_id,
+                            kit_code=kit_code,
+                            module_code=module_code,
+                            item_code=item_code,
+                            std_qty=std_qty_val,
+                            exp_date=new_exp,
+                            kit_number=parsed["kit_number"] if had_box else None,
+                            module_number=parsed["module_number"] if had_box else None,
+                            force_box_format=had_box,
+                            treecode=treecode,
+                        )
+                        insert_new_batch(new_uid, new_exp, physical)
+                        
+                        # Log new batch
+                        log_transaction(
+                            new_uid,
+                            new_exp,
+                            qty_in=physical,
+                            discrepancy=physical,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_number,
+                            mod=module_number,
+                            remarks=f"New batch replacing {old_exp}",
+                        )
+                        
+                    else:  # physical > old_final
+                        # SCENARIO 3: MOVE + ADD - Close old batch, create new with surplus
+                        surplus = physical - old_final
+                        new_qty_out = old_qty_out + old_final
+                        
+                        # Close old batch
+                        attempt(
+                            "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
+                            (new_qty_out, unique_id),
+                        )
+                        
+                        # Log closing
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_out=old_final,
+                            discrepancy=-old_final,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_number,
+                            mod=module_number,
+                            remarks=f"Closed: moving stock to new expiry {new_exp} with surplus",
+                        )
+                        
+                        # Create new batch with surplus
+                        treecode = (
+                            get_treecode(scenario_id, kit_code, module_code, item_code)
+                            if had_box
+                            else None
+                        )
+                        new_uid = construct_unique_id(
+                            scenario_id=scenario_id,
+                            kit_code=kit_code,
+                            module_code=module_code,
+                            item_code=item_code,
+                            std_qty=std_qty_val,
+                            exp_date=new_exp,
+                            kit_number=parsed["kit_number"] if had_box else None,
+                            module_number=parsed["module_number"] if had_box else None,
+                            force_box_format=had_box,
+                            treecode=treecode,
+                        )
+                        insert_new_batch(new_uid, new_exp, physical)
+                        
+                        # Log new batch with surplus
+                        log_transaction(
+                            new_uid,
+                            new_exp,
+                            qty_in=physical,
+                            discrepancy=physical,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_number,
+                            mod=module_number,
+                            remarks=f"New batch with surplus +{surplus} from {old_exp}",
+                        )
+                    
+                    continue  # Skip to next row
 
-                # CASE 3: Existing row (no expiry change) - "Bake-In & Reset"
+                # CASE 3: Existing row (no expiry change)
                 # Calculate adjustment needed
                 adjustment = physical - old_final
                 
                 if adjustment > 0:
                     # Need to ADD stock - increase qty_in
                     new_qty_in = old_qty_in + adjustment
-                    if has_discrepancy:
-                        attempt(
-                            "UPDATE stock_data SET qty_in = ?, discrepancy = 0 WHERE unique_id = ?",
-                            (new_qty_in, unique_id),
-                        )
-                    else:
-                        attempt(
-                            "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
-                            (new_qty_in, unique_id),
-                        )
+                    attempt(
+                        "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
+                        (new_qty_in, unique_id),
+                    )
                     # Log as Qty_IN movement
                     log_transaction(
                         unique_id,
                         old_exp,
                         qty_in=adjustment,
+                        discrepancy=adjustment,
                         code=code,
                         scen=scenario_id,
                         kit=kit_number,
@@ -2537,21 +2632,16 @@ class StockInventory(tk.Frame):
                 elif adjustment < 0:
                     # Need to REMOVE stock - increase qty_out
                     new_qty_out = old_qty_out + abs(adjustment)
-                    if has_discrepancy:
-                        attempt(
-                            "UPDATE stock_data SET qty_out = ?, discrepancy = 0 WHERE unique_id = ?",
-                            (new_qty_out, unique_id),
-                        )
-                    else:
-                        attempt(
-                            "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
-                            (new_qty_out, unique_id),
-                        )
+                    attempt(
+                        "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
+                        (new_qty_out, unique_id),
+                    )
                     # Log as Qty_Out movement
                     log_transaction(
                         unique_id,
                         old_exp,
                         qty_out=abs(adjustment),
+                        discrepancy=adjustment,
                         code=code,
                         scen=scenario_id,
                         kit=kit_number,
@@ -2560,13 +2650,8 @@ class StockInventory(tk.Frame):
                     )
                     
                 else:
-                    # No change - just ensure discrepancy is 0
-                    if has_discrepancy:
-                        attempt(
-                            "UPDATE stock_data SET discrepancy = 0 WHERE unique_id = ?",
-                            (unique_id,),
-                        )
-                    # No transaction needed for no change
+                    # No change needed
+                    pass
 
             conn.commit()
 
