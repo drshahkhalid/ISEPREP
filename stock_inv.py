@@ -2106,18 +2106,18 @@ class StockInventory(tk.Frame):
     def save_all(self):
         """
         Save inventory adjustments using "Bake-In & Reset" strategy.
-        
+
         Strategy:
         - Convert all adjustments into qty_in/qty_out movements
         - Reset discrepancy = 0 after baking in
         - Database triggers auto-calculate final_qty = qty_in - qty_out + 0
-        
+
         Handles:
         - Complete & Partial inventory types
         - 6-segment (on-shelf) & 8-segment (in-box) unique_ids
         - Expiry changes (close old batch, create new)
         - New items not in stock (insert with qty_in = physical)
-        
+
         Validates:
         - Items requiring expiry have valid future updated_exp_date
         - Only admin/manager roles can save
@@ -2192,11 +2192,11 @@ class StockInventory(tk.Frame):
         def attempt(sql, params):
             """
             Execute SQL with retry logic for database locks.
-            
+
             Args:
                 sql (str): SQL query to execute
                 params (tuple): Query parameters
-                
+
             Returns:
                 bool: True if successful, False if failed after retries
             """
@@ -2223,10 +2223,10 @@ class StockInventory(tk.Frame):
         def final_qty(row):
             """
             Calculate final quantity matching trigger logic: qty_in - qty_out.
-            
+
             Args:
                 row (tuple): Stock data row with (qty_in, qty_out, ...)
-                
+
             Returns:
                 int: Final quantity calculated as qty_in - qty_out
             """
@@ -2246,14 +2246,14 @@ class StockInventory(tk.Frame):
         ):
             """
             Log transaction to stock_transactions table with discrepancy for audit trail.
-            
+
             Args:
                 discrepancy: Variance (positive=surplus, negative=shortage)
             """
             # Only log if there's actual movement
             if not qty_in and not qty_out:
                 return
-            
+
             attempt(
                 """
                 INSERT INTO stock_transactions
@@ -2312,7 +2312,9 @@ class StockInventory(tk.Frame):
                 physical = int(phys_str) if phys_str.isdigit() else None
                 if physical is None or physical < 0:
                     # Log warning for data quality tracking
-                    print(f"Warning: Skipping row with invalid physical quantity for item {code}: '{phys_str}'")
+                    print(
+                        f"Warning: Skipping row with invalid physical quantity for item {code}: '{phys_str}'"
+                    )
                     continue  # Skip rows without valid physical quantity
 
                 # Parse unique_id components
@@ -2348,7 +2350,7 @@ class StockInventory(tk.Frame):
                 def insert_new_batch(new_uid, exp_val, qty_in_amount):
                     """
                     Insert new batch. Triggers calculate final_qty = qty_in - qty_out.
-                    
+
                     Args:
                         new_uid (str): Unique identifier for the new batch
                         exp_val (str): Expiry date in ISO format
@@ -2431,19 +2433,23 @@ class StockInventory(tk.Frame):
                 # CASE 2: Existing row with expiry change - Smart Split Logic
                 if expiry_changed:
                     # Determine split strategy based on physical vs old_final
-                    
+
                     if physical < old_final:
                         # SCENARIO 1: SPLIT - Move physical to new batch, keep rest in old
-                        qty_to_move = physical  # Amount moving to new batch with new expiry
-                        qty_to_keep = old_final - physical  # Amount staying with old expiry
+                        qty_to_move = (
+                            physical  # Amount moving to new batch with new expiry
+                        )
+                        qty_to_keep = (
+                            old_final - physical
+                        )  # Amount staying with old expiry
                         new_qty_out = old_qty_out + qty_to_move
-                        
+
                         # Update old batch (removes qty_to_move, keeps qty_to_keep with old expiry)
                         attempt(
                             "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                             (new_qty_out, unique_id),
                         )
-                        
+
                         # Log removal from old batch
                         log_transaction(
                             unique_id,
@@ -2456,7 +2462,7 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"Split: moving {qty_to_move} units to new expiry {new_exp}",
                         )
-                        
+
                         # Create new batch with the moved amount
                         treecode = (
                             get_treecode(scenario_id, kit_code, module_code, item_code)
@@ -2476,7 +2482,7 @@ class StockInventory(tk.Frame):
                             treecode=treecode,
                         )
                         insert_new_batch(new_uid, new_exp, qty_to_move)
-                        
+
                         # Log new batch creation
                         log_transaction(
                             new_uid,
@@ -2489,17 +2495,17 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"New batch from split of {old_exp}",
                         )
-                        
+
                     elif physical == old_final:
                         # SCENARIO 2: MOVE ALL - Close old batch, create new with same qty
                         new_qty_out = old_qty_out + old_final
-                        
+
                         # Close old batch
                         attempt(
                             "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                             (new_qty_out, unique_id),
                         )
-                        
+
                         # Log closing
                         log_transaction(
                             unique_id,
@@ -2512,7 +2518,7 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"Closed: moving all stock to new expiry {new_exp}",
                         )
-                        
+
                         # Create new batch
                         treecode = (
                             get_treecode(scenario_id, kit_code, module_code, item_code)
@@ -2532,7 +2538,7 @@ class StockInventory(tk.Frame):
                             treecode=treecode,
                         )
                         insert_new_batch(new_uid, new_exp, physical)
-                        
+
                         # Log new batch
                         log_transaction(
                             new_uid,
@@ -2545,18 +2551,18 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"New batch replacing {old_exp}",
                         )
-                        
+
                     else:  # physical > old_final
                         # SCENARIO 3: MOVE + ADD - Close old batch, create new with surplus
                         surplus = physical - old_final
                         new_qty_out = old_qty_out + old_final
-                        
+
                         # Close old batch
                         attempt(
                             "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                             (new_qty_out, unique_id),
                         )
-                        
+
                         # Log closing
                         log_transaction(
                             unique_id,
@@ -2569,7 +2575,7 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"Closed: moving stock to new expiry {new_exp} with surplus",
                         )
-                        
+
                         # Create new batch with surplus
                         treecode = (
                             get_treecode(scenario_id, kit_code, module_code, item_code)
@@ -2589,7 +2595,7 @@ class StockInventory(tk.Frame):
                             treecode=treecode,
                         )
                         insert_new_batch(new_uid, new_exp, physical)
-                        
+
                         # Log new batch with surplus
                         log_transaction(
                             new_uid,
@@ -2602,13 +2608,13 @@ class StockInventory(tk.Frame):
                             mod=module_number,
                             remarks=f"New batch with surplus +{surplus} from {old_exp}",
                         )
-                    
+
                     continue  # Skip to next row
 
                 # CASE 3: Existing row (no expiry change)
                 # Calculate adjustment needed
                 adjustment = physical - old_final
-                
+
                 if adjustment > 0:
                     # Need to ADD stock - increase qty_in
                     new_qty_in = old_qty_in + adjustment
@@ -2628,7 +2634,7 @@ class StockInventory(tk.Frame):
                         mod=module_number,
                         remarks=remarks,
                     )
-                    
+
                 elif adjustment < 0:
                     # Need to REMOVE stock - increase qty_out
                     new_qty_out = old_qty_out + abs(adjustment)
@@ -2648,7 +2654,7 @@ class StockInventory(tk.Frame):
                         mod=module_number,
                         remarks=remarks,
                     )
-                    
+
                 else:
                     # No change needed
                     pass
