@@ -2433,11 +2433,12 @@ class StockInventory(tk.Frame):
                     # Determine split strategy based on physical vs old_final
                     
                     if physical < old_final:
-                        # SCENARIO 1: SPLIT - Keep difference in old batch
-                        qty_to_move = old_final - physical  # Amount moving to new batch
+                        # SCENARIO 1: SPLIT - Move physical to new batch, keep rest in old
+                        qty_to_move = physical  # Amount moving to new batch with new expiry
+                        qty_to_keep = old_final - physical  # Amount staying with old expiry
                         new_qty_out = old_qty_out + qty_to_move
                         
-                        # Update old batch (keeps physical amount with old expiry)
+                        # Update old batch (removes qty_to_move, keeps qty_to_keep with old expiry)
                         attempt(
                             "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                             (new_qty_out, unique_id),
