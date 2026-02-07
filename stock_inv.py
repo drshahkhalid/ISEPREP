@@ -33,6 +33,250 @@ except ImportError:
 _SCENARIO_CACHE = {}
 
 
+# ======================== HELPER FUNCTIONS FROM STOCK_SUMMARY ========================
+
+
+def load_scenario_maps():
+    """Load scenario ID to name mappings"""
+    conn = connect_db()
+    if conn is None:
+        return {}, set()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT scenario_id, name FROM scenarios")
+        rows = cur.fetchall()
+        id_to_name = {}
+        name_set = set()
+        for r in rows:
+            sid = r["scenario_id"]
+            nm = r["name"]
+            if nm:
+                name_set.add(nm)
+            id_to_name[str(sid)] = nm
+        return id_to_name, name_set
+    finally:
+        cur.close()
+        conn.close()
+
+
+def normalize_scenario(raw_val, id_to_name, name_set):
+    """Normalize scenario value to name"""
+    if raw_val is None:
+        return ""
+    if raw_val in name_set:
+        return raw_val
+    txt = str(raw_val)
+    if txt in id_to_name:
+        return id_to_name[txt] or txt
+    return txt
+
+
+def load_std_quantities_by_scenario(scenario_name=None):
+    """
+    Load standard quantities with treecodes and management type info
+    Returns: dict with structure {scenario_name: {key: {"code": code, "std_qty": qty, "mgmt_type": type, ...}}}
+    Key is: code for on-shelf, treecode for in-box
+    """
+    result = {}
+
+    # Determine scenarios to load
+    if not scenario_name:
+        scenario_rows = _fetchall("SELECT scenario_id, name FROM scenarios")
+        scenarios = [(r["scenario_id"], r["name"]) for r in scenario_rows]
+    else:
+        scenario_row = _fetchone(
+            "SELECT scenario_id, name FROM scenarios WHERE name = ?", (scenario_name,)
+        )
+        if not scenario_row:
+            return {}
+        scenarios = [(scenario_row["scenario_id"], scenario_row["name"])]
+
+    for scenario_id, scenario_name in scenarios:
+        if scenario_name not in result:
+            result[scenario_name] = {}
+
+        # 1. Load ON-SHELF items from compositions
+        onshelf_rows = _fetchall(
+            """
+            SELECT code, quantity
+            FROM compositions 
+            WHERE scenario_id = ?
+            ORDER BY code
+            """,
+            (scenario_id,),
+        )
+
+        for r in onshelf_rows:
+            code = r["code"]
+            qty = r["quantity"] or 0
+
+            # Key is code for on-shelf items
+            result[scenario_name][code] = {
+                "code": code,
+                "std_qty": qty,
+                "mgmt_type": "on-shelf",
+                "kit_code": None,
+                "module_code": None,
+                "treecode": None,
+                "scenario_id": scenario_id,
+            }
+
+        # 2. Load IN-BOX items from kit_items
+        inbox_rows = _fetchall(
+            """
+            SELECT code, kit, module, std_qty, treecode
+            FROM kit_items
+            WHERE scenario_id = ?
+            ORDER BY treecode, kit, module
+            """,
+            (scenario_id,),
+        )
+
+        for r in inbox_rows:
+            code = r["code"]
+            treecode = r["treecode"] or code
+            kit = r["kit"] or ""
+            module = r["module"] or ""
+            qty = r["std_qty"] or 0
+
+            # Key is treecode for in-box items
+            result[scenario_name][treecode] = {
+                "code": code,
+                "std_qty": qty,
+                "mgmt_type": "in-box",
+                "kit_code": kit,
+                "module_code": module,
+                "treecode": treecode,
+                "scenario_id": scenario_id,
+            }
+
+    return result
+
+
+def aggregate_stock_by_key(scenario_name, mgmt_mode):
+    """
+    Aggregate stock data by appropriate key (code for on-shelf, treecode for in-box)
+    Returns: dict with key = (scenario, key_value) containing stock data
+    """
+    result = {}
+
+    id_to_name, name_set = load_scenario_maps()
+
+    conn = connect_db()
+    if conn is None:
+        return result
+
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        # Build WHERE clause
+        where_parts = ["final_qty > 0"]
+        params = []
+
+        if scenario_name:
+            where_parts.append(
+                "(scenario = ? OR scenario = (SELECT CAST(scenario_id AS TEXT) FROM scenarios WHERE name=? LIMIT 1))"
+            )
+            params.extend([scenario_name, scenario_name])
+
+        where_clause = " AND ".join(where_parts)
+
+        # Query ON-SHELF items (match by item code)
+        if mgmt_mode in ("", "All", "On-Shelf"):
+            onshelf_sql = f"""
+                SELECT
+                    CAST(scenario AS TEXT) AS raw_scenario,
+                    item AS code,
+                    SUM(final_qty) AS current_stock,
+                    MIN(exp_date) AS earliest_expiry,
+                    GROUP_CONCAT(DISTINCT kit_number) AS kit_numbers,
+                    GROUP_CONCAT(DISTINCT module_number) AS module_numbers
+                FROM stock_data
+                WHERE {where_clause}
+                  AND LOWER(management_mode) IN ('on_shelf','on-shelf','onshelf')
+                  AND item IS NOT NULL
+                  AND item <> ''
+                GROUP BY raw_scenario, item
+            """
+
+            onshelf_rows = cur.execute(onshelf_sql, tuple(params)).fetchall()
+
+            for r in onshelf_rows:
+                norm_scen = normalize_scenario(r["raw_scenario"], id_to_name, name_set)
+                key = (norm_scen, r["code"])  # Use code for on-shelf
+
+                result[key] = {
+                    "current_stock": r["current_stock"] or 0,
+                    "earliest_expiry": r["earliest_expiry"],
+                    "kit_number": "",
+                    "module_number": "",
+                    "mgmt_type": "on-shelf",
+                }
+
+        # Query IN-BOX items (match by treecode)
+        if mgmt_mode in ("", "All", "In-Box"):
+            inbox_sql = f"""
+                SELECT
+                    CAST(scenario AS TEXT) AS raw_scenario,
+                    treecode,
+                    SUM(final_qty) AS current_stock,
+                    MIN(exp_date) AS earliest_expiry,
+                    MIN(kit_number) AS kit_number,
+                    MIN(module_number) AS module_number
+                FROM stock_data
+                WHERE {where_clause}
+                  AND LOWER(management_mode) IN ('in_box','in-box','inbox')
+                  AND treecode IS NOT NULL
+                  AND treecode <> ''
+                GROUP BY raw_scenario, treecode
+            """
+
+            inbox_rows = cur.execute(inbox_sql, tuple(params)).fetchall()
+
+            for r in inbox_rows:
+                norm_scen = normalize_scenario(r["raw_scenario"], id_to_name, name_set)
+                key = (norm_scen, r["treecode"])  # Use treecode for in-box
+
+                result[key] = {
+                    "current_stock": r["current_stock"] or 0,
+                    "earliest_expiry": r["earliest_expiry"],
+                    "kit_number": r["kit_number"] or "",
+                    "module_number": r["module_number"] or "",
+                    "mgmt_type": "in-box",
+                }
+
+    finally:
+        cur.close()
+        conn.close()
+
+    return result
+
+
+def _fetchall(sql, params=()):
+    """Helper to fetch all rows"""
+    conn = connect_db()
+    if conn is None:
+        return []
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, params)
+        return cur.fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _fetchone(sql, params=()):
+    """Helper to fetch one row"""
+    rows = _fetchall(sql, params)
+    return rows[0] if rows else None
+
+
 def scenario_id_to_name(scenario_id: str) -> str:
     if not scenario_id:
         return lang.t("stock_inv.unknown", "Unknown")
@@ -430,154 +674,257 @@ class StockInventory(tk.Frame):
 
     # ---------- Search base ----------
     def fetch_search_results(self, query):
-        conn = connect_db()
-        if conn is None:
+        """
+        NEW: Search in standard quantities (compositions + kit_items)
+        Returns items matching query, with stock status
+        """
+        if not query or len(query) < 2:
             return []
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        try:
-            sql = """
-                SELECT DISTINCT c.code
-                  FROM compositions c
-                  JOIN items_list i ON c.code = i.code
-                 WHERE c.quantity > 0
-            """
-            params = []
-            if query:
-                lang_code = lang.lang_code.lower()
-                col_map = {
-                    "en": "designation_en",
-                    "fr": "designation_fr",
-                    "es": "designation_sp",
-                    "sp": "designation_sp",
-                }
-                active_designation = col_map.get(lang_code, "designation_en")
-                sql += f"""
-                   AND (
-                        LOWER(c.code) LIKE ?
-                     OR LOWER(i.{active_designation}) LIKE ?
-                     OR (i.{active_designation} IS NULL AND LOWER(i.designation_en) LIKE ?)
-                     OR (i.{active_designation} IS NULL AND i.designation_en IS NULL AND LOWER(i.designation) LIKE ?)
-                   )
-                """
-                like = f"%{query.lower()}%"
-                params.extend([like, like, like, like])
-            if self.scenario_var.get() != lang.t(
-                "stock_inv.all_scenarios", "All Scenarios"
-            ):
-                sql += " AND c.scenario_id = (SELECT scenario_id FROM scenarios WHERE name = ?)"
-                params.append(self.scenario_var.get())
-            sql += " ORDER BY c.code"
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-            return [
-                {"code": r["code"], "description": get_active_designation(r["code"])}
-                for r in rows
-            ]
-        finally:
-            cur.close()
-            conn.close()
+
+        scenario_filter = self.scenario_var.get()
+        mgmt_mode = self.mgmt_mode_var.get()
+
+        # Get all items from std sources
+        std_data_by_scenario = load_std_quantities_by_scenario(
+            scenario_filter if scenario_filter else None
+        )
+
+        # Get stock data
+        stock_map = aggregate_stock_by_key(scenario_filter, mgmt_mode)
+
+        # Search through items
+        query_lower = query.lower()
+        results = []
+
+        for scenario_name, std_data in std_data_by_scenario.items():
+            for key, std_info in std_data.items():
+                code = std_info["code"]
+                description = get_active_designation(code)
+
+                # Search in code and description
+                if query_lower in code.lower() or query_lower in description.lower():
+                    # Check stock status
+                    stock_key = (scenario_name, key)
+                    stock_entry = stock_map.get(stock_key, {"current_stock": 0})
+
+                    results.append(
+                        {
+                            "code": code,
+                            "description": description,
+                            "scenario": scenario_name,
+                            "has_stock": stock_entry["current_stock"] > 0,
+                            "std_qty": std_info["std_qty"],
+                            "mgmt_type": std_info["mgmt_type"],
+                        }
+                    )
+
+        return results
+
+    def on_search_keyrelease(self, event=None):
+        query = self.code_entry.get().strip()
+        self.search_listbox.delete(0, tk.END)
+        if len(query) < 2:
+            return
+
+        results = self.fetch_search_results(query)
+
+        for r in results:
+            # Show stock status indicator
+            indicator = "✓" if r["has_stock"] else "○"
+            display = f"{indicator} {r['code']} - {r['description']} [{r['mgmt_type']}]"
+            self.search_listbox.insert(tk.END, display)
+
+        self.status_var.set(
+            lang.t(
+                "stock_inv.found_items", "Found {count} items matching '{query}'"
+            ).format(count=len(results), query=query)
+        )
+
+    def on_search_select(self, event=None):
+        """Handle search selection - load the item from std sources"""
+        sel = self.search_listbox.curselection()
+        if not sel:
+            return
+
+        line = self.search_listbox.get(sel[0])
+
+        # Extract code (handle both ✓ and ○ prefixes)
+        code = line.split(" - ")[0].replace("✓ ", "").replace("○ ", "").strip()
+
+        # Load the item using fetch_inventory_items (filtered by code)
+        scenario_filter = self.scenario_var.get()
+        mgmt_mode = self.mgmt_mode_var.get()
+
+        std_data_by_scenario = load_std_quantities_by_scenario(
+            scenario_filter if scenario_filter else None
+        )
+        stock_map = aggregate_stock_by_key(scenario_filter, mgmt_mode)
+
+        # Find matching items
+        added = 0
+        for scenario_name, std_data in std_data_by_scenario.items():
+            for key, std_info in std_data.items():
+                if std_info["code"] == code:
+                    scenario_id = std_info["scenario_id"]
+                    mgmt_type = std_info["mgmt_type"]
+
+                    # Get stock data
+                    stock_key = (scenario_name, key)
+                    stock_entry = stock_map.get(
+                        stock_key,
+                        {
+                            "current_stock": 0,
+                            "earliest_expiry": "",
+                            "kit_number": "",
+                            "module_number": "",
+                        },
+                    )
+
+                    # Generate proper unique_id
+                    if mgmt_type == "on-shelf":
+                        unique_id = construct_unique_id(
+                            scenario_id=str(scenario_id),
+                            kit_code=None,
+                            module_code=None,
+                            item_code=code,
+                            std_qty=std_info["std_qty"],
+                            exp_date=stock_entry.get("earliest_expiry", ""),
+                            force_box_format=False,
+                        )
+                    else:
+                        unique_id = construct_unique_id(
+                            scenario_id=str(scenario_id),
+                            kit_code=std_info.get("kit_code"),
+                            module_code=std_info.get("module_code"),
+                            item_code=code,
+                            std_qty=std_info["std_qty"],
+                            exp_date=stock_entry.get("earliest_expiry", ""),
+                            kit_number=stock_entry.get("kit_number"),
+                            module_number=stock_entry.get("module_number"),
+                            force_box_format=True,
+                            treecode=std_info.get("treecode"),
+                        )
+
+                    # Check if already in tree
+                    if unique_id not in self.user_row_states:
+                        item = {
+                            "unique_id": unique_id,
+                            "code": code,
+                            "description": get_active_designation(code),
+                            "type": get_item_type(code),
+                            "scenario": scenario_name,
+                            "kit_number": stock_entry.get("kit_number", "-----"),
+                            "module_number": stock_entry.get("module_number", "-----"),
+                            "current_stock": stock_entry["current_stock"],
+                            "exp_date": stock_entry.get("earliest_expiry", ""),
+                            "std_qty": std_info["std_qty"],
+                        }
+
+                        self.insert_tree_row(item, physical_qty="")
+                        added += 1
+
+        self._highlight_missing_required_expiry()
+
+        self.status_var.set(
+            lang.t(
+                "stock_inv.added_items", "Added {count} items for code {code}"
+            ).format(count=added, code=code)
+        )
+
+        self.code_entry.delete(0, tk.END)
+        self.search_listbox.delete(0, tk.END)
 
     # ---------- Items in stock with filters ----------
-    def fetch_items_in_stock(self, code=None):
-        conn = connect_db()
-        if conn is None:
-            return []
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        try:
-            sql = """SELECT unique_id, final_qty FROM stock_data WHERE final_qty != 0"""
-            params = []
-            if code:
-                sql += " AND unique_id LIKE ?"
-                params.append(f"%/{code}/%")
-            cur.execute(sql, params)
-            rows = cur.fetchall()
+    def fetch_inventory_items(self):
+        """
+        APPROACH: Load ALL items from standard quantities (compositions + kit_items)
+        Then match stock data to show current quantities.
+        Returns: List of items with current_stock (0 if no stock exists)
+        """
+        scenario_filter = self.scenario_var.get()
+        mgmt_mode = self.mgmt_mode_var.get()
 
-            scenario_filter = self.scenario_var.get()
-            kit_filter = self.kit_number_var.get()
-            module_filter = self.module_number_var.get()
-            mgmt_mode = self.mgmt_mode_var.get()
+        # Get standard quantities for all items
+        std_data_by_scenario = load_std_quantities_by_scenario(
+            scenario_filter if scenario_filter else None
+        )
 
-            standalone_label = lang.t(
-                "stock_inv.stand_alone_items", "Stand alone items"
-            )
-            all_kits_label = lang.t("stock_inv.all_kits", "All Kits")
-            all_modules_label = lang.t("stock_inv.all_modules", "All Modules")
+        # Get current stock data
+        stock_map = aggregate_stock_by_key(scenario_filter, mgmt_mode)
 
-            want_standalone = kit_filter == standalone_label
-            on_shelf = mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf")
-            in_box = mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box")
+        items = []
+        for scenario_name, std_data in std_data_by_scenario.items():
+            for key, std_info in std_data.items():
+                code = std_info["code"]
+                mgmt_type = std_info["mgmt_type"]
+                scenario_id = std_info["scenario_id"]
 
-            six_segment = []
-            eight_segment = []
-
-            for r in rows:
-                uid = r["unique_id"]
-                plen = len(uid.split("/"))
-                parsed = parse_inventory_unique_id(uid)
-                scenario_name = parsed["scenario_name"] or lang.t(
-                    "stock_inv.unknown", "Unknown"
-                )
-
-                if (
-                    scenario_filter
-                    != lang.t("stock_inv.all_scenarios", "All Scenarios")
-                    and scenario_name != scenario_filter
-                ):
-                    continue
-
-                kit_number_val = parsed["kit_number"]
-                module_number_val = parsed["module_number"]
-
-                if on_shelf and plen != 6:
-                    continue
-                if in_box and plen != 8:
-                    continue
-
-                if want_standalone:
-                    if kit_number_val or module_number_val:
+                # Apply management mode filter
+                if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
+                    if mgmt_type != "on-shelf":
                         continue
-                else:
-                    if not on_shelf:
-                        if kit_filter not in (all_kits_label, standalone_label):
-                            if (kit_number_val or "-----") != kit_filter:
-                                continue
-                        if module_filter != all_modules_label:
-                            if (module_number_val or "-----") != module_filter:
-                                continue
+                elif mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box"):
+                    if mgmt_type != "in-box":
+                        continue
 
-                display_code = (
-                    parsed["item_code"]
-                    or parsed["module_code"]
-                    or parsed["kit_code"]
-                    or ""
+                # Get stock data (or default to 0)
+                stock_key = (scenario_name, key)
+                stock_entry = stock_map.get(
+                    stock_key,
+                    {
+                        "current_stock": 0,
+                        "earliest_expiry": "",
+                        "kit_number": "",
+                        "module_number": "",
+                        "mgmt_type": mgmt_type,
+                    },
                 )
-                description = get_active_designation(display_code)
-                item_type = get_item_type(display_code)
-                current_stock = r["final_qty"]
 
-                record = {
-                    "unique_id": uid,
-                    "code": display_code,
-                    "description": description,
-                    "type": item_type,
-                    "scenario": scenario_name,
-                    "kit_number": (kit_number_val or "-----"),
-                    "module_number": (module_number_val or "-----"),
-                    "current_stock": current_stock,
-                    "exp_date": parsed["exp_date"] or "",
-                    "std_qty": parsed["std_qty"],
-                }
-                if plen == 6:
-                    six_segment.append(record)
+                # Generate proper unique_id based on management type
+                if mgmt_type == "on-shelf":
+                    # 6-segment format: scenario_id/None/None/item_code/std_qty/exp_date
+                    unique_id = construct_unique_id(
+                        scenario_id=str(scenario_id),
+                        kit_code=None,
+                        module_code=None,
+                        item_code=code,
+                        std_qty=std_info["std_qty"],
+                        exp_date=stock_entry.get("earliest_expiry", ""),
+                        force_box_format=False,
+                    )
                 else:
-                    eight_segment.append(record)
+                    # 8-segment format: scenario_id/kit_code/module_code/item_code/std_qty/exp_date/kit_number/module_number/treecode
+                    treecode = std_info.get("treecode")
+                    unique_id = construct_unique_id(
+                        scenario_id=str(scenario_id),
+                        kit_code=std_info.get("kit_code"),
+                        module_code=std_info.get("module_code"),
+                        item_code=code,
+                        std_qty=std_info["std_qty"],
+                        exp_date=stock_entry.get("earliest_expiry", ""),
+                        kit_number=stock_entry.get("kit_number"),
+                        module_number=stock_entry.get("module_number"),
+                        force_box_format=True,
+                        treecode=treecode,
+                    )
 
-            return six_segment + eight_segment
-        finally:
-            cur.close()
-            conn.close()
+                items.append(
+                    {
+                        "unique_id": unique_id,
+                        "code": code,
+                        "description": get_active_designation(code),
+                        "type": get_item_type(code),
+                        "scenario": scenario_name,
+                        "kit_number": stock_entry.get("kit_number", "-----"),
+                        "module_number": stock_entry.get("module_number", "-----"),
+                        "current_stock": stock_entry["current_stock"],  # Can be 0!
+                        "exp_date": stock_entry.get("earliest_expiry", ""),
+                        "std_qty": std_info["std_qty"],
+                        "mgmt_type": mgmt_type,
+                    }
+                )
+
+        return items
 
     # ---------- State preservation helpers ----------
     def capture_current_rows(self):
@@ -609,70 +956,36 @@ class StockInventory(tk.Frame):
                 or (int(vals[7]) if str(vals[7]).isdigit() else 0) == 0,
             }
 
-    def build_filtered_dataset(self):
-        fetched = self.fetch_items_in_stock()
-        fetched_map = {r["unique_id"]: r for r in fetched}
-        merged = []
-        for item in fetched:
-            state = self.user_row_states.get(item["unique_id"])
-            if state:
-                phys = state["physical_qty"]
-                upd = state["updated_exp_date"]
-                disc = state["discrepancy"]
-                remarks = state.get("remarks", "")
-                base_ph = state.get(
-                    "base_physical", int(phys) if str(phys).isdigit() else 0
-                )
-            else:
-                phys = ""  # blank by default
-                upd = ""
-                disc = ""  # blank discrepancy
-                remarks = ""
-                base_ph = 0
-            merged.append((item, phys, upd, disc, remarks, base_ph))
-        for uid, state in self.user_row_states.items():
-            if uid not in fetched_map and state.get("is_custom"):
-                scen_filter = self.scenario_var.get()
-                if (
-                    scen_filter != lang.t("stock_inv.all_scenarios", "All Scenarios")
-                    and state["scenario"] != scen_filter
-                ):
-                    continue
-                merged.append(
-                    (
-                        {
-                            "unique_id": state["unique_id"],
-                            "code": state["code"],
-                            "description": state["description"],
-                            "type": state["type"],
-                            "scenario": state["scenario"],
-                            "kit_number": state["kit_number"],
-                            "module_number": state["module_number"],
-                            "current_stock": state["current_stock"],
-                            "exp_date": state["exp_date"],
-                            "std_qty": state["std_qty"],
-                        },
-                        state["physical_qty"],
-                        state["updated_exp_date"],
-                        state["discrepancy"],
-                        state.get("remarks", ""),
-                        state["base_physical"],
-                    )
-                )
-        return merged
-
     def rebuild_tree_preserving_state(self):
         self.capture_current_rows()
         self.tree.delete(*self.tree.get_children())
-        dataset = self.build_filtered_dataset()
+
+        # ✅ NEW: Load ALL items from standard quantities
+        items = self.fetch_inventory_items()
 
         # Check if we are in "Complete Inventory" mode
         is_complete_inventory = self.inv_type_var.get() == lang.t(
             "stock_inv.complete_inventory", "Complete Inventory"
         )
 
-        for item, phys, upd, disc, remarks, base_ph in dataset:
-            # If in complete inventory mode, force physical quantity and base input to 0 by default
+        for item in items:
+            # Get preserved state if exists
+            state = self.user_row_states.get(item["unique_id"])
+
+            if state:
+                phys = state["physical_qty"]
+                upd = state["updated_exp_date"]
+                disc = state["discrepancy"]
+                remarks = state.get("remarks", "")
+                base_ph = state.get("base_physical", 0)
+            else:
+                phys = ""
+                upd = ""
+                disc = ""
+                remarks = ""
+                base_ph = 0
+
+            # If in complete inventory mode, force physical quantity to 0 by default
             if is_complete_inventory:
                 phys_to_insert = "0"
                 base_ph_to_insert = 0
@@ -691,13 +1004,19 @@ class StockInventory(tk.Frame):
                     self.user_row_states[uid]["physical_qty"] = "0"
                     self.user_row_states[uid]["base_physical"] = 0
 
-        # The recompute function will handle all final calculations and discrepancies
+        # Recompute quantities
         self.recompute_all_physical_quantities()
 
+        # Update status with count breakdown
+        total = len(items)
+        with_stock = sum(1 for item in items if item["current_stock"] > 0)
+        missing = total - with_stock
+
         self.status_var.set(
-            lang.t("stock_inv.loaded_records", "Loaded {count} records").format(
-                count=len(self.tree.get_children())
-            )
+            lang.t(
+                "stock_inv.loaded_with_breakdown",
+                "Loaded {total} items ({with_stock} with stock, {missing} missing)",
+            ).format(total=total, with_stock=with_stock, missing=missing)
         )
 
     def _insert_from_state(
@@ -1261,15 +1580,6 @@ class StockInventory(tk.Frame):
         self.search_listbox.grid(row=0, column=2, padx=5, pady=5)
         self.search_listbox.bind("<<ListboxSelect>>", self.on_search_select)
 
-        self.button_frame = tk.Frame(self, bg="#F5F5F5")
-        self.button_frame.pack(fill="x")
-        tk.Button(
-            self.button_frame,
-            text=lang.t("stock_inv.add_from_database", "Add Item from Database"),
-            bg="#2980B9",
-            fg="white",
-            command=lambda: self.show_std_qty_helper_browser(),
-        ).pack(side="right", padx=5, pady=5)
         # Tree
         tree_frame = tk.Frame(self)
         tree_frame.pack(expand=True, fill="both", pady=10)
@@ -1567,14 +1877,6 @@ class StockInventory(tk.Frame):
             command=lambda: self.add_new_row_below(row_id),
         )
 
-        # ✅ NEW: Add item from database
-        self.ctx_menu.add_command(
-            label=lang.t("stock_inv.add_from_database", "Add Item from Database"),
-            command=lambda: self.show_std_qty_helper_browser(
-                default_scenario=vals[4], context_row_id=row_id
-            ),
-        )
-
         self.ctx_menu.add_separator()
 
         # Clear physical qty
@@ -1677,29 +1979,6 @@ class StockInventory(tk.Frame):
             "is_custom": current_stock == 0,
         }
         return True
-
-    def get_treecode_from_helper_id(self, helper_id):
-        """
-        Get treecode from kit_items using std_qty_helper.id.
-        Returns treecode if found, None otherwise.
-        """
-        if not helper_id:
-            return None
-
-        conn = connect_db()
-        if conn is None:
-            return None
-
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-
-        try:
-            cur.execute("SELECT treecode FROM kit_items WHERE id = ?", (helper_id,))
-            row = cur.fetchone()
-            return row["treecode"] if row else None
-        finally:
-            cur.close()
-            conn.close()
 
     def add_new_row_below(self, row_id):
         """
@@ -1815,471 +2094,6 @@ class StockInventory(tk.Frame):
 
         # Highlight if expiry is required
         self._highlight_missing_required_expiry()
-
-    def show_std_qty_helper_browser(self, default_scenario=None, context_row_id=None):
-        """
-        Show std_qty_helper table browser to add new items.
-        Filters by Management Mode (In-Box vs On-Shelf).
-        Only ITEM type can be added.
-        Generates proper unique_id (6-segment for On-Shelf, 8-segment for In-Box).
-        """
-        dialog = tk.Toplevel(self)
-        dialog.title(lang.t("stock_inv.add_item_browser", "Add Item from Database"))
-        dialog.geometry("1200x700")
-        dialog.transient(self)
-        dialog.grab_set()
-
-        # ============ TOP FRAME: Management Mode Filter ============
-        top_frame = tk.Frame(dialog, bg="#F5F5F5", pady=10)
-        top_frame.pack(fill="x", padx=10)
-
-        tk.Label(
-            top_frame,
-            text=lang.t("stock_inv.management_mode", "Management Mode:") + " *",
-            font=("Arial", 11, "bold"),
-            bg="#F5F5F5",
-            fg="#E74C3C",
-        ).pack(side="left", padx=5)
-
-        mgmt_mode_var = tk.StringVar(
-            value=lang.t("stock_inv.management_on_shelf", "On-Shelf")
-        )
-        mgmt_mode_cb = ttk.Combobox(
-            top_frame,
-            textvariable=mgmt_mode_var,
-            values=[
-                lang.t("stock_inv.management_on_shelf", "On-Shelf"),
-                lang.t("stock_inv.management_in_box", "In-Box"),
-            ],
-            state="readonly",
-            width=20,
-        )
-        mgmt_mode_cb.pack(side="left", padx=5)
-
-        tk.Label(
-            top_frame,
-            text=lang.t("stock_inv.search", "Search:"),
-            font=("Arial", 11, "bold"),
-            bg="#F5F5F5",
-        ).pack(side="left", padx=(20, 5))
-
-        search_var = tk.StringVar()
-        search_entry = tk.Entry(top_frame, textvariable=search_var, width=40)
-        search_entry.pack(side="left", padx=5)
-
-        # ============ MIDDLE FRAME: Treeview ============
-        tree_frame = tk.Frame(dialog)
-        tree_frame.pack(expand=True, fill="both", padx=10, pady=10)
-
-        columns = (
-            "id",
-            "code",
-            "description",
-            "type",
-            "scenario",
-            "kit",
-            "module",
-            "std_qty",
-        )
-        tree = ttk.Treeview(
-            tree_frame,
-            columns=columns,
-            show="headings",
-            height=20,
-            displaycolumns=(
-                "code",
-                "description",
-                "type",
-                "scenario",
-                "kit",
-                "module",
-                "std_qty",
-            ),
-        )
-
-        headers = {
-            "id": "ID",
-            "code": lang.t("stock_inv.code", "Code"),
-            "description": lang.t("stock_inv.description", "Description"),
-            "type": lang.t("stock_inv.type", "Type"),
-            "scenario": lang.t("stock_inv.scenario", "Scenario"),
-            "kit": lang.t("stock_inv.kit", "Kit"),
-            "module": lang.t("stock_inv.module", "Module"),
-            "std_qty": lang.t("stock_inv.std_qty", "Std Qty"),
-        }
-
-        widths = {
-            "id": 0,
-            "code": 120,
-            "description": 350,
-            "type": 80,
-            "scenario": 120,
-            "kit": 150,
-            "module": 150,
-            "std_qty": 80,
-        }
-
-        for col in columns:
-            tree.heading(col, text=headers[col])
-            tree.column(col, width=widths[col], anchor="w")
-
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-        vsb.pack(side="right", fill="y")
-        tree.configure(yscrollcommand=vsb.set)
-        tree.pack(expand=True, fill="both")
-
-        # ============ BOTTOM FRAME: Instructions & Buttons ============
-        bottom_frame = tk.Frame(dialog, bg="#F5F5F5", pady=10)
-        bottom_frame.pack(fill="x", padx=10)
-
-        tk.Label(
-            bottom_frame,
-            text=lang.t(
-                "stock_inv.browser_instructions",
-                "ℹ️ Only ITEM type can be added. KIT/MODULE must be added via 'Receive Kit'. Double-click to add item.",
-            ),
-            bg="#F5F5F5",
-            wraplength=1000,
-            justify="left",
-            fg="#555",
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            bottom_frame,
-            text=lang.t("common.close", "Close"),
-            bg="#E74C3C",
-            fg="white",
-            command=dialog.destroy,
-            width=15,
-        ).pack(side="right", padx=5)
-
-        # ============ DATA LOADING FUNCTION ============
-        def load_data():
-            """Load and filter data from std_qty_helper based on management mode."""
-            tree.delete(*tree.get_children())
-
-            mgmt_mode = mgmt_mode_var.get()
-            search_query = search_var.get().strip().lower()
-
-            conn = connect_db()
-            if conn is None:
-                return
-
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-
-            try:
-                # Base query
-                sql = """
-                    SELECT id, code, description, type, scenario_id, scenario, 
-                        kit, module, std_qty
-                    FROM std_qty_helper
-                    WHERE 1=1
-                """
-                params = []
-
-                # ✅ Filter by Management Mode
-                if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
-                    # On-Shelf: id starts with 's' or is blank/NULL
-                    sql += " AND (id LIKE 's%' OR id IS NULL OR id = '')"
-                else:
-                    # In-Box: id is numeric (integer)
-                    sql += " AND id NOT LIKE 's%' AND id IS NOT NULL AND id != ''"
-
-                # Filter by search query
-                if search_query:
-                    sql += " AND (LOWER(code) LIKE ? OR LOWER(description) LIKE ?)"
-                    like_pattern = f"%{search_query}%"
-                    params.extend([like_pattern, like_pattern])
-
-                sql += " ORDER BY code"
-
-                cur.execute(sql, params)
-                rows = cur.fetchall()
-
-                for row in rows:
-                    tree.insert(
-                        "",
-                        "end",
-                        values=(
-                            row["id"],  # Hidden column
-                            row["code"],
-                            row["description"],
-                            row["type"],
-                            row["scenario"],
-                            row["kit"] or "",
-                            row["module"] or "",
-                            row["std_qty"],
-                        ),
-                        tags=(row["type"].lower(),),
-                    )
-
-                # Color coding
-                tree.tag_configure("kit", background="#D8F5D0")
-                tree.tag_configure("module", background="#D5ECFF")
-
-            finally:
-                cur.close()
-                conn.close()
-
-        # ============ ADD ITEM FUNCTION ============
-        def add_selected_item(event=None):
-            """Add selected item to inventory tree."""
-            selection = tree.selection()
-            if not selection:
-                return
-
-            item = tree.item(selection[0])
-            vals = item["values"]
-
-            if not vals:
-                return
-
-            helper_id = vals[0]  # std_qty_helper.id
-            code = vals[1]
-            description = vals[2]
-            item_type = vals[3]
-            scenario_name = vals[4]
-            kit_code = vals[5] or None
-            module_code = vals[6] or None
-            std_qty = vals[7]
-
-            # ✅ Block KIT/MODULE from being added
-            if item_type.strip().lower() in ("kit", "module", "módulo", "kit/module"):
-                custom_popup(
-                    dialog,
-                    lang.t("dialog_titles.error", "Error"),
-                    lang.t(
-                        "stock_inv.kit_module_cannot_add",
-                        "KIT and MODULE cannot be added through inventory.\n\n"
-                        "Use 'Receive Kit' function to add kits and modules to stock.",
-                    ),
-                    "error",
-                )
-                return
-
-            # Get scenario_id
-            scenario_id = None
-            for sid, sname in self.scenario_map.items():
-                if sname == scenario_name:
-                    scenario_id = sid
-                    break
-
-            if not scenario_id:
-                custom_popup(
-                    dialog,
-                    lang.t("dialog_titles.error", "Error"),
-                    lang.t("stock_inv.scenario_not_found", "Scenario not found."),
-                    "error",
-                )
-                return
-
-            # Determine management mode
-            mgmt_mode = mgmt_mode_var.get()
-            is_in_box = mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box")
-
-            # ✅ For In-Box mode, ask for kit_number and module_number
-            kit_number = None
-            module_number = None
-            treecode = None
-
-            if is_in_box:
-                # Show dialog to get kit_number and module_number
-                input_dialog = tk.Toplevel(dialog)
-                input_dialog.title(lang.t("stock_inv.in_box_details", "In-Box Details"))
-                input_dialog.geometry("400x250")
-                input_dialog.transient(dialog)
-                input_dialog.grab_set()
-
-                tk.Label(
-                    input_dialog,
-                    text=lang.t(
-                        "stock_inv.enter_box_details", "Enter Kit and Module Numbers:"
-                    ),
-                    font=("Arial", 12, "bold"),
-                ).pack(pady=10)
-
-                tk.Label(
-                    input_dialog,
-                    text=lang.t("stock_inv.kit_number", "Kit Number:") + " *",
-                ).pack(pady=5)
-                kit_number_var = tk.StringVar()
-                kit_entry = tk.Entry(
-                    input_dialog, textvariable=kit_number_var, width=30
-                )
-                kit_entry.pack(pady=5)
-
-                tk.Label(
-                    input_dialog,
-                    text=lang.t("stock_inv.module_number", "Module Number:") + " *",
-                ).pack(pady=5)
-                module_number_var = tk.StringVar()
-                module_entry = tk.Entry(
-                    input_dialog, textvariable=module_number_var, width=30
-                )
-                module_entry.pack(pady=5)
-
-                result = {"confirmed": False}
-
-                def confirm_input():
-                    kit_num = kit_number_var.get().strip()
-                    mod_num = module_number_var.get().strip()
-
-                    if not kit_num or not mod_num:
-                        custom_popup(
-                            input_dialog,
-                            lang.t("dialog_titles.error", "Error"),
-                            lang.t(
-                                "stock_inv.kit_module_required",
-                                "Both Kit Number and Module Number are required for In-Box mode.",
-                            ),
-                            "error",
-                        )
-                        return
-
-                    result["kit_number"] = kit_num
-                    result["module_number"] = mod_num
-                    result["confirmed"] = True
-                    input_dialog.destroy()
-
-                tk.Button(
-                    input_dialog,
-                    text=lang.t("common.submit", "Submit"),
-                    bg="#27AE60",
-                    fg="white",
-                    command=confirm_input,
-                    width=20,
-                ).pack(pady=15)
-
-                input_dialog.wait_window()
-
-                if not result.get("confirmed"):
-                    return  # User cancelled
-
-                kit_number = result["kit_number"]
-                module_number = result["module_number"]
-
-                # ✅ Get treecode from kit_items using helper_id
-                treecode = self.get_treecode_from_helper_id(helper_id)
-
-            # Generate temp unique_id
-            self.temp_row_counter += 1
-            temp_uid = f"temp::{code}::{self.temp_row_counter}"
-
-            # Create record
-            new_item = {
-                "unique_id": temp_uid,
-                "code": code,
-                "description": description,
-                "type": item_type,
-                "scenario": scenario_name,
-                "kit_number": kit_number or "-----",
-                "module_number": module_number or "-----",
-                "current_stock": "0",
-                "exp_date": "",
-                "std_qty": std_qty,
-            }
-
-            # Insert into tree (below context row if available)
-            if context_row_id:
-                idx = self.tree.index(context_row_id)
-                new_iid = self.tree.insert(
-                    "",
-                    idx + 1,
-                    values=(
-                        new_item["unique_id"],
-                        new_item["code"],
-                        new_item["description"],
-                        new_item["type"],
-                        new_item["scenario"],
-                        new_item["kit_number"],
-                        new_item["module_number"],
-                        new_item["current_stock"],
-                        new_item["exp_date"],
-                        "",  # physical_qty
-                        "",  # updated_exp_date
-                        "",  # discrepancy
-                        "",  # remarks
-                        new_item["std_qty"],
-                    ),
-                )
-            else:
-                new_iid = self.tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        new_item["unique_id"],
-                        new_item["code"],
-                        new_item["description"],
-                        new_item["type"],
-                        new_item["scenario"],
-                        new_item["kit_number"],
-                        new_item["module_number"],
-                        new_item["current_stock"],
-                        new_item["exp_date"],
-                        "",
-                        "",
-                        "",
-                        "",
-                        new_item["std_qty"],
-                    ),
-                )
-
-            # ✅ Initialize state with ALL metadata (including treecode for In-Box)
-            self.base_physical_inputs[new_iid] = 0
-            self.user_row_states[temp_uid] = {
-                "unique_id": temp_uid,
-                "code": code,
-                "description": description,
-                "type": item_type,
-                "scenario": scenario_name,
-                "kit_number": kit_number or "-----",
-                "module_number": module_number or "-----",
-                "current_stock": "0",
-                "exp_date": "",
-                "physical_qty": "",
-                "updated_exp_date": "",
-                "discrepancy": "",
-                "remarks": "",
-                "std_qty": std_qty,
-                "base_physical": 0,
-                "is_custom": True,
-                # ✅ Store metadata for unique_id generation
-                "scenario_id": scenario_id,
-                "kit_code": kit_code,
-                "module_code": module_code,
-                "treecode": treecode,  # For In-Box mode
-                "is_in_box": is_in_box,  # Flag to know format
-            }
-
-            # Highlight and show message
-            self._highlight_missing_required_expiry()
-
-            if is_in_box:
-                self.status_var.set(
-                    lang.t(
-                        "stock_inv.item_added_inbox",
-                        "Added {code} (In-Box: {kit}/{module}) - Enter physical quantity and expiry.",
-                    ).format(code=code, kit=kit_number, module=module_number)
-                )
-            else:
-                self.status_var.set(
-                    lang.t(
-                        "stock_inv.item_added",
-                        "Added {code} (On-Shelf) - Enter physical quantity and expiry.",
-                    ).format(code=code)
-                )
-
-            # Close dialog
-            dialog.destroy()
-
-        # ============ EVENT BINDINGS ============
-        mgmt_mode_cb.bind("<<ComboboxSelected>>", lambda e: load_data())
-        search_var.trace("w", lambda *args: load_data())
-        tree.bind("<Double-1>", add_selected_item)
-
-        # Initial load
-        load_data()
 
     def _clear_physical(self, row_id):
         vals = self.tree.item(row_id, "values")
@@ -2443,11 +2257,11 @@ class StockInventory(tk.Frame):
             self.batch_info_var.set(
                 lang.t(
                     "stock_inv.complete_info",
-                    "Complete inventory: All items with current stock loaded.",
+                    "Complete inventory: ALL items loaded (including those with 0 stock). Items with current stock are highlighted.",
                 )
             )
         else:
-            # Partial inventory: clear tree and states to start fresh
+            # Partial inventory
             self.tree.delete(*self.tree.get_children())
             self.user_row_states.clear()
             self.base_physical_inputs.clear()
@@ -2455,13 +2269,13 @@ class StockInventory(tk.Frame):
             self.status_var.set(
                 lang.t(
                     "stock_inv.partial_info",
-                    "Enter a code or description to search items or add a missing item.",
+                    "Search for items from standard quantities. ✓=Has stock, ○=Missing stock",
                 )
             )
             self.batch_info_var.set(
                 lang.t(
                     "stock_inv.partial_batch_info",
-                    "Partial inventory: Search to add items or use 'Add Missing Item' for items not in stock.",
+                    "Enter 2+ characters to search. Items are loaded from compositions and kit_items tables.",
                 )
             )
 
@@ -2484,45 +2298,6 @@ class StockInventory(tk.Frame):
         if self.search_listbox.size() > 0:
             self.search_listbox.selection_set(0)
             self.on_search_select()
-
-    def on_search_select(self, event=None):
-        sel = self.search_listbox.curselection()
-        if not sel:
-            return
-        line = self.search_listbox.get(sel[0])
-        code = line.split(" - ")[0]
-        self.capture_current_rows()
-        items = self.fetch_items_in_stock(code)
-        if not items:
-            custom_popup(
-                self,
-                lang.t("dialog_titles.info", "Info"),
-                lang.t(
-                    "stock_inv.no_stock",
-                    "No stock available for code {code}. Use 'Add Missing Item' to add it.",
-                ).format(code=code),
-                "info",
-            )
-            return
-        added = 0
-        for rec in items:
-            if rec["unique_id"] not in self.user_row_states:
-                self.insert_tree_row(rec, physical_qty="")
-                added += 1
-        self._highlight_missing_required_expiry()
-        self.status_var.set(
-            lang.t("stock_inv.added_items", "Added items for code {code}").format(
-                code=code
-            )
-        )
-        self.batch_info_var.set(
-            lang.t(
-                "stock_inv.added_lines",
-                "Added {count} lines for code {code} including components.",
-            ).format(count=added, code=code)
-        )
-        self.code_entry.delete(0, tk.END)
-        self.search_listbox.delete(0, tk.END)
 
     def save_all(self):
         """
