@@ -1562,11 +1562,21 @@ class StockInventory(tk.Frame):
 
         self.ctx_menu.add_separator()
 
-        # Add new row
+        # ✅ Add new row (re-date same item)
         self.ctx_menu.add_command(
-            label=lang.t("stock_inv.add_new_row", "Add New Row"),
+            label=lang.t("stock_inv.add_new_row_redate", "Add New Row (Re-date)"),
             command=lambda: self.add_new_row_below(row_id),
         )
+
+        # ✅ NEW: Add item from database
+        self.ctx_menu.add_command(
+            label=lang.t("stock_inv.add_from_database", "Add Item from Database"),
+            command=lambda: self.show_std_qty_helper_browser(
+                default_scenario=vals[4], context_row_id=row_id
+            ),
+        )
+
+        self.ctx_menu.add_separator()
 
         # Clear physical qty
         self.ctx_menu.add_command(
@@ -1669,14 +1679,46 @@ class StockInventory(tk.Frame):
         }
         return True
 
+    def get_treecode_from_helper_id(self, helper_id):
+        """
+        Get treecode from kit_items using std_qty_helper.id.
+        Returns treecode if found, None otherwise.
+        """
+        if not helper_id:
+            return None
+
+        conn = connect_db()
+        if conn is None:
+            return None
+
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            cur.execute("SELECT treecode FROM kit_items WHERE id = ?", (helper_id,))
+            row = cur.fetchone()
+            return row["treecode"] if row else None
+        finally:
+            cur.close()
+            conn.close()
+
     def add_new_row_below(self, row_id):
-        """Add a new row below the selected row with current stock = 0."""
+        """
+        Add a new row below the selected row with current stock = 0.
+        Used for RE-DATING stock (same item, different expiry).
+        Preserves parent row format (6-segment On-Shelf or 8-segment In-Box).
+        """
         vals = self.tree.item(row_id, "values")
         if not vals:
             return
 
-        parsed = parse_inventory_unique_id(vals[0])
+        # ✅ Parse the parent row's unique_id to get ALL original data
+        parent_unique_id = vals[0]
+        parsed = parse_inventory_unique_id(parent_unique_id)
         code = vals[1]
+
+        # ✅ Determine if parent is In-Box format (8 segments) or On-Shelf (6 segments)
+        is_in_box = len(parent_unique_id.split("/")) >= 8
 
         # Generate temporary unique ID for new row
         self.temp_row_counter += 1
@@ -1729,7 +1771,7 @@ class StockInventory(tk.Frame):
         # Initialize base physical input to 0
         self.base_physical_inputs[new_iid] = 0
 
-        # Save state
+        # ✅ Save state WITH parent row metadata (kit_code, module_code, treecode, is_in_box)
         self.user_row_states[temp_uid] = {
             "unique_id": temp_uid,
             "code": code,
@@ -1741,24 +1783,504 @@ class StockInventory(tk.Frame):
             "current_stock": "0",
             "exp_date": "",
             "physical_qty": "",
-            "updated_exp_date": "",  # ✅ Blank for new row
+            "updated_exp_date": "",
             "discrepancy": "",
             "remarks": "",
             "std_qty": new_item["std_qty"],
             "base_physical": 0,
             "is_custom": True,
+            # ✅ CRITICAL: Store parent row metadata
+            "parent_unique_id": parent_unique_id,
+            "scenario_id": parsed.get("scenario_id"),
+            "kit_code": parsed.get("kit_code"),
+            "module_code": parsed.get("module_code"),
+            "treecode": parsed.get("treecode"),
+            "is_in_box": is_in_box,  # ✅ Flag to preserve format (6 or 8 segments)
         }
 
-        # Show success message
-        self.status_var.set(
-            lang.t(
-                "stock_inv.row_added",
-                "New row added for {code}. Fill in Updated Expiry Date.",
-            ).format(code=code)
-        )
+        # Show success message with format info
+        if is_in_box:
+            self.status_var.set(
+                lang.t(
+                    "stock_inv.row_added_inbox",
+                    "New row added for {code} (In-Box: {kit}/{module}). Fill in Physical Qty and Updated Expiry.",
+                ).format(code=code, kit=vals[5], module=vals[6])
+            )
+        else:
+            self.status_var.set(
+                lang.t(
+                    "stock_inv.row_added",
+                    "New row added for {code} (On-Shelf). Fill in Physical Qty and Updated Expiry.",
+                ).format(code=code)
+            )
 
         # Highlight if expiry is required
         self._highlight_missing_required_expiry()
+
+    def show_std_qty_helper_browser(self, default_scenario=None, context_row_id=None):
+        """
+        Show std_qty_helper table browser to add new items.
+        Filters by Management Mode (In-Box vs On-Shelf).
+        Only ITEM type can be added.
+        Generates proper unique_id (6-segment for On-Shelf, 8-segment for In-Box).
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title(lang.t("stock_inv.add_item_browser", "Add Item from Database"))
+        dialog.geometry("1200x700")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # ============ TOP FRAME: Management Mode Filter ============
+        top_frame = tk.Frame(dialog, bg="#F5F5F5", pady=10)
+        top_frame.pack(fill="x", padx=10)
+
+        tk.Label(
+            top_frame,
+            text=lang.t("stock_inv.management_mode", "Management Mode:") + " *",
+            font=("Arial", 11, "bold"),
+            bg="#F5F5F5",
+            fg="#E74C3C",
+        ).pack(side="left", padx=5)
+
+        mgmt_mode_var = tk.StringVar(
+            value=lang.t("stock_inv.management_on_shelf", "On-Shelf")
+        )
+        mgmt_mode_cb = ttk.Combobox(
+            top_frame,
+            textvariable=mgmt_mode_var,
+            values=[
+                lang.t("stock_inv.management_on_shelf", "On-Shelf"),
+                lang.t("stock_inv.management_in_box", "In-Box"),
+            ],
+            state="readonly",
+            width=20,
+        )
+        mgmt_mode_cb.pack(side="left", padx=5)
+
+        tk.Label(
+            top_frame,
+            text=lang.t("stock_inv.search", "Search:"),
+            font=("Arial", 11, "bold"),
+            bg="#F5F5F5",
+        ).pack(side="left", padx=(20, 5))
+
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(top_frame, textvariable=search_var, width=40)
+        search_entry.pack(side="left", padx=5)
+
+        # ============ MIDDLE FRAME: Treeview ============
+        tree_frame = tk.Frame(dialog)
+        tree_frame.pack(expand=True, fill="both", padx=10, pady=10)
+
+        columns = (
+            "id",
+            "code",
+            "description",
+            "type",
+            "scenario",
+            "kit",
+            "module",
+            "std_qty",
+        )
+        tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            height=20,
+            displaycolumns=(
+                "code",
+                "description",
+                "type",
+                "scenario",
+                "kit",
+                "module",
+                "std_qty",
+            ),
+        )
+
+        headers = {
+            "id": "ID",
+            "code": lang.t("stock_inv.code", "Code"),
+            "description": lang.t("stock_inv.description", "Description"),
+            "type": lang.t("stock_inv.type", "Type"),
+            "scenario": lang.t("stock_inv.scenario", "Scenario"),
+            "kit": lang.t("stock_inv.kit", "Kit"),
+            "module": lang.t("stock_inv.module", "Module"),
+            "std_qty": lang.t("stock_inv.std_qty", "Std Qty"),
+        }
+
+        widths = {
+            "id": 0,
+            "code": 120,
+            "description": 350,
+            "type": 80,
+            "scenario": 120,
+            "kit": 150,
+            "module": 150,
+            "std_qty": 80,
+        }
+
+        for col in columns:
+            tree.heading(col, text=headers[col])
+            tree.column(col, width=widths[col], anchor="w")
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+        vsb.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(expand=True, fill="both")
+
+        # ============ BOTTOM FRAME: Instructions & Buttons ============
+        bottom_frame = tk.Frame(dialog, bg="#F5F5F5", pady=10)
+        bottom_frame.pack(fill="x", padx=10)
+
+        tk.Label(
+            bottom_frame,
+            text=lang.t(
+                "stock_inv.browser_instructions",
+                "ℹ️ Only ITEM type can be added. KIT/MODULE must be added via 'Receive Kit'. Double-click to add item.",
+            ),
+            bg="#F5F5F5",
+            wraplength=1000,
+            justify="left",
+            fg="#555",
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            bottom_frame,
+            text=lang.t("common.close", "Close"),
+            bg="#E74C3C",
+            fg="white",
+            command=dialog.destroy,
+            width=15,
+        ).pack(side="right", padx=5)
+
+        # ============ DATA LOADING FUNCTION ============
+        def load_data():
+            """Load and filter data from std_qty_helper based on management mode."""
+            tree.delete(*tree.get_children())
+
+            mgmt_mode = mgmt_mode_var.get()
+            search_query = search_var.get().strip().lower()
+
+            conn = connect_db()
+            if conn is None:
+                return
+
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+
+            try:
+                # Base query
+                sql = """
+                    SELECT id, code, description, type, scenario_id, scenario, 
+                        kit, module, std_qty
+                    FROM std_qty_helper
+                    WHERE 1=1
+                """
+                params = []
+
+                # ✅ Filter by Management Mode
+                if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
+                    # On-Shelf: id starts with 's' or is blank/NULL
+                    sql += " AND (id LIKE 's%' OR id IS NULL OR id = '')"
+                else:
+                    # In-Box: id is numeric (integer)
+                    sql += " AND id NOT LIKE 's%' AND id IS NOT NULL AND id != ''"
+
+                # Filter by search query
+                if search_query:
+                    sql += " AND (LOWER(code) LIKE ? OR LOWER(description) LIKE ?)"
+                    like_pattern = f"%{search_query}%"
+                    params.extend([like_pattern, like_pattern])
+
+                sql += " ORDER BY code"
+
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+
+                for row in rows:
+                    tree.insert(
+                        "",
+                        "end",
+                        values=(
+                            row["id"],  # Hidden column
+                            row["code"],
+                            row["description"],
+                            row["type"],
+                            row["scenario"],
+                            row["kit"] or "",
+                            row["module"] or "",
+                            row["std_qty"],
+                        ),
+                        tags=(row["type"].lower(),),
+                    )
+
+                # Color coding
+                tree.tag_configure("kit", background="#D8F5D0")
+                tree.tag_configure("module", background="#D5ECFF")
+
+            finally:
+                cur.close()
+                conn.close()
+
+        # ============ ADD ITEM FUNCTION ============
+        def add_selected_item(event=None):
+            """Add selected item to inventory tree."""
+            selection = tree.selection()
+            if not selection:
+                return
+
+            item = tree.item(selection[0])
+            vals = item["values"]
+
+            if not vals:
+                return
+
+            helper_id = vals[0]  # std_qty_helper.id
+            code = vals[1]
+            description = vals[2]
+            item_type = vals[3]
+            scenario_name = vals[4]
+            kit_code = vals[5] or None
+            module_code = vals[6] or None
+            std_qty = vals[7]
+
+            # ✅ Block KIT/MODULE from being added
+            if item_type.strip().lower() in ("kit", "module", "módulo", "kit/module"):
+                custom_popup(
+                    dialog,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t(
+                        "stock_inv.kit_module_cannot_add",
+                        "KIT and MODULE cannot be added through inventory.\n\n"
+                        "Use 'Receive Kit' function to add kits and modules to stock.",
+                    ),
+                    "error",
+                )
+                return
+
+            # Get scenario_id
+            scenario_id = None
+            for sid, sname in self.scenario_map.items():
+                if sname == scenario_name:
+                    scenario_id = sid
+                    break
+
+            if not scenario_id:
+                custom_popup(
+                    dialog,
+                    lang.t("dialog_titles.error", "Error"),
+                    lang.t("stock_inv.scenario_not_found", "Scenario not found."),
+                    "error",
+                )
+                return
+
+            # Determine management mode
+            mgmt_mode = mgmt_mode_var.get()
+            is_in_box = mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box")
+
+            # ✅ For In-Box mode, ask for kit_number and module_number
+            kit_number = None
+            module_number = None
+            treecode = None
+
+            if is_in_box:
+                # Show dialog to get kit_number and module_number
+                input_dialog = tk.Toplevel(dialog)
+                input_dialog.title(lang.t("stock_inv.in_box_details", "In-Box Details"))
+                input_dialog.geometry("400x250")
+                input_dialog.transient(dialog)
+                input_dialog.grab_set()
+
+                tk.Label(
+                    input_dialog,
+                    text=lang.t(
+                        "stock_inv.enter_box_details", "Enter Kit and Module Numbers:"
+                    ),
+                    font=("Arial", 12, "bold"),
+                ).pack(pady=10)
+
+                tk.Label(
+                    input_dialog,
+                    text=lang.t("stock_inv.kit_number", "Kit Number:") + " *",
+                ).pack(pady=5)
+                kit_number_var = tk.StringVar()
+                kit_entry = tk.Entry(
+                    input_dialog, textvariable=kit_number_var, width=30
+                )
+                kit_entry.pack(pady=5)
+
+                tk.Label(
+                    input_dialog,
+                    text=lang.t("stock_inv.module_number", "Module Number:") + " *",
+                ).pack(pady=5)
+                module_number_var = tk.StringVar()
+                module_entry = tk.Entry(
+                    input_dialog, textvariable=module_number_var, width=30
+                )
+                module_entry.pack(pady=5)
+
+                result = {"confirmed": False}
+
+                def confirm_input():
+                    kit_num = kit_number_var.get().strip()
+                    mod_num = module_number_var.get().strip()
+
+                    if not kit_num or not mod_num:
+                        custom_popup(
+                            input_dialog,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t(
+                                "stock_inv.kit_module_required",
+                                "Both Kit Number and Module Number are required for In-Box mode.",
+                            ),
+                            "error",
+                        )
+                        return
+
+                    result["kit_number"] = kit_num
+                    result["module_number"] = mod_num
+                    result["confirmed"] = True
+                    input_dialog.destroy()
+
+                tk.Button(
+                    input_dialog,
+                    text=lang.t("common.submit", "Submit"),
+                    bg="#27AE60",
+                    fg="white",
+                    command=confirm_input,
+                    width=20,
+                ).pack(pady=15)
+
+                input_dialog.wait_window()
+
+                if not result.get("confirmed"):
+                    return  # User cancelled
+
+                kit_number = result["kit_number"]
+                module_number = result["module_number"]
+
+                # ✅ Get treecode from kit_items using helper_id
+                treecode = self.get_treecode_from_helper_id(helper_id)
+
+            # Generate temp unique_id
+            self.temp_row_counter += 1
+            temp_uid = f"temp::{code}::{self.temp_row_counter}"
+
+            # Create record
+            new_item = {
+                "unique_id": temp_uid,
+                "code": code,
+                "description": description,
+                "type": item_type,
+                "scenario": scenario_name,
+                "kit_number": kit_number or "-----",
+                "module_number": module_number or "-----",
+                "current_stock": "0",
+                "exp_date": "",
+                "std_qty": std_qty,
+            }
+
+            # Insert into tree (below context row if available)
+            if context_row_id:
+                idx = self.tree.index(context_row_id)
+                new_iid = self.tree.insert(
+                    "",
+                    idx + 1,
+                    values=(
+                        new_item["unique_id"],
+                        new_item["code"],
+                        new_item["description"],
+                        new_item["type"],
+                        new_item["scenario"],
+                        new_item["kit_number"],
+                        new_item["module_number"],
+                        new_item["current_stock"],
+                        new_item["exp_date"],
+                        "",  # physical_qty
+                        "",  # updated_exp_date
+                        "",  # discrepancy
+                        "",  # remarks
+                        new_item["std_qty"],
+                    ),
+                )
+            else:
+                new_iid = self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        new_item["unique_id"],
+                        new_item["code"],
+                        new_item["description"],
+                        new_item["type"],
+                        new_item["scenario"],
+                        new_item["kit_number"],
+                        new_item["module_number"],
+                        new_item["current_stock"],
+                        new_item["exp_date"],
+                        "",
+                        "",
+                        "",
+                        "",
+                        new_item["std_qty"],
+                    ),
+                )
+
+            # ✅ Initialize state with ALL metadata (including treecode for In-Box)
+            self.base_physical_inputs[new_iid] = 0
+            self.user_row_states[temp_uid] = {
+                "unique_id": temp_uid,
+                "code": code,
+                "description": description,
+                "type": item_type,
+                "scenario": scenario_name,
+                "kit_number": kit_number or "-----",
+                "module_number": module_number or "-----",
+                "current_stock": "0",
+                "exp_date": "",
+                "physical_qty": "",
+                "updated_exp_date": "",
+                "discrepancy": "",
+                "remarks": "",
+                "std_qty": std_qty,
+                "base_physical": 0,
+                "is_custom": True,
+                # ✅ Store metadata for unique_id generation
+                "scenario_id": scenario_id,
+                "kit_code": kit_code,
+                "module_code": module_code,
+                "treecode": treecode,  # For In-Box mode
+                "is_in_box": is_in_box,  # Flag to know format
+            }
+
+            # Highlight and show message
+            self._highlight_missing_required_expiry()
+
+            if is_in_box:
+                self.status_var.set(
+                    lang.t(
+                        "stock_inv.item_added_inbox",
+                        "Added {code} (In-Box: {kit}/{module}) - Enter physical quantity and expiry.",
+                    ).format(code=code, kit=kit_number, module=module_number)
+                )
+            else:
+                self.status_var.set(
+                    lang.t(
+                        "stock_inv.item_added",
+                        "Added {code} (On-Shelf) - Enter physical quantity and expiry.",
+                    ).format(code=code)
+                )
+
+            # Close dialog
+            dialog.destroy()
+
+        # ============ EVENT BINDINGS ============
+        mgmt_mode_cb.bind("<<ComboboxSelected>>", lambda e: load_data())
+        search_var.trace("w", lambda *args: load_data())
+        tree.bind("<Double-1>", add_selected_item)
+
+        # Initial load
+        load_data()
 
     def _clear_physical(self, row_id):
         vals = self.tree.item(row_id, "values")
@@ -1782,12 +2304,12 @@ class StockInventory(tk.Frame):
             self.recompute_all_physical_quantities()
         self._highlight_missing_required_expiry()
 
-    # ---------- Inline edit ----------
+        # ---------- Inline edit ----------
+
     def _begin_inline_edit(self, row_id, col_key):
         """
         Handles inline editing for specified columns.
-        This now correctly accepts '0' for KIT/MODULE rows and triggers the
-        universal re-computation logic.
+        Validates KIT/MODULE quantities (only 0 or 1 allowed).
         """
         if col_key not in self.display_cols:
             return
@@ -1797,6 +2319,10 @@ class StockInventory(tk.Frame):
             return
         x, y, w, h = bbox
         current_val = self.tree.set(row_id, col_key)
+
+        # Get row type for validation
+        vals = self.tree.item(row_id, "values")
+        row_type = (vals[3] or "").strip().lower() if len(vals) > 3 else ""
 
         entry = tk.Entry(self.tree)
         entry.place(x=x, y=y, width=w, height=h)
@@ -1808,11 +2334,28 @@ class StockInventory(tk.Frame):
             new_val = entry.get().strip()
 
             if col_key == "physical_qty":
+                # ✅ Validate KIT/MODULE quantities (only 0 or 1)
+                if row_type in ("kit", "module", "módulo", "kit/module"):
+                    if not new_val.isdigit() or int(new_val) not in (0, 1):
+                        entry.destroy()
+                        custom_popup(
+                            self,
+                            lang.t("dialog_titles.error", "Error"),
+                            lang.t(
+                                "stock_inv.kit_module_qty_error",
+                                "KIT and MODULE quantities can only be 0 or 1.\n"
+                                "Each kit/module has a unique identifier (kit/module number).\n"
+                                "Only one unit per identifier is allowed.",
+                            ),
+                            "error",
+                        )
+                        return
+
                 # Store the user's raw input as the base for calculations
                 base_qty = int(new_val) if new_val.isdigit() else 0
                 self.base_physical_inputs[row_id] = base_qty
 
-                # ALWAYS trigger the single, correct recalculation function
+                # Trigger recalculation
                 self.recompute_all_physical_quantities()
 
             elif col_key == "updated_exp_date":
@@ -1988,7 +2531,7 @@ class StockInventory(tk.Frame):
         """Add a missing item with searchable kit/module NUMBER dropdowns and current_stock = 0."""
         dialog = tk.Toplevel(self)
         dialog.title(lang.t("stock_inv.add_missing_item", "Add Missing Item"))
-        dialog.geometry("450x680")
+        dialog.geometry("450x620")  # Reduced height since we removed 2 fields
         dialog.transient(self)
         dialog.grab_set()
 
@@ -2012,20 +2555,6 @@ class StockInventory(tk.Frame):
         )
         scen_cb.pack(pady=2)
 
-        # Kit Code (plain text entry)
-        tk.Label(
-            dialog, text=lang.t("stock_inv.kit_code", "Kit Code (optional):")
-        ).pack(pady=4)
-        kit_code_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=kit_code_var, width=35).pack()
-
-        # Module Code (plain text entry)
-        tk.Label(
-            dialog, text=lang.t("stock_inv.module_code", "Module Code (optional):")
-        ).pack(pady=4)
-        module_code_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=module_code_var, width=35).pack()
-
         # Item Code with search
         tk.Label(
             dialog, text=lang.t("stock_inv.code", "Item Code - Description:")
@@ -2044,7 +2573,7 @@ class StockInventory(tk.Frame):
         std_qty_var = tk.StringVar(value="0")
         tk.Label(dialog, textvariable=std_qty_var, width=35, relief="sunken").pack()
 
-        # Physical Quantity (user input)
+        # Physical Quantity
         tk.Label(
             dialog, text=lang.t("stock_inv.physical_qty", "Physical Quantity:")
         ).pack(pady=4)
@@ -2053,15 +2582,15 @@ class StockInventory(tk.Frame):
 
         # Expiry Date
         tk.Label(
-            dialog, text=lang.t("stock_inv.expiry_date", "Expiry (MM/YYYY):")
+            dialog, text=lang.t("stock_inv.expiry_date", "Expiry Date (MM/YYYY):")
         ).pack(pady=4)
         exp_date_var = tk.StringVar()
         tk.Entry(dialog, textvariable=exp_date_var, width=35).pack()
 
-        # ✅ Kit Number - Searchable Dropdown (instance number)
-        tk.Label(
-            dialog, text=lang.t("stock_inv.kit_number", "Kit Number (optional):")
-        ).pack(pady=4)
+        # Kit Number (searchable dropdown)
+        tk.Label(dialog, text=lang.t("stock_inv.kit_number", "Kit Number:")).pack(
+            pady=4
+        )
         kit_number_var = tk.StringVar(
             value=(
                 self.kit_number_var.get()
@@ -2069,49 +2598,16 @@ class StockInventory(tk.Frame):
                 else ""
             )
         )
-        kit_number_cb = ttk.Combobox(dialog, textvariable=kit_number_var, width=35)
-        kit_number_cb.pack(pady=2)
+        kit_number_entry = tk.Entry(dialog, textvariable=kit_number_var, width=35)
+        kit_number_entry.pack()
 
-        def fetch_kit_numbers_from_db():
-            """Fetch all distinct kit numbers from stock_data table."""
-            conn = connect_db()
-            if conn is None:
-                return []
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            try:
-                cur.execute(
-                    """
-                    SELECT DISTINCT kit_number 
-                    FROM stock_data 
-                    WHERE kit_number IS NOT NULL 
-                    AND kit_number != 'None' 
-                    AND kit_number != '-----'
-                    ORDER BY kit_number
-                """
-                )
-                return [r["kit_number"] for r in cur.fetchall()]
-            finally:
-                cur.close()
-                conn.close()
+        kit_number_listbox = tk.Listbox(dialog, height=4, width=45)
+        kit_number_listbox.pack(pady=2)
 
-        def update_kit_number_list(event=None):
-            """Filter kit numbers based on user input."""
-            query = kit_number_var.get().strip().upper()
-            all_kit_numbers = fetch_kit_numbers_from_db()
-            if query:
-                filtered = [k for k in all_kit_numbers if query in k.upper()]
-            else:
-                filtered = all_kit_numbers
-            kit_number_cb["values"] = filtered[:30]  # Limit to 30 results
-
-        kit_number_cb.bind("<KeyRelease>", update_kit_number_list)
-        update_kit_number_list()  # Initial load
-
-        # ✅ Module Number - Searchable Dropdown (instance number)
-        tk.Label(
-            dialog, text=lang.t("stock_inv.module_number", "Module Number (optional):")
-        ).pack(pady=4)
+        # Module Number (searchable dropdown)
+        tk.Label(dialog, text=lang.t("stock_inv.module_number", "Module Number:")).pack(
+            pady=4
+        )
         module_number_var = tk.StringVar(
             value=(
                 self.module_number_var.get()
@@ -2120,67 +2616,75 @@ class StockInventory(tk.Frame):
                 else ""
             )
         )
-        module_number_cb = ttk.Combobox(
-            dialog, textvariable=module_number_var, width=35
-        )
-        module_number_cb.pack(pady=2)
+        module_number_entry = tk.Entry(dialog, textvariable=module_number_var, width=35)
+        module_number_entry.pack()
+
+        module_number_listbox = tk.Listbox(dialog, height=4, width=45)
+        module_number_listbox.pack(pady=2)
+
+        # Helper functions
+        def fetch_kit_numbers_from_db():
+            """Fetch all kit numbers from stock_data for the selected scenario."""
+            scenario_name = scen_cb_var.get()
+            if not scenario_name:
+                return []
+            return self.fetch_kit_numbers(scenario_name)
+
+        def update_kit_number_list(event=None):
+            """Update kit number listbox based on search input."""
+            query = kit_number_var.get().strip().lower()
+            kit_number_listbox.delete(0, tk.END)
+            all_kits = fetch_kit_numbers_from_db()
+            if query:
+                filtered = [k for k in all_kits if query in k.lower()]
+            else:
+                filtered = all_kits
+            for kit in filtered[:10]:  # Limit to 10 results
+                kit_number_listbox.insert(tk.END, kit)
 
         def fetch_module_numbers_from_db():
-            """Fetch all distinct module numbers from stock_data table."""
-            conn = connect_db()
-            if conn is None:
+            """Fetch all module numbers from stock_data for the selected scenario and kit."""
+            scenario_name = scen_cb_var.get()
+            kit_number = kit_number_var.get().strip()
+            if not scenario_name:
                 return []
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            try:
-                cur.execute(
-                    """
-                    SELECT DISTINCT module_number 
-                    FROM stock_data 
-                    WHERE module_number IS NOT NULL 
-                    AND module_number != 'None' 
-                    AND module_number != '-----'
-                    ORDER BY module_number
-                """
-                )
-                return [r["module_number"] for r in cur.fetchall()]
-            finally:
-                cur.close()
-                conn.close()
+            return self.fetch_module_numbers(
+                scenario_name,
+                kit_number if kit_number else None,
+            )
 
         def update_module_number_list(event=None):
-            """Filter module numbers based on user input."""
-            query = module_number_var.get().strip().upper()
-            all_module_numbers = fetch_module_numbers_from_db()
+            """Update module number listbox based on search input."""
+            query = module_number_var.get().strip().lower()
+            module_number_listbox.delete(0, tk.END)
+            all_modules = fetch_module_numbers_from_db()
             if query:
-                filtered = [m for m in all_module_numbers if query in m.upper()]
+                filtered = [m for m in all_modules if query in m.lower()]
             else:
-                filtered = all_module_numbers
-            module_number_cb["values"] = filtered[:30]  # Limit to 30 results
+                filtered = all_modules
+            for mod in filtered[:10]:  # Limit to 10 results
+                module_number_listbox.insert(tk.END, mod)
 
-        module_number_cb.bind("<KeyRelease>", update_module_number_list)
-        update_module_number_list()  # Initial load
-
-        # Helper functions for item code search
         def update_code_list(event=None):
-            """Update item code list based on search query."""
+            """Update item code listbox and standard quantity."""
             query = code_var.get().strip()
             code_listbox.delete(0, tk.END)
             if len(query) >= 2:
                 results = self.fetch_search_results(query)
-                for res in results:
+                for res in results[:20]:  # Limit to 20 results
                     code_listbox.insert(tk.END, f"{res['code']} - {res['description']}")
 
-            # Update standard quantity when code changes
+            # Update standard quantity
             scenario_sel = scen_cb_var.get()
             code_only = (
                 code_var.get().split(" - ")[0]
                 if " - " in code_var.get()
                 else code_var.get()
             )
-            if code_only:
-                std_qty_val = get_std_qty(code_only, scenario_sel)
-                std_qty_var.set(str(std_qty_val))
+            if code_only and scenario_sel:
+                std_qty_var.set(str(get_std_qty(code_only, scenario_sel)))
+            else:
+                std_qty_var.set("0")
 
         def on_code_pick(evt=None):
             """Handle item code selection from listbox."""
@@ -2197,9 +2701,55 @@ class StockInventory(tk.Frame):
         code_listbox.bind("<Double-1>", on_code_pick)
         scen_cb.bind("<<ComboboxSelected>>", update_code_list)
 
-        # Submit button
+        kit_number_entry.bind("<KeyRelease>", update_kit_number_list)
+        kit_number_listbox.bind(
+            "<<ListboxSelect>>",
+            lambda e: kit_number_var.set(
+                kit_number_listbox.get(kit_number_listbox.curselection()[0])
+                if kit_number_listbox.curselection()
+                else kit_number_var.get()
+            ),
+        )
+        kit_number_listbox.bind(
+            "<Double-1>",
+            lambda e: (
+                (
+                    kit_number_var.set(
+                        kit_number_listbox.get(kit_number_listbox.curselection()[0])
+                    )
+                    if kit_number_listbox.curselection()
+                    else None
+                ),
+                update_module_number_list(),
+            ),
+        )
+
+        module_number_entry.bind("<KeyRelease>", update_module_number_list)
+        module_number_listbox.bind(
+            "<<ListboxSelect>>",
+            lambda e: module_number_var.set(
+                module_number_listbox.get(module_number_listbox.curselection()[0])
+                if module_number_listbox.curselection()
+                else module_number_var.get()
+            ),
+        )
+        module_number_listbox.bind(
+            "<Double-1>",
+            lambda e: (
+                module_number_var.set(
+                    module_number_listbox.get(module_number_listbox.curselection()[0])
+                )
+                if module_number_listbox.curselection()
+                else None
+            ),
+        )
+
+        # Initial population
+        update_kit_number_list()
+        update_module_number_list()
+
         def submit_new():
-            """Validate and add the new item with current_stock = 0."""
+            """Validate and add the new item to the inventory."""
             # Validate scenario
             scenario_name = scen_cb_var.get()
             if not scenario_name:
@@ -2211,7 +2761,7 @@ class StockInventory(tk.Frame):
                 )
                 return
 
-            # Find scenario ID
+            # Get scenario ID
             scenario_id = None
             for sid, nm in self.scenario_map.items():
                 if nm == scenario_name:
@@ -2227,12 +2777,12 @@ class StockInventory(tk.Frame):
                 return
 
             # Validate item code
-            item_code = code_var.get().strip().split(" - ")[0]  # Extract code only
+            item_code = code_var.get().strip()
             if not item_code:
                 custom_popup(
                     self,
                     lang.t("dialog_titles.error", "Error"),
-                    lang.t("stock_inv.no_code", "Please select a code."),
+                    lang.t("stock_inv.no_code", "Please select an item code."),
                     "error",
                 )
                 return
@@ -2283,21 +2833,21 @@ class StockInventory(tk.Frame):
                 or force_box
             )
 
-            # Get treecode if in-box
+            # ✅ Get treecode using NONE for kit_code and module_code (we removed those fields)
             treecode = None
             if had_box:
                 treecode = get_treecode(
                     scenario_id,
-                    kit_code_var.get().strip() or None,
-                    module_code_var.get().strip() or None,
+                    None,  # ✅ No kit_code field anymore
+                    None,  # ✅ No module_code field anymore
                     item_code,
                 )
 
-            # Construct unique_id
+            # ✅ Construct unique_id with NONE for kit_code and module_code
             unique_id = construct_unique_id(
                 scenario_id=scenario_id,
-                kit_code=kit_code_var.get().strip() or None,
-                module_code=module_code_var.get().strip() or None,
+                kit_code=None,  # ✅ No kit_code field anymore
+                module_code=None,  # ✅ No module_code field anymore
                 item_code=item_code,
                 std_qty=std_qty_val,
                 exp_date=exp_iso,
@@ -2342,40 +2892,25 @@ class StockInventory(tk.Frame):
                 ).format(code=item_code, qty=physical)
             )
 
-            # Show success message
-            custom_popup(
-                self,
-                lang.t("dialog_titles.success", "Success"),
+            self.batch_info_var.set(
                 lang.t(
                     "stock_inv.added_new_item_info",
-                    "Added new item {code} with physical quantity {qty}. Current stock set to 0.",
-                ).format(code=item_code, qty=physical),
-                "info",
+                    "Added new item {code} with physical quantity {qty}",
+                ).format(code=item_code, qty=physical)
             )
 
+            # Close dialog
             dialog.destroy()
 
-        # Buttons frame
-        btn_frame = tk.Frame(dialog)
-        btn_frame.pack(pady=10)
-
+        # Submit button
         tk.Button(
-            btn_frame,
-            text=lang.t("stock_inv.submit", "Add Item"),
+            dialog,
+            text=lang.t("common.submit", "Submit"),
             bg="#27AE60",
             fg="white",
             command=submit_new,
-            width=12,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            btn_frame,
-            text=lang.t("stock_inv.cancel", "Cancel"),
-            bg="#E74C3C",
-            fg="white",
-            command=dialog.destroy,
-            width=12,
-        ).pack(side="left", padx=5)
+            width=20,
+        ).pack(pady=10)
 
     def save_all(self):
         """
@@ -2534,6 +3069,7 @@ class StockInventory(tk.Frame):
             )
 
         # Process each row
+
         processed_count = 0
         for rid in rows:
             vals = self.tree.item(rid, "values")
@@ -2552,19 +3088,62 @@ class StockInventory(tk.Frame):
             physical = int(physical_str)
             discrepancy = physical - current_stock
 
-            # Parse unique_id for logging
-            parsed = parse_inventory_unique_id(unique_id)
-            scenario_id = parsed["scenario_id"]
-            scenario_name = parsed["scenario_name"]
-            kit_code = parsed["kit_code"]
-            module_code = parsed["module_code"]
-            item_code = parsed["item_code"]
-            std_qty_val = parsed["std_qty"] or (
-                int(vals[13]) if str(vals[13]).isdigit() else 0
-            )
+            # ✅ FIX: Handle temp vs real unique_ids
+            if unique_id.startswith("temp::"):
+                # For temp rows, get ALL data from stored state
+                state = self.user_row_states.get(unique_id, {})
 
-            kit_for_log = kit_code if kit_code and kit_code != "None" else None
-            mod_for_log = module_code if module_code and module_code != "None" else None
+                # Get scenario from row values (vals[4])
+                scenario_name = vals[4]
+
+                # ✅ Get scenario_id from stored state (from parent row)
+                scenario_id = state.get("scenario_id")
+
+                if not scenario_id:
+                    # Fallback: Look up scenario_id from scenario_name
+                    for sid, sname in self.scenario_map.items():
+                        if sname == scenario_name:
+                            scenario_id = sid
+                            break
+
+                if not scenario_id:
+                    errors.append(
+                        f"Could not find scenario_id for scenario '{scenario_name}'"
+                    )
+                    continue
+
+                # ✅ Get kit/module codes from stored state (from parent row)
+                kit_code = state.get("kit_code")
+                module_code = state.get("module_code")
+                item_code = code  # Use actual code from vals[1]
+
+                # Get kit/module numbers from row
+                kit_number = vals[5] if vals[5] != "-----" else None
+                module_number = vals[6] if vals[6] != "-----" else None
+
+                # ✅ Get treecode from stored state (from parent row)
+                treecode_stored = state.get("treecode")
+
+                std_qty_val = int(vals[13]) if str(vals[13]).isdigit() else 0
+
+            else:
+                # Regular row - parse unique_id normally
+                parsed = parse_inventory_unique_id(unique_id)
+                scenario_id = parsed["scenario_id"]
+                scenario_name = parsed["scenario_name"]
+                kit_code = parsed["kit_code"]
+                module_code = parsed["module_code"]
+                item_code = parsed["item_code"]
+                kit_number = parsed["kit_number"]
+                module_number = parsed["module_number"]
+                treecode_stored = parsed.get("treecode")
+                std_qty_val = parsed["std_qty"] or (
+                    int(vals[13]) if str(vals[13]).isdigit() else 0
+                )
+
+            # ✅ FIX: For logging purposes, use kit_number and module_number (NOT codes)
+            kit_for_log = kit_number if kit_number else None
+            mod_for_log = module_number if module_number else None
 
             # ============================================================
             # SCENARIO LOGIC - 4 Scenarios Based on Agreed Principles
@@ -2605,8 +3184,8 @@ class StockInventory(tk.Frame):
                         discrepancy=discrepancy,
                         code=code,
                         scen=scenario_id,
-                        kit=kit_for_log,
-                        mod=mod_for_log,
+                        kit=kit_for_log,  # ✅ Now uses kit_number
+                        mod=mod_for_log,  # ✅ Now uses module_number
                         remarks=remarks_val or f"Surplus: +{discrepancy} units",
                     )
                     processed_count += 1
@@ -2628,8 +3207,8 @@ class StockInventory(tk.Frame):
                         discrepancy=discrepancy,
                         code=code,
                         scen=scenario_id,
-                        kit=kit_for_log,
-                        mod=mod_for_log,
+                        kit=kit_for_log,  # ✅ Now uses kit_number
+                        mod=mod_for_log,  # ✅ Now uses module_number
                         remarks=remarks_val or f"Shortage: {discrepancy} units",
                     )
                     processed_count += 1
@@ -2644,8 +3223,8 @@ class StockInventory(tk.Frame):
                             discrepancy=0,
                             code=code,
                             scen=scenario_id,
-                            kit=kit_for_log,
-                            mod=mod_for_log,
+                            kit=kit_for_log,  # ✅ Now uses kit_number
+                            mod=mod_for_log,  # ✅ Now uses module_number
                             remarks=remarks_val,
                         )
                     processed_count += 1
@@ -2661,32 +3240,28 @@ class StockInventory(tk.Frame):
                 parsed_exp = parse_expiry(updated_exp)
                 exp_iso = parsed_exp.strftime("%Y-%m-%d") if parsed_exp else updated_exp
 
-                # Determine if in-box format (8-segment unique_id)
-                had_box = (
-                    parsed["kit_number"]
-                    or parsed["module_number"]
-                    or len(unique_id.split("/")) >= 8
-                )
+                # Determine if in-box format
+                had_box = kit_number or module_number or len(unique_id.split("/")) >= 8
 
-                # Get treecode if needed
-                treecode = None
-                if had_box:
+                # ✅ Use stored treecode, or fetch if not available
+                treecode = treecode_stored
+                if had_box and not treecode:
                     treecode = get_treecode(
                         scenario_id, kit_code, module_code, item_code
                     )
 
-                # Construct unique_id with updated expiry
+                # ✅ Construct proper unique_id with ALL original metadata
                 new_uid = construct_unique_id(
                     scenario_id=scenario_id,
-                    kit_code=kit_code,
-                    module_code=module_code,
+                    kit_code=kit_code,  # ✅ From parent row
+                    module_code=module_code,  # ✅ From parent row
                     item_code=item_code,
                     std_qty=std_qty_val,
-                    exp_date=exp_iso,
-                    kit_number=parsed["kit_number"] if had_box else None,
-                    module_number=parsed["module_number"] if had_box else None,
+                    exp_date=exp_iso,  # ✅ ONLY this changes
+                    kit_number=kit_number,
+                    module_number=module_number,
                     force_box_format=had_box,
-                    treecode=treecode,
+                    treecode=treecode,  # ✅ From parent row
                 )
 
                 # Check if batch already exists
@@ -2706,27 +3281,28 @@ class StockInventory(tk.Frame):
                         errors.append(f"Failed to update existing batch for {code}")
                         continue
                 else:
-                    # Create new batch
+                    # ✅ Create new batch with ALL original metadata including treecode
                     if not attempt(
                         """
                         INSERT INTO stock_data 
                         (unique_id, scenario, kit_number, module_number, kit, module, item, 
-                        std_qty, qty_in, qty_out, exp_date, discrepancy)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        std_qty, qty_in, qty_out, exp_date, discrepancy, treecode)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             new_uid,
                             scenario_name,
-                            parsed["kit_number"] or None,
-                            parsed["module_number"] or None,
-                            kit_code or None,
-                            module_code or None,
+                            kit_number,
+                            module_number,
+                            kit_code,  # ✅ From parent
+                            module_code,  # ✅ From parent
                             item_code,
                             std_qty_val,
                             physical,
                             0,
                             exp_iso,
                             0,
+                            treecode,  # ✅ From parent
                         ),
                     ):
                         errors.append(f"Failed to create new batch for {code}")
@@ -2738,10 +3314,10 @@ class StockInventory(tk.Frame):
                     exp_iso,
                     qty_in=physical,
                     discrepancy=physical,
-                    code=code,
+                    code=item_code,
                     scen=scenario_id,
-                    kit=kit_for_log,
-                    mod=mod_for_log,
+                    kit=kit_for_log,  # ✅ Now uses kit_number
+                    mod=mod_for_log,  # ✅ Now uses module_number
                     remarks=remarks_val
                     or f"New batch: {physical} units, exp: {exp_iso}",
                 )
