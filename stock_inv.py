@@ -702,8 +702,24 @@ class StockInventory(tk.Frame):
     def _insert_from_state(
         self, item_dict, physical_qty, updated_exp, discrepancy, remarks, base_physical
     ):
+        """Insert row with auto-filled updated_exp for existing rows."""
         phys_str = physical_qty if physical_qty and str(physical_qty).isdigit() else ""
         disc_str = discrepancy if discrepancy not in ("", None) else ""
+
+        # ✅ Auto-fill updated_exp_date for existing rows
+        current_stock = item_dict.get("current_stock", 0)
+        current_exp = item_dict.get("exp_date", "")
+
+        if isinstance(current_stock, str):
+            current_stock = int(current_stock) if current_stock.isdigit() else 0
+
+        # If existing row (current_stock > 0), auto-fill updated_exp = current_exp
+        if current_stock > 0 and current_exp:
+            auto_updated_exp = current_exp
+        else:
+            # New row (current_stock = 0), use provided updated_exp or blank
+            auto_updated_exp = updated_exp
+
         iid = self.tree.insert(
             "",
             "end",
@@ -716,9 +732,9 @@ class StockInventory(tk.Frame):
                 item_dict.get("kit_number", "-----"),
                 item_dict.get("module_number", "-----"),
                 item_dict["current_stock"],
-                item_dict["exp_date"],
+                current_exp,
                 phys_str,
-                updated_exp,
+                auto_updated_exp,  # ✅ Auto-filled for existing rows
                 disc_str,
                 remarks,
                 item_dict["std_qty"],
@@ -906,32 +922,32 @@ class StockInventory(tk.Frame):
 
     # ---------- Export ----------
     def export_to_excel(self, rows_to_export=None, document_number=None):
+        """
+        Export inventory to Excel WITHOUT user prompt.
+        Auto-generates filename and saves to default directory.
+        """
         try:
+            # Create default directory if it doesn't exist
             default_dir = "D:/ISEPREP"
             os.makedirs(default_dir, exist_ok=True)
+
+            # Auto-generate filename
             inv_type = self.inv_type_var.get().replace(" ", "_")
             mgmt_mode = self.mgmt_mode_var.get().replace(" ", "_")
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             file_name = (
                 f"IsEPREP_Stock-Inventory_{inv_type}_{mgmt_mode}_{current_time}.xlsx"
             )
-            path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=[(lang.t("stock_inv.excel_files", "Excel Files"), "*.xlsx")],
-                title=lang.t("stock_inv.save_excel", "Save Excel"),
-                initialfile=file_name,
-                initialdir=default_dir,
-            )
-            if not path:
-                self.status_var.set(
-                    lang.t("stock_inv.export_cancelled", "Export cancelled")
-                )
-                return
 
+            # Auto-generate full path (NO user prompt)
+            path = os.path.join(default_dir, file_name)
+
+            # Create workbook
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = lang.t("stock_inv.stock_inventory", "Stock Inventory")
 
+            # Get project details
             project_name, project_code = self.fetch_project_details()
             inv_type_label = self.inv_type_var.get()
             mgmt_mode_label = self.mgmt_mode_var.get()
@@ -940,16 +956,19 @@ class StockInventory(tk.Frame):
             module_filter = self.module_number_var.get()
             current_date = datetime.now().strftime("%Y-%m-%d")
 
+            # Header row 1: Title
             ws["A1"] = lang.t("stock_inv.stock_inventory", "Stock Inventory")
             ws["A1"].font = Font(name="Tahoma", size=14, bold=True)
             ws["A1"].alignment = Alignment(horizontal="right")
             ws.merge_cells("A1:L1")
 
+            # Header row 2: Project info
             ws["A2"] = f"{project_name} - {project_code}"
             ws["A2"].font = Font(name="Tahoma", size=14)
             ws["A2"].alignment = Alignment(horizontal="right")
             ws.merge_cells("A2:L2")
 
+            # Header row 3: Filters
             ws["A3"] = (
                 f"{lang.t('stock_inv.inventory_type', 'Inventory Type')}: {inv_type_label}, "
                 f"{lang.t('stock_inv.management_mode', 'Management Mode')}: {mgmt_mode_label}, "
@@ -961,6 +980,7 @@ class StockInventory(tk.Frame):
             ws["A3"].alignment = Alignment(horizontal="right")
             ws.merge_cells("A3:L3")
 
+            # Header row 4: Date
             ws["A4"] = (
                 f"{lang.t('stock_inv.inventory_date', 'Inventory Date')}: {current_date}"
             )
@@ -968,6 +988,7 @@ class StockInventory(tk.Frame):
             ws["A4"].alignment = Alignment(horizontal="right")
             ws.merge_cells("A4:L4")
 
+            # Header row 5: Document number (if provided)
             if document_number:
                 ws["A5"] = (
                     f"{lang.t('stock_inv.document_number', 'Document Number')}: {document_number}"
@@ -975,8 +996,9 @@ class StockInventory(tk.Frame):
                 ws["A5"].font = Font(name="Tahoma")
                 ws["A5"].alignment = Alignment(horizontal="right")
                 ws.merge_cells("A5:L5")
-                ws.append([])
+                ws.append([])  # Blank row
 
+            # Column headers
             headers = [
                 lang.t("stock_inv.code", "Code"),
                 lang.t("stock_inv.description", "Description"),
@@ -992,6 +1014,8 @@ class StockInventory(tk.Frame):
                 lang.t("stock_inv.remarks", "Remarks"),
             ]
             ws.append(headers)
+
+            # Define fill colors for highlighting
             kit_fill = PatternFill(
                 start_color="D8F5D0", end_color="D8F5D0", fill_type="solid"
             )
@@ -1002,6 +1026,7 @@ class StockInventory(tk.Frame):
                 start_color="FFD8D8", end_color="FFD8D8", fill_type="solid"
             )
 
+            # Get rows to export (either provided or from tree)
             rows_data = rows_to_export or [
                 {
                     "code": vals[1],
@@ -1021,6 +1046,7 @@ class StockInventory(tk.Frame):
                 if (vals := self.tree.item(item)["values"])
             ]
 
+            # Write data rows with color coding
             row_start = ws.max_row + 1
             for idx, row in enumerate(rows_data, start=row_start):
                 ws.append(
@@ -1039,33 +1065,42 @@ class StockInventory(tk.Frame):
                         row["remarks"],
                     ]
                 )
+
+                # Apply color coding
                 t = (row["type"] or "").lower()
                 fill = None
                 if t == "kit":
                     fill = kit_fill
                 elif t == "module":
                     fill = module_fill
-                # highlight missing required expiry
+
+                # Highlight missing required expiry
                 if check_expiry_required(row["code"]) and not (
                     row["updated_exp_date"] or row["exp_date"]
                 ):
                     fill = exp_warn_fill
+
                 if fill:
                     for c in ws[f"A{idx}:L{idx}"]:
                         for cell in c:
                             cell.fill = fill
 
+            # Set column widths (in pixels / 7 for approximate character width)
             widths = [100, 300, 100, 120, 120, 130, 110, 110, 120, 130, 110, 200]
             for i, w in enumerate(widths, start=1):
                 ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w / 7
 
+            # Set page layout for printing
             ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
             ws.page_setup.fitToPage = True
             ws.page_setup.fitToHeight = 0
             ws.page_setup.fitToWidth = 1
 
+            # Save workbook (NO user prompt)
             wb.save(path)
             wb.close()
+
+            # Show success message with file location
             custom_popup(
                 self,
                 lang.t("dialog_titles.success", "Success"),
@@ -1077,6 +1112,7 @@ class StockInventory(tk.Frame):
                     path=path
                 )
             )
+
         except Exception as e:
             custom_popup(
                 self,
@@ -1437,6 +1473,35 @@ class StockInventory(tk.Frame):
                 else:
                     self.tree.item(iid, tags=())
 
+    def _show_expiry_change_instructions(self, code, description):
+        """Show instructions for changing expiry date on existing stock."""
+        message = lang.t(
+            "stock_inv.expiry_change_blocked",
+            "Updated Expiry Date is automatically set to match Current Expiry for existing stock.\n\n"
+            "To re-date stock for {code} - {desc}:\n\n"
+            "1. Set 'Physical Quantity' to the amount you want to KEEP "
+            "with the current expiry date\n"
+            "   (or 0 to move all stock to new expiry)\n\n"
+            "2. Right-click this row and select 'Add New Row'\n\n"
+            "3. In the new row:\n"
+            "   - Enter the quantity for the NEW expiry date\n"
+            "   - Fill in 'Updated Expiry Date' with the new date\n\n"
+            "4. Click 'Save Adjustments'\n\n"
+            "Example:\n"
+            "- Current: 100 units, Expiry Dec-26\n"
+            "- Want: 50 units Dec-26, 50 units Dec-29\n"
+            "  → Row 1 (existing): Physical = 50\n"
+            "     Updated Expiry = Dec-26 (auto-filled, non-editable)\n"
+            "  → Row 2 (new): Physical = 50, Updated Expiry = Dec-29 (fill manually)",
+        ).format(code=code, desc=description)
+
+        custom_popup(
+            self,
+            lang.t("dialog_titles.info", "Expiry Date Change"),
+            message,
+            "info",
+        )
+
     # ---------- Tab navigation ----------
     def on_tab_press(self, event):
         row_id = self.tree.focus()
@@ -1453,34 +1518,67 @@ class StockInventory(tk.Frame):
 
     # ---------- Context menu ----------
     def show_context_menu(self, event):
+        """Show context menu with validation for updated expiry."""
         row_id = self.tree.identify_row(event.y)
         if not row_id:
             return
+
         self.ctx_row = row_id
+        vals = self.tree.item(row_id, "values")
+        current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
+        current_exp = vals[8]
+
         if self.ctx_menu:
             self.ctx_menu.destroy()
+
         self.ctx_menu = tk.Menu(self, tearoff=0)
+
+        # Physical Qty - always editable
         self.ctx_menu.add_command(
             label=lang.t("stock_inv.edit_physical", "Edit Physical Qty"),
             command=lambda: self._begin_inline_edit(row_id, "physical_qty"),
         )
+
+        # ✅ Updated Expiry - conditional
+        if current_stock > 0 and current_exp:
+            # Existing row - show instructions instead
+            self.ctx_menu.add_command(
+                label=lang.t("stock_inv.edit_expiry", "Edit Updated Expiry"),
+                command=lambda: self._show_expiry_change_instructions(vals[1], vals[2]),
+            )
+        else:
+            # New row or no current expiry - allow editing
+            self.ctx_menu.add_command(
+                label=lang.t("stock_inv.edit_expiry", "Edit Updated Expiry"),
+                command=lambda: self._begin_inline_edit(row_id, "updated_exp_date"),
+            )
+
+        # Remarks - always editable
         self.ctx_menu.add_command(
-            label=lang.t("stock_inv.edit_expiry", "Edit Updated Expiry"),
-            command=lambda: self._begin_inline_edit(row_id, "updated_exp_date"),
+            label=lang.t("stock_inv.edit_remarks", "Edit Remarks"),
+            command=lambda: self._begin_inline_edit(row_id, "remarks"),
         )
+
+        self.ctx_menu.add_separator()
+
+        # Add new row
         self.ctx_menu.add_command(
             label=lang.t("stock_inv.add_new_row", "Add New Row"),
             command=lambda: self.add_new_row_below(row_id),
         )
-        self.ctx_menu.add_separator()
+
+        # Clear physical qty
         self.ctx_menu.add_command(
             label=lang.t("stock_inv.clear_physical", "Clear Physical Qty"),
             command=lambda: self._clear_physical(row_id),
         )
+
+        # Remove row
         self.ctx_menu.add_command(
             label=lang.t("stock_inv.remove_row", "Remove Row"),
             command=lambda: (self.tree.delete(row_id), self._remove_state(row_id)),
         )
+
         self.ctx_menu.tk_popup(event.x_root, event.y_root)
 
     # ---------- State utility ----------
@@ -1509,7 +1607,19 @@ class StockInventory(tk.Frame):
 
     # ---------- Insert row ----------
     def insert_tree_row(self, item, physical_qty=""):
-        # Always blank by default
+        """Insert tree row with auto-filled updated_exp for existing rows."""
+        current_stock = item.get("current_stock", 0)
+        current_exp = item.get("exp_date", "")
+
+        if isinstance(current_stock, str):
+            current_stock = int(current_stock) if current_stock.isdigit() else 0
+
+        # ✅ Auto-fill updated_exp_date for existing rows
+        if current_stock > 0 and current_exp:
+            auto_updated_exp = current_exp
+        else:
+            auto_updated_exp = ""  # New row - blank for user to fill
+
         iid = self.tree.insert(
             "",
             "end",
@@ -1521,10 +1631,10 @@ class StockInventory(tk.Frame):
                 item["scenario"],
                 item.get("kit_number", "-----"),
                 item.get("module_number", "-----"),
-                item["current_stock"],
-                item["exp_date"],
+                current_stock,
+                current_exp,
                 "",  # physical qty blank
-                "",  # updated expiry blank
+                auto_updated_exp,  # ✅ Auto-filled for existing, blank for new
                 "",  # discrepancy blank
                 "",  # remarks blank
                 item["std_qty"],
@@ -1546,60 +1656,108 @@ class StockInventory(tk.Frame):
             "scenario": item["scenario"],
             "kit_number": item.get("kit_number", "-----"),
             "module_number": item.get("module_number", "-----"),
-            "current_stock": item["current_stock"],
-            "exp_date": item["exp_date"],
+            "current_stock": current_stock,
+            "exp_date": current_exp,
             "physical_qty": "",
-            "updated_exp_date": "",
+            "updated_exp_date": auto_updated_exp,  # ✅ Auto-filled
             "discrepancy": "",
             "remarks": "",
             "std_qty": item["std_qty"],
             "base_physical": 0,
-            "is_custom": item["current_stock"] == 0,
+            "is_custom": current_stock == 0,
         }
         return True
 
     def add_new_row_below(self, row_id):
+        """Add a new row below the selected row with current stock = 0."""
         vals = self.tree.item(row_id, "values")
         if not vals:
             return
-        index = self.tree.index(row_id)
-        original_uid = vals[0]
-        new_uid = original_uid
-        # Duplicate but keep blank physical / discrepancy as they appear
-        iid = self.tree.insert("", index + 1, values=vals)
-        t = (vals[3] or "").upper()
-        if t == "KIT":
-            self.tree.item(iid, tags=("kit_row",))
-        elif t == "MODULE":
-            self.tree.item(iid, tags=("module_row",))
-        base_ph = 0
-        self.base_physical_inputs[iid] = base_ph
-        self.user_row_states[new_uid] = {
-            "unique_id": new_uid,
-            "code": vals[1],
+
+        parsed = parse_inventory_unique_id(vals[0])
+        code = vals[1]
+
+        # Generate temporary unique ID for new row
+        self.temp_row_counter += 1
+        temp_uid = f"temp::{code}::{self.temp_row_counter}"
+
+        # ✅ NEW RULE: New rows always have current_stock = 0 and blank updated_exp
+        new_item = {
+            "unique_id": temp_uid,
+            "code": code,
             "description": vals[2],
             "type": vals[3],
             "scenario": vals[4],
             "kit_number": vals[5],
             "module_number": vals[6],
-            "current_stock": vals[7],
-            "exp_date": vals[8],
-            "physical_qty": vals[9],
-            "updated_exp_date": vals[10],
-            "discrepancy": vals[11],
-            "remarks": vals[12],
-            "std_qty": vals[13],
-            "base_physical": base_ph,
+            "current_stock": "0",  # ✅ Always 0 for new rows
+            "exp_date": "",  # ✅ Blank expiry - new batch
+            "std_qty": parsed.get("std_qty", 0),
+        }
+
+        # Insert below the selected row
+        idx = self.tree.index(row_id)
+        new_iid = self.tree.insert(
+            "",
+            idx + 1,
+            values=(
+                new_item["unique_id"],
+                new_item["code"],
+                new_item["description"],
+                new_item["type"],
+                new_item["scenario"],
+                new_item["kit_number"],
+                new_item["module_number"],
+                new_item["current_stock"],  # 0
+                new_item["exp_date"],  # blank
+                "",  # physical_qty - user will enter
+                "",  # ✅ updated_exp_date - BLANK for new row (user will fill)
+                "",  # discrepancy - will be calculated
+                "",  # remarks
+                new_item["std_qty"],
+            ),
+        )
+
+        # Apply row styling
+        t = (vals[3] or "").upper()
+        if t == "KIT":
+            self.tree.item(new_iid, tags=("kit_row",))
+        elif t == "MODULE":
+            self.tree.item(new_iid, tags=("module_row",))
+
+        # Initialize base physical input to 0
+        self.base_physical_inputs[new_iid] = 0
+
+        # Save state
+        self.user_row_states[temp_uid] = {
+            "unique_id": temp_uid,
+            "code": code,
+            "description": vals[2],
+            "type": vals[3],
+            "scenario": vals[4],
+            "kit_number": vals[5],
+            "module_number": vals[6],
+            "current_stock": "0",
+            "exp_date": "",
+            "physical_qty": "",
+            "updated_exp_date": "",  # ✅ Blank for new row
+            "discrepancy": "",
+            "remarks": "",
+            "std_qty": new_item["std_qty"],
+            "base_physical": 0,
             "is_custom": True,
         }
-        if self.mgmt_mode_var.get() == lang.t("stock_inv.management_in_box", "In-Box"):
-            self.recompute_all_physical_quantities()
-        self._highlight_missing_required_expiry()
+
+        # Show success message
         self.status_var.set(
-            lang.t("stock_inv.added_new_row", "Added new row below {code}").format(
-                code=vals[1]
-            )
+            lang.t(
+                "stock_inv.row_added",
+                "New row added for {code}. Fill in Updated Expiry Date.",
+            ).format(code=code)
         )
+
+        # Highlight if expiry is required
+        self._highlight_missing_required_expiry()
 
     def _clear_physical(self, row_id):
         vals = self.tree.item(row_id, "values")
@@ -1674,20 +1832,34 @@ class StockInventory(tk.Frame):
         entry.bind("<Escape>", lambda e: entry.destroy())
 
     def start_edit(self, event):
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
+        """Handle double-click editing with validation for updated expiry."""
         row_id = self.tree.identify_row(event.y)
-        col = self.tree.identify_column(event.x)
-        if not row_id or not col:
+        col_id = self.tree.identify_column(event.x)
+        if not row_id or not col_id:
             return
-        display_cols = list(self.display_cols)
-        col_index = int(col.replace("#", "")) - 1
-        if col_index >= len(display_cols):
+
+        col_idx = int(col_id.replace("#", "")) - 1
+        if col_idx < 0 or col_idx >= len(self.display_cols):
             return
-        col_key = display_cols[col_index]
+
+        col_key = self.display_cols[col_idx]
+
+        # Only allow editing specific columns
         if col_key not in ("physical_qty", "updated_exp_date", "remarks"):
             return
+
+        # ✅ BLOCK editing updated_exp_date for existing rows
+        if col_key == "updated_exp_date":
+            vals = self.tree.item(row_id, "values")
+            current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
+            current_exp = vals[8]  # Current expiry date
+
+            # If row has existing stock and expiry, block editing
+            if current_stock > 0 and current_exp:
+                self._show_expiry_change_instructions(vals[1], vals[2])
+                return  # Don't allow editing
+
+        # Allow editing
         self._begin_inline_edit(row_id, col_key)
 
     # ---------- Filter / mode events ----------
@@ -1810,13 +1982,16 @@ class StockInventory(tk.Frame):
         self.search_listbox.delete(0, tk.END)
 
     # ---------- Add missing item ----------
+
     def add_missing_item(self):
+        """Add a missing item with searchable kit/module NUMBER dropdowns and current_stock = 0."""
         dialog = tk.Toplevel(self)
         dialog.title(lang.t("stock_inv.add_missing_item", "Add Missing Item"))
-        dialog.geometry("430x620")
+        dialog.geometry("450x680")
         dialog.transient(self)
         dialog.grab_set()
 
+        # Scenario selection
         tk.Label(dialog, text=lang.t("stock_inv.scenario", "Scenario:")).pack(pady=4)
         scenario_values = list(self.scenario_map.values())
         scen_cb_var = tk.StringVar(
@@ -1832,51 +2007,60 @@ class StockInventory(tk.Frame):
             textvariable=scen_cb_var,
             values=scenario_values,
             state="readonly",
-            width=30,
+            width=35,
         )
         scen_cb.pack(pady=2)
 
-        tk.Label(dialog, text=lang.t("stock_inv.kit_code", "Kit Code:")).pack(pady=4)
+        # Kit Code (plain text entry)
+        tk.Label(
+            dialog, text=lang.t("stock_inv.kit_code", "Kit Code (optional):")
+        ).pack(pady=4)
         kit_code_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=kit_code_var, width=30).pack()
+        tk.Entry(dialog, textvariable=kit_code_var, width=35).pack()
 
-        tk.Label(dialog, text=lang.t("stock_inv.module_code", "Module Code:")).pack(
-            pady=4
-        )
+        # Module Code (plain text entry)
+        tk.Label(
+            dialog, text=lang.t("stock_inv.module_code", "Module Code (optional):")
+        ).pack(pady=4)
         module_code_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=module_code_var, width=30).pack()
+        tk.Entry(dialog, textvariable=module_code_var, width=35).pack()
 
+        # Item Code with search
         tk.Label(
             dialog, text=lang.t("stock_inv.code", "Item Code - Description:")
         ).pack(pady=4)
         code_var = tk.StringVar()
-        code_entry = tk.Entry(dialog, textvariable=code_var, width=30)
+        code_entry = tk.Entry(dialog, textvariable=code_var, width=35)
         code_entry.pack()
 
-        code_listbox = tk.Listbox(dialog, height=6, width=40)
+        code_listbox = tk.Listbox(dialog, height=6, width=45)
         code_listbox.pack(pady=4)
 
+        # Standard Quantity (read-only display)
         tk.Label(dialog, text=lang.t("stock_inv.std_qty", "Standard Quantity:")).pack(
             pady=4
         )
         std_qty_var = tk.StringVar(value="0")
-        tk.Label(dialog, textvariable=std_qty_var, width=30).pack()
+        tk.Label(dialog, textvariable=std_qty_var, width=35, relief="sunken").pack()
 
+        # Physical Quantity (user input)
         tk.Label(
             dialog, text=lang.t("stock_inv.physical_qty", "Physical Quantity:")
         ).pack(pady=4)
-        physical_qty_var = tk.StringVar(value="")  # blank default
-        tk.Entry(dialog, textvariable=physical_qty_var, width=30).pack()
+        physical_qty_var = tk.StringVar(value="")
+        tk.Entry(dialog, textvariable=physical_qty_var, width=35).pack()
 
+        # Expiry Date
         tk.Label(
             dialog, text=lang.t("stock_inv.expiry_date", "Expiry (MM/YYYY):")
         ).pack(pady=4)
         exp_date_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=exp_date_var, width=30).pack()
+        tk.Entry(dialog, textvariable=exp_date_var, width=35).pack()
 
-        tk.Label(dialog, text=lang.t("stock_inv.kit_number", "Kit Number:")).pack(
-            pady=4
-        )
+        # ✅ Kit Number - Searchable Dropdown (instance number)
+        tk.Label(
+            dialog, text=lang.t("stock_inv.kit_number", "Kit Number (optional):")
+        ).pack(pady=4)
         kit_number_var = tk.StringVar(
             value=(
                 self.kit_number_var.get()
@@ -1884,11 +2068,49 @@ class StockInventory(tk.Frame):
                 else ""
             )
         )
-        tk.Entry(dialog, textvariable=kit_number_var, width=30).pack()
+        kit_number_cb = ttk.Combobox(dialog, textvariable=kit_number_var, width=35)
+        kit_number_cb.pack(pady=2)
 
-        tk.Label(dialog, text=lang.t("stock_inv.module_number", "Module Number:")).pack(
-            pady=4
-        )
+        def fetch_kit_numbers_from_db():
+            """Fetch all distinct kit numbers from stock_data table."""
+            conn = connect_db()
+            if conn is None:
+                return []
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT DISTINCT kit_number 
+                    FROM stock_data 
+                    WHERE kit_number IS NOT NULL 
+                    AND kit_number != 'None' 
+                    AND kit_number != '-----'
+                    ORDER BY kit_number
+                """
+                )
+                return [r["kit_number"] for r in cur.fetchall()]
+            finally:
+                cur.close()
+                conn.close()
+
+        def update_kit_number_list(event=None):
+            """Filter kit numbers based on user input."""
+            query = kit_number_var.get().strip().upper()
+            all_kit_numbers = fetch_kit_numbers_from_db()
+            if query:
+                filtered = [k for k in all_kit_numbers if query in k.upper()]
+            else:
+                filtered = all_kit_numbers
+            kit_number_cb["values"] = filtered[:30]  # Limit to 30 results
+
+        kit_number_cb.bind("<KeyRelease>", update_kit_number_list)
+        update_kit_number_list()  # Initial load
+
+        # ✅ Module Number - Searchable Dropdown (instance number)
+        tk.Label(
+            dialog, text=lang.t("stock_inv.module_number", "Module Number (optional):")
+        ).pack(pady=4)
         module_number_var = tk.StringVar(
             value=(
                 self.module_number_var.get()
@@ -1897,15 +2119,58 @@ class StockInventory(tk.Frame):
                 else ""
             )
         )
-        tk.Entry(dialog, textvariable=module_number_var, width=30).pack()
+        module_number_cb = ttk.Combobox(
+            dialog, textvariable=module_number_var, width=35
+        )
+        module_number_cb.pack(pady=2)
 
+        def fetch_module_numbers_from_db():
+            """Fetch all distinct module numbers from stock_data table."""
+            conn = connect_db()
+            if conn is None:
+                return []
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT DISTINCT module_number 
+                    FROM stock_data 
+                    WHERE module_number IS NOT NULL 
+                    AND module_number != 'None' 
+                    AND module_number != '-----'
+                    ORDER BY module_number
+                """
+                )
+                return [r["module_number"] for r in cur.fetchall()]
+            finally:
+                cur.close()
+                conn.close()
+
+        def update_module_number_list(event=None):
+            """Filter module numbers based on user input."""
+            query = module_number_var.get().strip().upper()
+            all_module_numbers = fetch_module_numbers_from_db()
+            if query:
+                filtered = [m for m in all_module_numbers if query in m.upper()]
+            else:
+                filtered = all_module_numbers
+            module_number_cb["values"] = filtered[:30]  # Limit to 30 results
+
+        module_number_cb.bind("<KeyRelease>", update_module_number_list)
+        update_module_number_list()  # Initial load
+
+        # Helper functions for item code search
         def update_code_list(event=None):
+            """Update item code list based on search query."""
             query = code_var.get().strip()
             code_listbox.delete(0, tk.END)
             if len(query) >= 2:
                 results = self.fetch_search_results(query)
                 for res in results:
                     code_listbox.insert(tk.END, f"{res['code']} - {res['description']}")
+
+            # Update standard quantity when code changes
             scenario_sel = scen_cb_var.get()
             code_only = (
                 code_var.get().split(" - ")[0]
@@ -1913,9 +2178,11 @@ class StockInventory(tk.Frame):
                 else code_var.get()
             )
             if code_only:
-                std_qty_var.set(str(get_std_qty(code_only, scenario_sel)))
+                std_qty_val = get_std_qty(code_only, scenario_sel)
+                std_qty_var.set(str(std_qty_val))
 
         def on_code_pick(evt=None):
+            """Handle item code selection from listbox."""
             sel = code_listbox.curselection()
             if not sel:
                 return
@@ -1923,12 +2190,16 @@ class StockInventory(tk.Frame):
             code_var.set(val.split(" - ")[0])
             update_code_list()
 
+        # Bind events
         code_entry.bind("<KeyRelease>", update_code_list)
         code_listbox.bind("<<ListboxSelect>>", on_code_pick)
         code_listbox.bind("<Double-1>", on_code_pick)
         scen_cb.bind("<<ComboboxSelected>>", update_code_list)
 
+        # Submit button
         def submit_new():
+            """Validate and add the new item with current_stock = 0."""
+            # Validate scenario
             scenario_name = scen_cb_var.get()
             if not scenario_name:
                 custom_popup(
@@ -1938,6 +2209,8 @@ class StockInventory(tk.Frame):
                     "error",
                 )
                 return
+
+            # Find scenario ID
             scenario_id = None
             for sid, nm in self.scenario_map.items():
                 if nm == scenario_name:
@@ -1951,7 +2224,9 @@ class StockInventory(tk.Frame):
                     "error",
                 )
                 return
-            item_code = code_var.get().strip()
+
+            # Validate item code
+            item_code = code_var.get().strip().split(" - ")[0]  # Extract code only
             if not item_code:
                 custom_popup(
                     self,
@@ -1960,6 +2235,8 @@ class StockInventory(tk.Frame):
                     "error",
                 )
                 return
+
+            # Validate physical quantity
             physical = physical_qty_var.get().strip()
             if not physical or not physical.isdigit() or int(physical) <= 0:
                 custom_popup(
@@ -1973,8 +2250,9 @@ class StockInventory(tk.Frame):
                 )
                 return
             physical = int(physical)
+
+            # Validate expiry date (if required)
             exp_raw = exp_date_var.get().strip()
-            # If item requires expiry -> must supply valid future expiry
             if check_expiry_required(item_code):
                 if not validate_expiry_for_save(item_code, exp_raw):
                     custom_popup(
@@ -1982,16 +2260,20 @@ class StockInventory(tk.Frame):
                         lang.t("dialog_titles.error", "Error"),
                         lang.t(
                             "stock_inv.invalid_expiry",
-                            "A valid future expiry date is required.",
+                            "A valid future expiry date is required for this item.",
                         ),
                         "error",
                     )
                     return
 
+            # Parse expiry date
             parsed_exp = parse_expiry(exp_raw)
             exp_iso = parsed_exp.strftime("%Y-%m-%d") if parsed_exp else "None"
+
+            # Get standard quantity
             std_qty_val = int(std_qty_var.get()) if std_qty_var.get().isdigit() else 0
 
+            # Determine if in-box format
             mgmt_mode = self.mgmt_mode_var.get()
             force_box = mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box")
             had_box = (
@@ -1999,16 +2281,18 @@ class StockInventory(tk.Frame):
                 or module_number_var.get().strip()
                 or force_box
             )
-            treecode = (
-                get_treecode(
+
+            # Get treecode if in-box
+            treecode = None
+            if had_box:
+                treecode = get_treecode(
                     scenario_id,
                     kit_code_var.get().strip() or None,
                     module_code_var.get().strip() or None,
                     item_code,
                 )
-                if had_box
-                else None
-            )
+
+            # Construct unique_id
             unique_id = construct_unique_id(
                 scenario_id=scenario_id,
                 kit_code=kit_code_var.get().strip() or None,
@@ -2022,8 +2306,11 @@ class StockInventory(tk.Frame):
                 treecode=treecode,
             )
 
+            # Get item description and type
             description = get_active_designation(item_code)
             item_type = get_item_type(item_code)
+
+            # ✅ NEW RULE: current_stock = 0 for new items
             record = {
                 "unique_id": unique_id,
                 "code": item_code,
@@ -2032,46 +2319,65 @@ class StockInventory(tk.Frame):
                 "scenario": scenario_name,
                 "kit_number": kit_number_var.get().strip() or "-----",
                 "module_number": module_number_var.get().strip() or "-----",
-                "current_stock": 0,
+                "current_stock": "0",  # ✅ Always 0 for new items
                 "exp_date": exp_iso if exp_iso != "None" else "",
                 "std_qty": std_qty_val,
             }
-            self.insert_tree_row(record, physical_qty=str(physical))
+
+            # Insert row with physical quantity
+            iid = self.insert_tree_row(record, physical_qty=str(physical))
+            self._update_state_from_row(iid)
+
+            # Recompute discrepancies
+            self.recompute_all_physical_quantities()
+
+            # Highlight missing expiries
             self._highlight_missing_required_expiry()
-            self.batch_info_var.set(
+
+            # Update status
+            self.status_var.set(
                 lang.t(
-                    "stock_inv.added_new_item_info",
-                    "Added new item {code} with physical quantity {qty}",
+                    "stock_inv.added_new_item", "Added new item {code} with qty {qty}"
                 ).format(code=item_code, qty=physical)
             )
-            self.status_var.set(
-                lang.t("stock_inv.added_new_item", "Added new item {code}").format(
-                    code=item_code
-                )
+
+            # Show success message
+            custom_popup(
+                self,
+                lang.t("dialog_titles.success", "Success"),
+                lang.t(
+                    "stock_inv.added_new_item_info",
+                    "Added new item {code} with physical quantity {qty}. Current stock set to 0.",
+                ).format(code=item_code, qty=physical),
+                "info",
             )
+
             dialog.destroy()
 
+        # Buttons frame
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(
+            btn_frame,
+            text=lang.t("stock_inv.submit", "Add Item"),
+            bg="#27AE60",
+            fg="white",
+            command=submit_new,
+            width=12,
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            btn_frame,
+            text=lang.t("stock_inv.cancel", "Cancel"),
+            bg="#E74C3C",
+            fg="white",
+            command=dialog.destroy,
+            width=12,
+        ).pack(side="left", padx=5)
+
     def save_all(self):
-        """
-        Save inventory adjustments - Smart Strategy with Transaction Logging.
-
-        Strategy:
-        - Logs discrepancy in stock_transactions for audit trail
-        - Does NOT modify discrepancy column in stock_data (remains 0)
-        - Handles expiry changes intelligently
-        - Database triggers auto-calculate: final_qty = qty_in - qty_out
-
-        Handles:
-        - Complete & Partial inventory types
-        - 6-segment (on-shelf) & 8-segment (in-box) unique_ids
-        - Multiple batches with different expiry dates
-        - Expiry changes (moves stock from old to new expiry)
-        - New items not in stock (insert with qty_in = physical)
-
-        Validates:
-        - Items requiring expiry have valid future updated_exp_date
-        - Only admin/manager roles can save
-        """
+        """Save inventory adjustments with fixed split logic and auto-export."""
 
         # Role validation
         if self.role.lower() not in ["admin", "manager"]:
@@ -2218,7 +2524,7 @@ class StockInventory(tk.Frame):
             vals = self.tree.item(rid, "values")
             unique_id = vals[0]
             code = vals[1]
-            std_qty_ui = vals[5]
+            std_qty_ui = vals[13]
             physical_str = vals[9]
             updated_exp = vals[10]
 
@@ -2227,9 +2533,7 @@ class StockInventory(tk.Frame):
                 continue
 
             physical = int(physical_str)
-
-            # Get scenario name for display
-            scenario_name = vals[3]
+            scenario_name = vals[4]
             remarks = f"Physical inventory count: {physical} units"
 
             # Parse unique_id components
@@ -2239,8 +2543,11 @@ class StockInventory(tk.Frame):
             module_code = parsed["module_code"]
             item_code = parsed["item_code"]
             old_exp = parsed["exp_date"] or ""
-            new_exp = updated_exp or ""
-            expiry_changed = new_exp and new_exp != old_exp
+            new_exp = updated_exp.strip() if updated_exp else ""
+
+            # ✅ CRITICAL: Only treat as expiry change if updated_exp is DIFFERENT and NOT BLANK
+            expiry_changed = bool(new_exp and new_exp != old_exp)
+
             std_qty_val = (
                 parsed["std_qty"]
                 if parsed["std_qty"] is not None
@@ -2317,6 +2624,10 @@ class StockInventory(tk.Frame):
                     tuple(vals_),
                 )
 
+            # ========================================
+            # DECISION TREE: Only ONE case runs!
+            # ========================================
+
             # CASE 1: No existing stock_data row (brand new item/batch)
             if not existing:
                 target_exp = new_exp if new_exp else old_exp
@@ -2333,41 +2644,102 @@ class StockInventory(tk.Frame):
                     mod=mod_for_log,
                     remarks=remarks or f"New batch from {inv_abbr}",
                 )
-                continue
 
-            # Get current quantities
-            old_qty_in = existing[0] or 0
-            old_qty_out = existing[1] or 0
-            old_final = final_qty(existing)
-            discrepancy = physical - old_final
+            else:
+                # Get current quantities
+                old_qty_in = existing[0] or 0
+                old_qty_out = existing[1] or 0
+                old_final = final_qty(existing)
+                discrepancy = physical - old_final
 
-            # CASE 2: No discrepancy AND no expiry change - Skip
-            if discrepancy == 0 and not expiry_changed:
-                continue
+                # CASE 2: No change at all
+                if discrepancy == 0 and not expiry_changed:
+                    pass  # Skip - no action needed
 
-            # CASE 3: Discrepancy but NO expiry change - Simple adjustment
-            if not expiry_changed:
-                if discrepancy > 0:
-                    # Surplus
-                    new_qty_in = old_qty_in + discrepancy
-                    attempt(
-                        "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
-                        (new_qty_in, unique_id),
-                    )
-                    log_transaction(
-                        unique_id,
-                        old_exp,
-                        qty_in=discrepancy,
-                        discrepancy=discrepancy,
-                        code=code,
-                        scen=scenario_id,
-                        kit=kit_for_log,
-                        mod=mod_for_log,
-                        remarks=f"Surplus found: +{discrepancy} units",
-                    )
-                else:
-                    # Shortage
-                    new_qty_out = old_qty_out + abs(discrepancy)
+                # ✅ CASE 3A: Discrepancy WITHOUT expiry change (simple adjustment)
+                elif discrepancy != 0 and not expiry_changed:
+                    if discrepancy > 0:
+                        # Surplus
+                        new_qty_in = old_qty_in + discrepancy
+                        attempt(
+                            "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
+                            (new_qty_in, unique_id),
+                        )
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_in=discrepancy,
+                            discrepancy=discrepancy,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_for_log,
+                            mod=mod_for_log,
+                            remarks=f"Surplus found: +{discrepancy} units",
+                        )
+                    else:
+                        # Shortage
+                        new_qty_out = old_qty_out + abs(discrepancy)
+                        attempt(
+                            "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
+                            (new_qty_out, unique_id),
+                        )
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_out=abs(discrepancy),
+                            discrepancy=discrepancy,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_for_log,
+                            mod=mod_for_log,
+                            remarks=f"Shortage found: {discrepancy} units",
+                        )
+
+                # ✅ CASE 3B: Discrepancy WITH expiry change (SPLIT - treat as shortage only)
+                elif discrepancy != 0 and expiry_changed:
+                    # User is SPLITTING the batch - adjust current batch, ignore updated_exp
+                    if discrepancy > 0:
+                        # Surplus (rare in split scenario)
+                        new_qty_in = old_qty_in + discrepancy
+                        attempt(
+                            "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
+                            (new_qty_in, unique_id),
+                        )
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_in=discrepancy,
+                            discrepancy=discrepancy,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_for_log,
+                            mod=mod_for_log,
+                            remarks=f"Surplus found: +{discrepancy} units (split scenario)",
+                        )
+                    else:
+                        # Shortage (typical in split)
+                        new_qty_out = old_qty_out + abs(discrepancy)
+                        attempt(
+                            "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
+                            (new_qty_out, unique_id),
+                        )
+                        log_transaction(
+                            unique_id,
+                            old_exp,
+                            qty_out=abs(discrepancy),
+                            discrepancy=discrepancy,
+                            code=code,
+                            scen=scenario_id,
+                            kit=kit_for_log,
+                            mod=mod_for_log,
+                            remarks=f"Shortage found: {discrepancy} units (split scenario)",
+                        )
+                    # ⚠️ DO NOT process updated_exp - user will add separate row for new expiry
+
+                # ✅ CASE 4: Expiry changed WITHOUT discrepancy (pure re-dating)
+                elif expiry_changed and discrepancy == 0:
+                    # Zero out old batch completely
+                    new_qty_out = old_qty_in
                     attempt(
                         "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
                         (new_qty_out, unique_id),
@@ -2375,69 +2747,73 @@ class StockInventory(tk.Frame):
                     log_transaction(
                         unique_id,
                         old_exp,
-                        qty_out=abs(discrepancy),
-                        discrepancy=discrepancy,
+                        qty_out=old_final,
+                        discrepancy=-old_final,
                         code=code,
                         scen=scenario_id,
                         kit=kit_for_log,
                         mod=mod_for_log,
-                        remarks=f"Shortage found: {discrepancy} units",
+                        remarks=f"Moved to new expiry {new_exp}",
                     )
-                continue
 
-            # CASE 4: Expiry changed - Move/re-date stock
-            # Zero out old batch completely
-            new_qty_out = old_qty_in
-            attempt(
-                "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
-                (new_qty_out, unique_id),
-            )
-            log_transaction(
-                unique_id,
-                old_exp,
-                qty_out=old_final,
-                discrepancy=-old_final,
-                code=code,
-                scen=scenario_id,
-                kit=kit_for_log,
-                mod=mod_for_log,
-                remarks=f"Moved to new expiry {new_exp}",
-            )
+                    # Create or update new batch
+                    new_uid = target_unique_id(new_exp)
+                    cur.execute(
+                        "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
+                        (new_uid,),
+                    )
+                    new_batch = cur.fetchone()
 
-            # Create or update new batch
-            new_uid = target_unique_id(new_exp)
-            cur.execute(
-                "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
-                (new_uid,),
-            )
-            new_batch = cur.fetchone()
+                    if new_batch:
+                        # Batch exists - add to it
+                        new_batch_qty_in = (new_batch[0] or 0) + physical
+                        attempt(
+                            "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
+                            (new_batch_qty_in, new_uid),
+                        )
+                    else:
+                        # Batch doesn't exist - create it
+                        insert_new_batch(new_uid, new_exp, physical)
 
-            if new_batch:
-                # Batch exists - add to it
-                new_batch_qty_in = (new_batch[0] or 0) + physical
-                attempt(
-                    "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
-                    (new_batch_qty_in, new_uid),
-                )
-            else:
-                # Batch doesn't exist - create it
-                insert_new_batch(new_uid, new_exp, physical)
-
-            log_transaction(
-                new_uid,
-                new_exp,
-                qty_in=physical,
-                discrepancy=physical,
-                code=code,
-                scen=scenario_id,
-                kit=kit_for_log,
-                mod=mod_for_log,
-                remarks=f"Moved from {old_exp}",
-            )
+                    log_transaction(
+                        new_uid,
+                        new_exp,
+                        qty_in=physical,
+                        discrepancy=physical,
+                        code=code,
+                        scen=scenario_id,
+                        kit=kit_for_log,
+                        mod=mod_for_log,
+                        remarks=f"Moved from {old_exp}",
+                    )
 
         # Commit all changes
         try:
             conn.commit()
+
+            # ✅ AUTO-EXPORT TO EXCEL AFTER SUCCESSFUL SAVE
+            rows_to_export = [
+                {
+                    "code": vals[1],
+                    "description": vals[2],
+                    "type": vals[3],
+                    "scenario": vals[4],
+                    "kit_number": vals[5],
+                    "module_number": vals[6],
+                    "current_stock": vals[7],
+                    "exp_date": vals[8],
+                    "physical_qty": vals[9],
+                    "updated_exp_date": vals[10],
+                    "discrepancy": vals[11],
+                    "remarks": vals[12],
+                }
+                for item in self.tree.get_children()
+                if (vals := self.tree.item(item)["values"])
+            ]
+            self.export_to_excel(
+                rows_to_export=rows_to_export, document_number=doc_number
+            )
+
             custom_popup(
                 self,
                 lang.t("dialog_titles.success", "Success"),
@@ -2447,6 +2823,7 @@ class StockInventory(tk.Frame):
                 ).format(doc=doc_number),
                 "info",
             )
+
             self.clear_form()
         except Exception as e:
             conn.rollback()
