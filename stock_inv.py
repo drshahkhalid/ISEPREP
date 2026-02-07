@@ -36,6 +36,35 @@ _SCENARIO_CACHE = {}
 # ======================== HELPER FUNCTIONS FROM STOCK_SUMMARY ========================
 
 
+def normalize_type_text(text: str) -> str:
+    """
+    Normalize item type text for comparison.
+    Handles translations: Module/Módulo, Kit, Item
+    Returns uppercase normalized text: KIT, MODULE, or ITEM
+    """
+    if not text:
+        return ""
+
+    # Remove accents and convert to uppercase
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFD", text)
+    without_accents = "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    )
+    upper = without_accents.upper()
+
+    # Map variations to standard types
+    if upper in ("KIT",):
+        return "KIT"
+    elif upper in ("MODULE", "MODULO"):  # Handles both Module and Módulo
+        return "MODULE"
+    elif upper in ("ITEM",):
+        return "ITEM"
+
+    return upper
+
+
 def load_scenario_maps():
     """Load scenario ID to name mappings"""
     conn = connect_db()
@@ -156,7 +185,7 @@ def load_std_quantities_by_scenario(scenario_name=None):
 
 def aggregate_stock_by_key(scenario_name, mgmt_mode):
     """
-    ✅ FIXED: Aggregate stock data by key + EXPIRY DATE
+    ✅ FIXED: Aggregate stock data by key + EXPIRY DATE + COMMENTS
     Returns: dict with key = (scenario, key_value, exp_date) containing stock data
     This ensures SEPARATE rows for each expiry batch!
     """
@@ -184,7 +213,7 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
 
         where_clause = " AND ".join(where_parts)
 
-        # ✅ Query ON-SHELF items (match by item code + EXPIRY)
+        # ✅ Query ON-SHELF items (match by item code + EXPIRY + COMMENTS)
         if mgmt_mode in ("", "All", "On-Shelf"):
             onshelf_sql = f"""
                 SELECT
@@ -193,7 +222,8 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     exp_date,
                     SUM(final_qty) AS current_stock,
                     GROUP_CONCAT(DISTINCT kit_number) AS kit_numbers,
-                    GROUP_CONCAT(DISTINCT module_number) AS module_numbers
+                    GROUP_CONCAT(DISTINCT module_number) AS module_numbers,
+                    GROUP_CONCAT(DISTINCT comments) AS comments
                 FROM stock_data
                 WHERE {where_clause}
                   AND LOWER(management_mode) IN ('on_shelf','on-shelf','onshelf')
@@ -216,9 +246,10 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     "kit_number": "",
                     "module_number": "",
                     "mgmt_type": "on-shelf",
+                    "comments": r["comments"] or "",  # ✅ NEW
                 }
 
-        # ✅ Query IN-BOX items (match by treecode + EXPIRY)
+        # ✅ Query IN-BOX items (match by treecode + EXPIRY + COMMENTS)
         if mgmt_mode in ("", "All", "In-Box"):
             inbox_sql = f"""
                 SELECT
@@ -227,7 +258,8 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     exp_date,
                     SUM(final_qty) AS current_stock,
                     MIN(kit_number) AS kit_number,
-                    MIN(module_number) AS module_number
+                    MIN(module_number) AS module_number,
+                    GROUP_CONCAT(DISTINCT comments) AS comments
                 FROM stock_data
                 WHERE {where_clause}
                   AND LOWER(management_mode) IN ('in_box','in-box','inbox')
@@ -250,6 +282,7 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     "kit_number": r["kit_number"] or "",
                     "module_number": r["module_number"] or "",
                     "mgmt_type": "in-box",
+                    "comments": r["comments"] or "",  # ✅ NEW
                 }
 
     finally:
@@ -860,13 +893,14 @@ class StockInventory(tk.Frame):
         """
         ✅ FIXED: Load ALL items from standard quantities (compositions + kit_items)
         Then match stock data to show current quantities PER EXPIRY DATE.
-        �� ADDED: Kit/Module number filtering
+        ✅ STANDALONE: Items with 8-segment unique_id but kit=None/module=None
+        ✅ FILTERS: Kit/Module filters now work correctly
         Returns: List of items with SEPARATE rows for each expiry batch!
         """
         scenario_filter = self.scenario_var.get()
         mgmt_mode = self.mgmt_mode_var.get()
-        kit_filter = self.kit_number_var.get()  # ✅ NEW
-        module_filter = self.module_number_var.get()  # ✅ NEW
+        kit_filter = self.kit_number_var.get()
+        module_filter = self.module_number_var.get()
 
         # ✅ FIX: Convert "All Scenarios" to None
         all_scenarios_text = lang.t("stock_inv.all_scenarios", "All Scenarios")
@@ -912,20 +946,27 @@ class StockInventory(tk.Frame):
                 if mgmt_type != "in-box":
                     continue
 
-            # ✅ NEW: Apply kit number filter
+            # Get kit/module numbers from stock
             kit_num = stock_entry.get("kit_number", "")
-            if kit_filter and kit_filter not in (all_kits_label, standalone_label):
+            mod_num = stock_entry.get("module_number", "")
+
+            # ✅ STANDALONE DETECTION: Items with no kit/module numbers
+            is_standalone = (not kit_num or kit_num == "-----") and (
+                not mod_num or mod_num == "-----"
+            )
+
+            # ✅ FIXED: Apply kit number filter
+            if kit_filter and kit_filter != all_kits_label:
                 if kit_filter == standalone_label:
-                    # Show only items WITHOUT kit number
-                    if kit_num and kit_num != "-----":
+                    # Show only standalone items (no kit/module numbers)
+                    if not is_standalone:
                         continue
                 else:
                     # Show only items WITH specific kit number
                     if kit_num != kit_filter:
                         continue
 
-            # ✅ NEW: Apply module number filter
-            mod_num = stock_entry.get("module_number", "")
+            # ✅ FIXED: Apply module number filter
             if module_filter and module_filter != all_modules_label:
                 if mod_num != module_filter:
                     continue
@@ -938,7 +979,7 @@ class StockInventory(tk.Frame):
                     module_code=None,
                     item_code=code,
                     std_qty=std_info["std_qty"],
-                    exp_date=exp_date,  # ✅ Use actual expiry!
+                    exp_date=exp_date,
                     force_box_format=False,
                 )
             else:
@@ -949,7 +990,7 @@ class StockInventory(tk.Frame):
                     module_code=std_info.get("module_code"),
                     item_code=code,
                     std_qty=std_info["std_qty"],
-                    exp_date=exp_date,  # ✅ Use actual expiry!
+                    exp_date=exp_date,
                     kit_number=stock_entry.get("kit_number"),
                     module_number=stock_entry.get("module_number"),
                     force_box_format=True,
@@ -962,14 +1003,15 @@ class StockInventory(tk.Frame):
                     "code": code,
                     "description": get_active_designation(code),
                     "type": get_item_type(code),
-                    "scenario": scenario_name,
-                    "kit_number": stock_entry.get("kit_number", "-----"),
-                    "module_number": stock_entry.get("module_number", "-----"),
-                    "current_stock": stock_entry["current_stock"],
-                    "exp_date": exp_date,  # ✅ Actual expiry!
-                    "std_qty": std_info["std_qty"],
                     "mgmt_type": mgmt_type,
-                    "treecode": std_info.get("treecode", code),  # ✅ For sorting
+                    "scenario": scenario_name,
+                    "kit_number": kit_num if kit_num else "-----",
+                    "module_number": mod_num if mod_num else "-----",
+                    "current_stock": stock_entry["current_stock"],
+                    "exp_date": exp_date,
+                    "std_qty": std_info["std_qty"],
+                    "treecode": std_info.get("treecode", code),
+                    "comments": stock_entry.get("comments", ""),
                 }
             )
 
@@ -999,9 +1041,26 @@ class StockInventory(tk.Frame):
                         if mgmt_type != "in-box":
                             continue
 
-                    # ✅ NEW: For items without stock, skip kit/module filtering
-                    # (no physical kit/module numbers exist yet)
-                    # These will appear when user adds them via "Add Missing Item"
+                    # ✅ FIXED: For items without stock, apply kit/module filters
+                    # For items without stock (in Complete Inventory):
+                    # - If "Stand alone items" selected: Only show in-box items (potential standalone)
+                    # - If specific kit selected: Skip items without stock (can't filter without kit_number)
+                    # - If specific module selected: Skip items without stock (can't filter without module_number)
+
+                    if kit_filter and kit_filter != all_kits_label:
+                        if kit_filter == standalone_label:
+                            # Only include if management is in-box (potential standalone)
+                            if mgmt_type != "in-box":
+                                continue
+                        else:
+                            # Skip items without stock when specific kit is selected
+                            # (we can't know their future kit numbers)
+                            continue
+
+                    if module_filter and module_filter != all_modules_label:
+                        # Skip items without stock when specific module is selected
+                        # (we can't know their future module numbers)
+                        continue
 
                     # ✅ Generate unique_id WITHOUT expiry (blank)
                     if mgmt_type == "on-shelf":
@@ -1011,7 +1070,7 @@ class StockInventory(tk.Frame):
                             module_code=None,
                             item_code=code,
                             std_qty=std_info["std_qty"],
-                            exp_date="",  # ✅ Blank for items without stock
+                            exp_date="",
                             force_box_format=False,
                         )
                     else:
@@ -1022,7 +1081,7 @@ class StockInventory(tk.Frame):
                             module_code=std_info.get("module_code"),
                             item_code=code,
                             std_qty=std_info["std_qty"],
-                            exp_date="",  # ✅ Blank for items without stock
+                            exp_date="",
                             kit_number="",
                             module_number="",
                             force_box_format=True,
@@ -1035,21 +1094,18 @@ class StockInventory(tk.Frame):
                             "code": code,
                             "description": get_active_designation(code),
                             "type": get_item_type(code),
+                            "mgmt_type": mgmt_type,
                             "scenario": scenario_name,
                             "kit_number": "-----",
                             "module_number": "-----",
-                            "current_stock": 0,  # ✅ No stock!
-                            "exp_date": "",  # ✅ Blank expiry
+                            "current_stock": 0,
+                            "exp_date": "",
                             "std_qty": std_info["std_qty"],
-                            "mgmt_type": mgmt_type,
-                            "treecode": std_info.get(
-                                "treecode", code
-                            ),  # ✅ For sorting
+                            "treecode": std_info.get("treecode", code),
                         }
                     )
 
         # ✅ FIXED SORTING: Group by treecode/code, then sort by expiry WITHIN each group
-        # Sort by: (scenario, treecode for in-box OR code for on-shelf, then expiry date)
         def sort_key(item):
             scenario = item["scenario"]
             mgmt_type = item["mgmt_type"]
@@ -1076,27 +1132,33 @@ class StockInventory(tk.Frame):
             if not vals:
                 continue
             uid = vals[0]
+            # ✅ FIXED: Index shifted by 1 (management_type at index 4)
             base_ph = self.base_physical_inputs.get(
-                iid, int(vals[9]) if str(vals[9]).isdigit() else 0
+                iid,
+                (
+                    int(vals[10]) if str(vals[10]).isdigit() else 0
+                ),  # ✅ physical_qty is now at index 10
             )
             self.user_row_states[uid] = {
                 "unique_id": uid,
                 "code": vals[1],
                 "description": vals[2],
                 "type": vals[3],
-                "scenario": vals[4],
-                "kit_number": vals[5],
-                "module_number": vals[6],
-                "current_stock": vals[7],
-                "exp_date": vals[8],
-                "physical_qty": vals[9],
-                "updated_exp_date": vals[10],
-                "discrepancy": vals[11],
-                "remarks": vals[12],
-                "std_qty": vals[13],
+                "management_type": vals[4],  # ✅ NEW
+                "scenario": vals[5],
+                "kit_number": vals[6],
+                "module_number": vals[7],
+                "current_stock": vals[8],
+                "exp_date": vals[9],
+                "physical_qty": vals[10],
+                "updated_exp_date": vals[11],
+                "discrepancy": vals[12],
+                "remarks": vals[13],
+                "std_qty": vals[14],
                 "base_physical": base_ph,
                 "is_custom": uid.startswith("temp::")
-                or (int(vals[7]) if str(vals[7]).isdigit() else 0) == 0,
+                or (int(vals[8]) if str(vals[8]).isdigit() else 0)
+                == 0,  # ✅ current_stock is now at index 8
             }
 
     def rebuild_tree_preserving_state(self):
@@ -1128,11 +1190,13 @@ class StockInventory(tk.Frame):
                 remarks = ""
                 base_ph = 0
 
-            # If in complete inventory mode, force physical quantity to 0 by default
-            if is_complete_inventory:
+            # ✅ FIXED: Only force 0 if no previous state exists AND in Complete Inventory mode
+            if is_complete_inventory and not state:
+                # New item in Complete Inventory - default to 0
                 phys_to_insert = "0"
                 base_ph_to_insert = 0
             else:
+                # Preserve existing data (user may have already entered values)
                 phys_to_insert = phys
                 base_ph_to_insert = base_ph
 
@@ -1140,12 +1204,7 @@ class StockInventory(tk.Frame):
                 item, phys_to_insert, upd, disc, remarks, base_ph_to_insert
             )
 
-            # If we forced a zero, also update the stored user state
-            if is_complete_inventory:
-                uid = item["unique_id"]
-                if uid in self.user_row_states:
-                    self.user_row_states[uid]["physical_qty"] = "0"
-                    self.user_row_states[uid]["base_physical"] = 0
+            # ✅ REMOVED: Don't update stored state - preserve user input!
 
         # Recompute quantities
         self.recompute_all_physical_quantities()
@@ -1183,33 +1242,50 @@ class StockInventory(tk.Frame):
             # New row (current_stock = 0), use provided updated_exp or blank
             auto_updated_exp = updated_exp
 
+        # ✅ NEW: Use comments from stock_data for existing rows (if no user remarks yet)
+        # For existing rows (current_stock > 0), pre-populate remarks with comments
+        if current_stock > 0 and not remarks:
+            remarks = item_dict.get("comments", "")
+
+        # ✅ Get management type label
+        mgmt_type = item_dict.get("mgmt_type", "on-shelf")
+        mgmt_label = (
+            lang.t("stock_inv.on_shelf", "On-Shelf")
+            if mgmt_type == "on-shelf"
+            else lang.t("stock_inv.in_box", "In-Box")
+        )
+
         iid = self.tree.insert(
             "",
             "end",
             values=(
-                item_dict["unique_id"],
-                item_dict["code"],
-                item_dict["description"],
-                item_dict["type"],
-                item_dict["scenario"],
-                item_dict.get("kit_number", "-----"),
-                item_dict.get("module_number", "-----"),
-                item_dict["current_stock"],
-                current_exp,
-                phys_str,
-                auto_updated_exp,  # ✅ Auto-filled for existing rows
-                disc_str,
-                remarks,
-                item_dict["std_qty"],
+                item_dict["unique_id"],  # 0
+                item_dict["code"],  # 1
+                item_dict["description"],  # 2
+                item_dict["type"],  # 3
+                mgmt_label,  # 4 ✅ MANAGEMENT TYPE
+                item_dict["scenario"],  # 5
+                item_dict.get("kit_number", "-----"),  # 6
+                item_dict.get("module_number", "-----"),  # 7
+                item_dict["current_stock"],  # 8
+                current_exp,  # 9
+                phys_str,  # 10
+                auto_updated_exp,  # 11
+                disc_str,  # 12
+                remarks,  # 13 ✅ Pre-populated with comments for existing rows
+                item_dict["std_qty"],  # 14
             ),
         )
-        t = (item_dict["type"] or "").upper()
+
+        # ✅ FIXED: Normalize type text before comparison (handles Módulo/Module)
+        t = normalize_type_text(item_dict["type"] or "")
         if t == "KIT":
             self.tree.item(iid, tags=("kit_row",))
         elif t == "MODULE":
             self.tree.item(iid, tags=("module_row",))
         else:
             self.tree.item(iid, tags=())
+
         self.base_physical_inputs[iid] = base_physical
         return iid
 
@@ -1218,13 +1294,7 @@ class StockInventory(tk.Frame):
     def recompute_all_physical_quantities(self):
         """
         Universal quantity calculation engine.
-        - Determines logic based on unique_id structure (8-segment vs. other).
-        - For 8-segment 'physical' rows:
-          - KIT/MODULE base inputs are coerced to 0 or 1 for factors.
-          - Final quantity is calculated as: base * kit_factor * module_factor.
-        - For all other rows, the final quantity is the user's base input.
-        - Updates discrepancies and highlights for all rows after computation.
-        - Includes enhanced popups and state synchronization.
+        ✅ FIXED: Handles Module/Módulo/MODULE normalization
         """
         # --- Phase 1: Calculate all final quantities ---
         kit_factors = {}
@@ -1243,19 +1313,20 @@ class StockInventory(tk.Frame):
             if not is_physical:
                 continue
 
-            row_type = (vals[3] or "").upper()
+            # ✅ FIXED: Normalize type text (handles Module/Módulo)
+            row_type = normalize_type_text(vals[3] or "")
             base_input = self.base_physical_inputs.get(iid, 0)
 
             if row_type == "KIT":
-                kit_number = vals[5]
+                kit_number = vals[6]
                 if kit_number and kit_number != "-----":
                     final_qty = 1 if base_input > 0 else 0
                     kit_factors[kit_number] = final_qty
                     self.tree.set(iid, "physical_qty", str(final_qty))
 
             elif row_type == "MODULE":
-                module_number = vals[6]
-                kit_number = vals[5]
+                module_number = vals[7]
+                kit_number = vals[6]
                 if module_number and module_number != "-----":
                     parent_kit_factor = kit_factors.get(kit_number, 1)
                     base_factor = 1 if base_input > 0 else 0
@@ -1274,7 +1345,6 @@ class StockInventory(tk.Frame):
                             ).format(code=vals[1], desc=vals[2], kit=kit_number),
                             "info",
                         )
-                        # State Synchronization: Reset base input to prevent repeated popups
                         self.base_physical_inputs[iid] = 0
 
         # Second pass: Calculate quantities for all other rows (ITEMS and non-physical)
@@ -1286,13 +1356,15 @@ class StockInventory(tk.Frame):
             unique_id = vals[0]
             is_physical = unique_id and unique_id.count("/") == 7
             base_input = self.base_physical_inputs.get(iid, 0)
-            row_type = (vals[3] or "").upper()
+
+            # ✅ FIXED: Normalize type text (handles Module/Módulo)
+            row_type = normalize_type_text(vals[3] or "")
 
             final_qty = base_input  # Default for non-physical rows
 
             if is_physical and row_type == "ITEM":
-                kit_number = vals[5]
-                module_number = vals[6]
+                kit_number = vals[6]
+                module_number = vals[7]
 
                 parent_kit_factor = kit_factors.get(kit_number, 1)
                 parent_module_factor = module_factors.get(module_number, 1)
@@ -1323,7 +1395,6 @@ class StockInventory(tk.Frame):
                             ).format(code=vals[1], desc=vals[2], reason=reason),
                             "info",
                         )
-                        # State Synchronization: Reset base input
                         self.base_physical_inputs[iid] = 0
 
             elif not is_physical:
@@ -1335,8 +1406,8 @@ class StockInventory(tk.Frame):
             if not vals:
                 continue
 
-            current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
-            physical_qty = int(vals[9]) if str(vals[9]).isdigit() else 0
+            current_stock = int(vals[8]) if str(vals[8]).isdigit() else 0
+            physical_qty = int(vals[10]) if str(vals[10]).isdigit() else 0
             discrepancy = physical_qty - current_stock
 
             self.tree.set(
@@ -1383,6 +1454,206 @@ class StockInventory(tk.Frame):
                 conn.close()
         return f"{prefix}/{serial:04d}"
 
+    # --------------Adopted Expiry warning----------
+
+    def _show_adopted_expiry_warning(self):
+        """
+        Show warning dialog if any items have adopted expiries in remarks/comments AND physical quantity > 0.
+        Returns True to proceed with save, False to go back for review.
+
+        Returns:
+            bool: True = proceed with save, False = cancel and review
+        """
+        # Count items with adopted expiries AND physical qty > 0
+        adopted_count = 0
+        adopted_items = []
+
+        for iid in self.tree.get_children():
+            vals = self.tree.item(iid, "values")
+            if not vals:
+                continue
+
+            code = vals[1]
+            remarks = (vals[13] or "").lower()  # Remarks column (index 13)
+            physical_qty = vals[10]  # Physical quantity (index 10)
+
+            # ✅ Parse physical quantity
+            phys_qty_int = 0
+            if physical_qty and str(physical_qty).isdigit():
+                phys_qty_int = int(physical_qty)
+
+            # ✅ Check if "adopted_exp" or "adopted expiry" appears in remarks AND physical qty > 0
+            if phys_qty_int > 0 and (
+                "adopted_exp" in remarks or "adopted expiry" in remarks
+            ):
+                adopted_count += 1
+                adopted_items.append(code)
+
+        # If no adopted expiries with qty > 0, proceed directly
+        if adopted_count == 0:
+            return True
+
+        # ✅ Show warning dialog
+        # Create custom dialog
+        dialog = tk.Toplevel(self)
+        dialog.title(lang.t("stock_inv.warning_title", "Warning - Adopted Expiries"))
+        dialog.geometry("550x550")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Result variable
+        result = {"proceed": False}
+
+        # Main frame
+        main_frame = tk.Frame(dialog, bg="#FFF3E0", padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # Warning icon and title
+        title_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        title_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Label(
+            title_frame, text="⚠️", font=("Helvetica", 32), bg="#FFF3E0", fg="#FF6F00"
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            title_frame,
+            text=lang.t(
+                "stock_inv.adopted_expiry_warning_title",
+                "Adopted Expiry Dates Detected",
+            ),
+            font=("Helvetica", 14, "bold"),
+            bg="#FFF3E0",
+            fg="#E65100",
+        ).pack(side="left")
+
+        # Warning message frame
+        msg_frame = tk.Frame(main_frame, bg="white", relief="solid", borderwidth=1)
+        msg_frame.pack(fill="both", expand=True, pady=(0, 15))
+
+        # Count label
+        count_label = tk.Label(
+            msg_frame,
+            text=lang.t(
+                "stock_inv.adopted_count",
+                "{count} item(s) have expiry dates adopted from kit/module or other sources.",
+            ).format(count=adopted_count),
+            font=("Helvetica", 11, "bold"),
+            bg="white",
+            fg="#D84315",
+            wraplength=480,
+            justify="left",
+        )
+        count_label.pack(fill="x", padx=15, pady=(15, 10))
+
+        # Warning text
+        warning_text = lang.t(
+            "stock_inv.adopted_expiry_warning",
+            "This may cause issues in stock management.\n\n"
+            "It is STRONGLY RECOMMENDED to verify the expiry dates manually "
+            "and enter actual expiry dates before saving.\n\n"
+            "Items with 'Adopted_Exp' in remarks should be reviewed carefully.",
+        )
+
+        warning_label = tk.Label(
+            msg_frame,
+            text=warning_text,
+            font=("Helvetica", 10),
+            bg="white",
+            fg="#424242",
+            wraplength=480,
+            justify="left",
+        )
+        warning_label.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+
+        # Recommendation box
+        rec_frame = tk.Frame(main_frame, bg="#E3F2FD", relief="solid", borderwidth=1)
+        rec_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Label(
+            rec_frame,
+            text="💡 " + lang.t("stock_inv.recommendation", "Recommendation"),
+            font=("Helvetica", 10, "bold"),
+            bg="#E3F2FD",
+            fg="#1565C0",
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(8, 4))
+
+        tk.Label(
+            rec_frame,
+            text=lang.t(
+                "stock_inv.recommendation_text",
+                "Click 'Review' to go back and verify expiry dates.\n"
+                "Double-click any row to edit the expiry date and remarks.",
+            ),
+            font=("Helvetica", 9),
+            bg="#E3F2FD",
+            fg="#424242",
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=10, pady=(0, 8))
+
+        # Button frame
+        btn_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        btn_frame.pack(side="bottom", pady=(10, 0))
+
+        def on_review():
+            """User wants to go back and review."""
+            result["proceed"] = False
+            dialog.destroy()
+
+        def on_save():
+            """User wants to proceed with save."""
+            result["proceed"] = True
+            dialog.destroy()
+
+        # Review button (recommended action)
+        review_btn = tk.Button(
+            btn_frame,
+            text=lang.t("stock_inv.review_button", "📋 Review Expiries"),
+            font=("Helvetica", 11, "bold"),
+            bg="#2196F3",
+            fg="white",
+            width=18,
+            command=on_review,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8,
+        )
+        review_btn.pack(side="left", padx=5)
+
+        # Save anyway button (warning action)
+        save_btn = tk.Button(
+            btn_frame,
+            text=lang.t("stock_inv.save_anyway_button", "⚠️ Save Anyway"),
+            font=("Helvetica", 11),
+            bg="#FF9800",
+            fg="white",
+            width=18,
+            command=on_save,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8,
+        )
+        save_btn.pack(side="left", padx=5)
+
+        # Bind keys
+        dialog.bind("<Escape>", lambda e: on_review())
+        dialog.bind("<Return>", lambda e: on_review())  # Default = Review
+
+        # Wait for dialog
+        dialog.wait_window()
+
+        return result["proceed"]
+
     # ---------- Export ----------
     def export_to_excel(self, rows_to_export=None, document_number=None):
         """
@@ -1419,17 +1690,18 @@ class StockInventory(tk.Frame):
             module_filter = self.module_number_var.get()
             current_date = datetime.now().strftime("%Y-%m-%d")
 
+            # ✅ FIXED: Headers now span 13 columns (A to M) instead of 12
             # Header row 1: Title
             ws["A1"] = lang.t("stock_inv.stock_inventory", "Stock Inventory")
             ws["A1"].font = Font(name="Tahoma", size=14, bold=True)
             ws["A1"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A1:L1")
+            ws.merge_cells("A1:M1")  # ✅ Changed from L1 to M1
 
             # Header row 2: Project info
             ws["A2"] = f"{project_name} - {project_code}"
             ws["A2"].font = Font(name="Tahoma", size=14)
             ws["A2"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A2:L2")
+            ws.merge_cells("A2:M2")  # ✅ Changed from L2 to M2
 
             # Header row 3: Filters
             ws["A3"] = (
@@ -1441,7 +1713,7 @@ class StockInventory(tk.Frame):
             )
             ws["A3"].font = Font(name="Tahoma")
             ws["A3"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A3:L3")
+            ws.merge_cells("A3:M3")  # ✅ Changed from L3 to M3
 
             # Header row 4: Date
             ws["A4"] = (
@@ -1449,23 +1721,24 @@ class StockInventory(tk.Frame):
             )
             ws["A4"].font = Font(name="Tahoma")
             ws["A4"].alignment = Alignment(horizontal="right")
-            ws.merge_cells("A4:L4")
+            ws.merge_cells("A4:M4")  # ✅ Changed from L4 to M4
 
             # Header row 5: Document number (if provided)
             if document_number:
                 ws["A5"] = (
                     f"{lang.t('stock_inv.document_number', 'Document Number')}: {document_number}"
                 )
-                ws["A5"].font = Font(name="Tahoma")
+                ws["A5"].font = Font(name="Tahoma", bold=True)
                 ws["A5"].alignment = Alignment(horizontal="right")
-                ws.merge_cells("A5:L5")
-                ws.append([])  # Blank row
+                ws.merge_cells("A5:M5")  # ✅ Changed from L5 to M5
+                ws.append([])  # Blank row after document number
 
-            # Column headers
+            # Column headers (13 columns total)
             headers = [
                 lang.t("stock_inv.code", "Code"),
                 lang.t("stock_inv.description", "Description"),
                 lang.t("stock_inv.type", "Type"),
+                lang.t("stock_inv.management_type", "Management"),  # ✅ Column 4
                 lang.t("stock_inv.scenario", "Scenario"),
                 lang.t("stock_inv.kit_number", "Kit Number"),
                 lang.t("stock_inv.module_number", "Module Number"),
@@ -1474,7 +1747,7 @@ class StockInventory(tk.Frame):
                 lang.t("stock_inv.physical_qty", "Physical Quantity"),
                 lang.t("stock_inv.updated_exp_date", "Updated Expiry Date"),
                 lang.t("stock_inv.discrepancy", "Discrepancy"),
-                lang.t("stock_inv.remarks", "Remarks"),
+                lang.t("stock_inv.remarks", "Remarks"),  # ✅ Column 13 (M)
             ]
             ws.append(headers)
 
@@ -1495,15 +1768,16 @@ class StockInventory(tk.Frame):
                     "code": vals[1],
                     "description": vals[2],
                     "type": vals[3],
-                    "scenario": vals[4],
-                    "kit_number": vals[5],
-                    "module_number": vals[6],
-                    "current_stock": vals[7],
-                    "exp_date": vals[8],
-                    "physical_qty": vals[9],
-                    "updated_exp_date": vals[10],
-                    "discrepancy": vals[11],
-                    "remarks": vals[12],
+                    "management_type": vals[4],  # ✅ NEW
+                    "scenario": vals[5],
+                    "kit_number": vals[6],
+                    "module_number": vals[7],
+                    "current_stock": vals[8],
+                    "exp_date": vals[9],
+                    "physical_qty": vals[10],
+                    "updated_exp_date": vals[11],
+                    "discrepancy": vals[12],
+                    "remarks": vals[13],
                 }
                 for item in self.tree.get_children()
                 if (vals := self.tree.item(item)["values"])
@@ -1517,6 +1791,7 @@ class StockInventory(tk.Frame):
                         row["code"],
                         row["description"],
                         row["type"],
+                        row["management_type"],  # ✅ NEW
                         row["scenario"],
                         row["kit_number"],
                         row["module_number"],
@@ -1529,12 +1804,12 @@ class StockInventory(tk.Frame):
                     ]
                 )
 
-                # Apply color coding
-                t = (row["type"] or "").lower()
+                # ✅ FIXED: Normalize type for color coding (handles Módulo/Module)
+                t = normalize_type_text(row["type"] or "")
                 fill = None
-                if t == "kit":
+                if t == "KIT":
                     fill = kit_fill
-                elif t == "module":
+                elif t == "MODULE":
                     fill = module_fill
 
                 # Highlight missing required expiry
@@ -1544,12 +1819,12 @@ class StockInventory(tk.Frame):
                     fill = exp_warn_fill
 
                 if fill:
-                    for c in ws[f"A{idx}:L{idx}"]:
+                    for c in ws[f"A{idx}:M{idx}"]:  # ✅ Changed from L{idx} to M{idx}
                         for cell in c:
                             cell.fill = fill
 
-            # Set column widths (in pixels / 7 for approximate character width)
-            widths = [100, 300, 100, 120, 120, 130, 110, 110, 120, 130, 110, 200]
+            # ✅ Set column widths (13 columns now)
+            widths = [100, 300, 100, 100, 120, 120, 130, 110, 110, 120, 130, 110, 200]
             for i, w in enumerate(widths, start=1):
                 ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w / 7
 
@@ -1559,7 +1834,7 @@ class StockInventory(tk.Frame):
             ws.page_setup.fitToHeight = 0
             ws.page_setup.fitToWidth = 1
 
-            # Save workbook (NO user prompt)
+            # Save workbook
             wb.save(path)
             wb.close()
 
@@ -1754,11 +2029,14 @@ class StockInventory(tk.Frame):
         # Tree
         tree_frame = tk.Frame(self)
         tree_frame.pack(expand=True, fill="both", pady=10)
+
+        # ✅ UPDATED: Add management_type column
         self.cols = (
             "unique_id",
             "code",
             "description",
             "type",
+            "management_type",  # ✅ NEW COLUMN
             "scenario",
             "kit_number",
             "module_number",
@@ -1770,10 +2048,12 @@ class StockInventory(tk.Frame):
             "remarks",
             "std_qty",
         )
+
         self.display_cols = (
             "code",
             "description",
             "type",
+            "management_type",  # ✅ NEW COLUMN
             "scenario",
             "kit_number",
             "module_number",
@@ -1784,6 +2064,7 @@ class StockInventory(tk.Frame):
             "discrepancy",
             "remarks",
         )
+
         self.tree = ttk.Treeview(
             tree_frame,
             columns=self.cols,
@@ -1800,6 +2081,9 @@ class StockInventory(tk.Frame):
             "code": lang.t("stock_inv.code", "Code"),
             "description": lang.t("stock_inv.description", "Description"),
             "type": lang.t("stock_inv.type", "Type"),
+            "management_type": lang.t(
+                "stock_inv.management_type", "Management"
+            ),  # ✅ NEW
             "scenario": lang.t("stock_inv.scenario", "Scenario"),
             "kit_number": lang.t("stock_inv.kit_number", "Kit Number"),
             "module_number": lang.t("stock_inv.module_number", "Module Number"),
@@ -1813,11 +2097,13 @@ class StockInventory(tk.Frame):
             "remarks": lang.t("stock_inv.remarks", "Remarks"),
             "std_qty": lang.t("stock_inv.std_qty", "Standard Qty"),
         }
+
         widths = {
             "unique_id": 0,
             "code": 110,
             "description": 360,
             "type": 80,
+            "management_type": 100,  # ✅ NEW
             "scenario": 110,
             "kit_number": 110,
             "module_number": 120,
@@ -1829,6 +2115,7 @@ class StockInventory(tk.Frame):
             "remarks": 180,
             "std_qty": 80,
         }
+
         for c in self.cols:
             self.tree.heading(c, text=headers[c])
             self.tree.column(c, width=widths.get(c, 100), anchor="w")
@@ -1915,20 +2202,17 @@ class StockInventory(tk.Frame):
     def _highlight_missing_required_expiry(self):
         """
         Highlight rows (light_red) ONLY when:
-          - Item requires expiry (remarks contains 'exp')
-          - Physical quantity > 0
-          - AND (updated_exp_date is missing OR invalid / not future)
-        If updated_exp_date is present AND valid future -> remove highlight.
-        Rows with phys qty 0 or blank are never highlighted.
-        Other rows keep kit/module coloring.
+        - Item requires expiry (remarks contains 'exp')
+        - Physical quantity > 0
+        - AND (updated_exp_date is missing OR invalid / not future)
         """
         for iid in self.tree.get_children():
             vals = self.tree.item(iid, "values")
             if not vals:
                 continue
             code = vals[1]
-            phys = vals[9]
-            updated = vals[10]
+            phys = vals[10]  # ✅ Updated index
+            updated = vals[11]  # ✅ Updated index
             t = (vals[3] or "").upper()
             phys_int = int(phys) if phys.isdigit() else 0
             requires = check_expiry_required(code)
@@ -1955,13 +2239,15 @@ class StockInventory(tk.Frame):
                     self.tree.item(iid, tags=())
 
     def _show_expiry_change_instructions(self, code, description):
-        """Show instructions for changing expiry date on existing stock."""
+        """
+        Show detailed instructions popup for how to re-date existing stock.
+        This is shown when user tries to edit updated_exp_date for an existing row.
+        """
         message = lang.t(
             "stock_inv.expiry_change_blocked",
-            "Updated Expiry Date is automatically set to match Current Expiry for existing stock.\n\n"
+            "Cannot change expiry date for existing stock.\n\n"
             "To re-date stock for {code} - {desc}:\n\n"
-            "1. Set 'Physical Quantity' to the amount you want to KEEP "
-            "with the current expiry date\n"
+            "1. Set 'Physical Quantity' to the amount you want to KEEP with the current expiry date\n"
             "   (or 0 to move all stock to new expiry)\n\n"
             "2. Right-click this row and select 'Add New Row'\n\n"
             "3. In the new row:\n"
@@ -1971,17 +2257,121 @@ class StockInventory(tk.Frame):
             "Example:\n"
             "- Current: 100 units, Expiry Dec-26\n"
             "- Want: 50 units Dec-26, 50 units Dec-29\n"
-            "  → Row 1 (existing): Physical = 50\n"
-            "     Updated Expiry = Dec-26 (auto-filled, non-editable)\n"
-            "  → Row 2 (new): Physical = 50, Updated Expiry = Dec-29 (fill manually)",
+            "  → Row 1 (existing): Physical = 50 (keeps Dec-26)\n"
+            "  → Row 2 (new): Physical = 50, Updated Expiry = Dec-29",
         ).format(code=code, desc=description)
 
-        custom_popup(
-            self,
-            lang.t("dialog_titles.info", "Expiry Date Change"),
-            message,
-            "info",
+        # Create custom dialog
+        dialog = tk.Toplevel(self)
+        dialog.title(
+            lang.t("stock_inv.expiry_change_title", "Cannot Change Expiry Date")
         )
+        dialog.geometry("650x720")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Main frame
+        main_frame = tk.Frame(dialog, bg="#FFF3E0", padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # Warning icon and title
+        title_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        title_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Label(
+            title_frame, text="🚫", font=("Helvetica", 32), bg="#FFF3E0", fg="#E65100"
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            title_frame,
+            text=lang.t("stock_inv.expiry_change_title", "Cannot Change Expiry Date"),
+            font=("Helvetica", 14, "bold"),
+            bg="#FFF3E0",
+            fg="#D84315",
+        ).pack(side="left")
+
+        # Message frame with scrollbar
+        msg_frame = tk.Frame(main_frame, bg="white", relief="solid", borderwidth=1)
+        msg_frame.pack(fill="both", expand=True, pady=(0, 15))
+
+        # Text widget for scrollable content
+        text_widget = tk.Text(
+            msg_frame,
+            wrap="word",
+            font=("Courier", 10),
+            bg="white",
+            fg="#424242",
+            padx=15,
+            pady=15,
+            relief="flat",
+        )
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("1.0", message)
+        text_widget.config(state="disabled")
+
+        # Info box
+        info_frame = tk.Frame(main_frame, bg="#E3F2FD", relief="solid", borderwidth=1)
+        info_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Label(
+            info_frame,
+            text="ℹ️ " + lang.t("stock_inv.why_blocked", "Why is this blocked?"),
+            font=("Helvetica", 10, "bold"),
+            bg="#E3F2FD",
+            fg="#1565C0",
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(8, 4))
+
+        tk.Label(
+            info_frame,
+            text=lang.t(
+                "stock_inv.why_blocked_text",
+                "Existing stock already has a recorded expiry date in the system.\n"
+                "To maintain accurate stock tracking, you must create separate records\n"
+                "for different expiry dates.",
+            ),
+            font=("Helvetica", 9),
+            bg="#E3F2FD",
+            fg="#424242",
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=10, pady=(0, 8))
+
+        # Button frame
+        btn_frame = tk.Frame(main_frame, bg="#FFF3E0")
+        btn_frame.pack(side="bottom", pady=(10, 0))
+
+        def on_close():
+            dialog.destroy()
+
+        # OK button
+        ok_btn = tk.Button(
+            btn_frame,
+            text=lang.t("stock_inv.understood", "✓ I Understand"),
+            font=("Helvetica", 11, "bold"),
+            bg="#4CAF50",
+            fg="white",
+            width=20,
+            command=on_close,
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=8,
+        )
+        ok_btn.pack(pady=5)
+
+        # Bind keys
+        dialog.bind("<Escape>", lambda e: on_close())
+        dialog.bind("<Return>", lambda e: on_close())
+
+        # Wait for dialog
+        dialog.wait_window()
 
     # ---------- Tab navigation ----------
     def on_tab_press(self, event):
@@ -2112,18 +2502,13 @@ class StockInventory(tk.Frame):
         """Clear the tree filter and show all rows."""
         self.filter_entry.delete(0, tk.END)
 
-        # Show all rows
-        for iid in self.tree.get_children():
-            try:
-                self.tree.reattach(iid, "", "end")
-            except:
-                pass
+        # ✅ FIXED: Reload tree instead of just showing rows
+        # This ensures all items are loaded, not just unhiding filtered ones
+        self.rebuild_tree_preserving_state()
 
-        # Update status
-        total = len(self.tree.get_children())
         self.status_var.set(
             lang.t("stock_inv.showing_all", "Showing all {count} items").format(
-                count=total
+                count=len(self.tree.get_children())
             )
         )
 
@@ -2355,69 +2740,74 @@ class StockInventory(tk.Frame):
 
     def _begin_inline_edit(self, row_id, col_key):
         """
-        Handles inline editing for specified columns.
-        Validates KIT/MODULE quantities (only 0 or 1 allowed).
+        Begin inline editing for a specific cell.
+        ✅ BLOCKS editing of updated_exp_date for existing rows (current_stock > 0)
         """
-        if col_key not in self.display_cols:
-            return
-        display_index = self.display_cols.index(col_key)
-        bbox = self.tree.bbox(row_id, f"#{display_index+1}")
-        if not bbox:
-            return
-        x, y, w, h = bbox
-        current_val = self.tree.set(row_id, col_key)
-
-        # Get row type for validation
         vals = self.tree.item(row_id, "values")
-        row_type = (vals[3] or "").strip().lower() if len(vals) > 3 else ""
+        if not vals:
+            return
 
-        entry = tk.Entry(self.tree)
-        entry.place(x=x, y=y, width=w, height=h)
-        if current_val:
-            entry.insert(0, current_val)
+        code = vals[1]
+        description = vals[2]
+        current_stock = vals[8]  # Index 8 for current_stock
+
+        # Parse current stock
+        current_stock_int = 0
+        if current_stock and str(current_stock).isdigit():
+            current_stock_int = int(current_stock)
+
+        # ✅ BLOCK editing updated_exp_date for existing rows
+        if col_key == "updated_exp_date" and current_stock_int > 0:
+            self._show_expiry_change_instructions(code, description)
+            return
+
+        # Get column index
+        col_index = {
+            "physical_qty": "#10",
+            "updated_exp_date": "#11",
+            "remarks": "#13",
+        }.get(col_key)
+
+        if not col_index:
+            return
+
+        # Get current value
+        current_value = vals[int(col_index.replace("#", ""))]
+
+        # Get column position and width
+        x = self.tree.bbox(row_id, col_index)[0]
+        y = self.tree.bbox(row_id, col_index)[1]
+        width = self.tree.column(col_index, "width")
+        height = self.tree.bbox(row_id, col_index)[3]
+
+        # Create entry widget
+        entry = tk.Entry(self.tree, width=width)
+        entry.place(x=x, y=y, width=width, height=height)
+        entry.insert(0, current_value)
+        entry.select_range(0, tk.END)
         entry.focus()
 
         def save_edit(evt=None):
-            new_val = entry.get().strip()
-
-            if col_key == "physical_qty":
-                # ✅ Validate KIT/MODULE quantities (only 0 or 1)
-                if row_type in ("kit", "module", "módulo", "kit/module"):
-                    if not new_val.isdigit() or int(new_val) not in (0, 1):
-                        entry.destroy()
-                        custom_popup(
-                            self,
-                            lang.t("dialog_titles.error", "Error"),
-                            lang.t(
-                                "stock_inv.kit_module_qty_error",
-                                "KIT and MODULE quantities can only be 0 or 1.\n"
-                                "Each kit/module has a unique identifier (kit/module number).\n"
-                                "Only one unit per identifier is allowed.",
-                            ),
-                            "error",
-                        )
-                        return
-
-                # Store the user's raw input as the base for calculations
-                base_qty = int(new_val) if new_val.isdigit() else 0
-                self.base_physical_inputs[row_id] = base_qty
-
-                # Trigger recalculation
-                self.recompute_all_physical_quantities()
-
-            elif col_key == "updated_exp_date":
-                if new_val:
-                    parsed = parse_expiry(new_val)
-                    new_val = parsed.strftime("%Y-%m-%d") if parsed else ""
-                self.tree.set(row_id, col_key, new_val)
-
-            elif col_key == "remarks":
-                self.tree.set(row_id, col_key, new_val[:255])
-
-            self._update_state_from_row(row_id)
-            self._highlight_missing_required_expiry()
+            new_value = entry.get().strip()
             entry.destroy()
 
+            # Update tree
+            self.tree.set(row_id, col_key, new_value)
+
+            # Update state
+            if col_key == "physical_qty":
+                # Update base physical input
+                if new_value.isdigit():
+                    self.base_physical_inputs[row_id] = int(new_value)
+                else:
+                    self.base_physical_inputs[row_id] = 0
+                # Recompute all quantities
+                self.recompute_all_physical_quantities()
+            else:
+                # For remarks or updated_exp_date, just update state
+                self._update_state_from_row(row_id)
+
+        # Bind events
         entry.bind("<Return>", save_edit)
         entry.bind("<FocusOut>", save_edit)
         entry.bind("<Escape>", lambda e: entry.destroy())
@@ -2485,17 +2875,21 @@ class StockInventory(tk.Frame):
         if not on_shelf and widget == getattr(self, "kit_number_cb", None):
             self.refresh_module_dropdown()
 
-        # Rebuild tree if in Complete Inventory mode
-        if self.inv_type_var.get() == lang.t(
-            "stock_inv.complete_inventory", "Complete Inventory"
-        ):
-            self.rebuild_tree_preserving_state()
+        # ✅ ALWAYS rebuild tree when filters change (not just in Complete Inventory)
+        self.rebuild_tree_preserving_state()
 
     def on_inv_type_selected(self, event=None):
+        """Handle inventory type changes."""
         inv_type = self.inv_type_var.get()
+
+        # ✅ ALWAYS clear data when inventory type changes (both directions)
+        self.user_row_states.clear()
+        self.base_physical_inputs.clear()
+
         if inv_type == lang.t("stock_inv.complete_inventory", "Complete Inventory"):
-            self.rebuild_tree_preserving_state()
+            # Complete Inventory mode: Load all items
             self.search_frame.pack_forget()
+            self.rebuild_tree_preserving_state()
             self.batch_info_var.set(
                 lang.t(
                     "stock_inv.complete_info",
@@ -2503,10 +2897,8 @@ class StockInventory(tk.Frame):
                 )
             )
         else:
-            # Partial inventory
+            # Partial Inventory mode: Clear tree and show search
             self.tree.delete(*self.tree.get_children())
-            self.user_row_states.clear()
-            self.base_physical_inputs.clear()
             self.search_frame.pack(pady=5, fill="x")
             self.status_var.set(
                 lang.t(
@@ -2524,6 +2916,7 @@ class StockInventory(tk.Frame):
     # ---------- Search interactions ----------
 
     def select_first_search_result(self, event=None):
+        """Select first search result when Enter is pressed."""
         if self.search_listbox.size() > 0:
             self.search_listbox.selection_set(0)
             self.on_search_select()
@@ -2533,7 +2926,7 @@ class StockInventory(tk.Frame):
         self.code_entry.delete(0, tk.END)
         self.search_listbox.delete(0, tk.END)
 
-        # Reload tree if in Complete Inventory mode
+        # Reload tree if in Complete Inventory mode (preserving user data)
         inv_type = self.inv_type_var.get()
         if inv_type == lang.t("stock_inv.complete_inventory", "Complete Inventory"):
             self.rebuild_tree_preserving_state()
@@ -2552,6 +2945,17 @@ class StockInventory(tk.Frame):
 
         NO expiry changes allowed for existing rows (blocked in UI).
         """
+
+        # ✅ Check for adopted expiries before saving
+        if not self._show_adopted_expiry_warning():
+            # User chose to review - cancel save
+            self.status_var.set(
+                lang.t(
+                    "stock_inv.save_cancelled",
+                    "Save cancelled - Please review expiry dates",
+                )
+            )
+            return
 
         # Role validation
         if self.role.lower() not in ["admin", "manager"]:
