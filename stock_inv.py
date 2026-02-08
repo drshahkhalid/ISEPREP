@@ -2971,6 +2971,7 @@ class StockInventory(tk.Frame):
         4. Existing row, discrepancy = 0 (Match) → No database change
 
         NO expiry changes allowed for existing rows (blocked in UI).
+        ✅ Saves remarks to stock_data.comments and stock_transactions.comments
         """
 
         # ✅ Check for adopted expiries before saving
@@ -3013,9 +3014,11 @@ class StockInventory(tk.Frame):
         for rid in rows:
             vals = self.tree.item(rid, "values")
             code = vals[1]
-            current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
-            phys_str = vals[9]
-            updated_exp = vals[10]
+            current_stock = (
+                int(vals[8]) if str(vals[8]).isdigit() else 0
+            )  # ✅ Index 8 (was 7)
+            phys_str = vals[10]  # ✅ Index 10 (was 9)
+            updated_exp = vals[11]  # ✅ Index 11 (was 10)
             phys_int = int(phys_str) if phys_str.isdigit() else 0
 
             # Only validate NEW rows with physical quantity
@@ -3091,7 +3094,10 @@ class StockInventory(tk.Frame):
             kit=None,
             mod=None,
         ):
-            """Log transaction to stock_transactions table."""
+            """
+            Log transaction to stock_transactions table.
+            ✅ Saves remarks to both Remarks and comments columns
+            """
             if not qty_in and not qty_out:
                 return
 
@@ -3100,8 +3106,8 @@ class StockInventory(tk.Frame):
                 INSERT INTO stock_transactions
                 (Date, Time, document_number, unique_id, code, Description, Expiry_date, Batch_Number,
                 Scenario, Kit, Module, Qty_IN, IN_Type, Qty_Out, Out_Type,
-                Third_Party, End_User, Discrepancy, Remarks, Movement_Type)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                Third_Party, End_User, Discrepancy, Remarks, comments, Movement_Type)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     datetime.today().strftime("%Y-%m-%d"),
@@ -3122,23 +3128,24 @@ class StockInventory(tk.Frame):
                     None,
                     None,
                     discrepancy if discrepancy else None,
-                    remarks if remarks else None,
+                    remarks if remarks else None,  # Legacy column
+                    remarks if remarks else None,  # ✅ NEW: comments column
                     "stock_inv",
                 ),
             )
 
         # Process each row
-
         processed_count = 0
         for rid in rows:
             vals = self.tree.item(rid, "values")
             unique_id = vals[0]
             code = vals[1]
-            current_stock = int(vals[7]) if str(vals[7]).isdigit() else 0
-            current_exp = vals[8]
-            physical_str = vals[9]
-            updated_exp = vals[10]
-            remarks_val = vals[12]
+            # ✅ FIXED: Updated indices after adding management_type column
+            current_stock = int(vals[8]) if str(vals[8]).isdigit() else 0
+            current_exp = vals[9]
+            physical_str = vals[10]
+            updated_exp = vals[11]
+            remarks_val = vals[13]  # ✅ Index 13 (was 12)
 
             # Skip if no physical quantity entered
             if not physical_str or not physical_str.isdigit():
@@ -3152,8 +3159,8 @@ class StockInventory(tk.Frame):
                 # For temp rows, get ALL data from stored state
                 state = self.user_row_states.get(unique_id, {})
 
-                # Get scenario from row values (vals[4])
-                scenario_name = vals[4]
+                # Get scenario from row values (vals[5] - after management_type)
+                scenario_name = vals[5]
 
                 # ✅ Get scenario_id from stored state (from parent row)
                 scenario_id = state.get("scenario_id")
@@ -3176,14 +3183,14 @@ class StockInventory(tk.Frame):
                 module_code = state.get("module_code")
                 item_code = code  # Use actual code from vals[1]
 
-                # Get kit/module numbers from row
-                kit_number = vals[5] if vals[5] != "-----" else None
-                module_number = vals[6] if vals[6] != "-----" else None
+                # Get kit/module numbers from row (indices adjusted)
+                kit_number = vals[6] if vals[6] != "-----" else None
+                module_number = vals[7] if vals[7] != "-----" else None
 
                 # ✅ Get treecode from stored state (from parent row)
                 treecode_stored = state.get("treecode")
 
-                std_qty_val = int(vals[13]) if str(vals[13]).isdigit() else 0
+                std_qty_val = int(vals[14]) if str(vals[14]).isdigit() else 0
 
             else:
                 # Regular row - parse unique_id normally
@@ -3197,7 +3204,7 @@ class StockInventory(tk.Frame):
                 module_number = parsed["module_number"]
                 treecode_stored = parsed.get("treecode")
                 std_qty_val = parsed["std_qty"] or (
-                    int(vals[13]) if str(vals[13]).isdigit() else 0
+                    int(vals[14]) if str(vals[14]).isdigit() else 0
                 )
 
             # ✅ FIX: For logging purposes, use kit_number and module_number (NOT codes)
@@ -3212,7 +3219,7 @@ class StockInventory(tk.Frame):
             if current_stock > 0:
                 # Check if unique_id exists in stock_data
                 cur.execute(
-                    "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
+                    "SELECT qty_in, qty_out, comments FROM stock_data WHERE unique_id = ?",
                     (unique_id,),
                 )
                 existing = cur.fetchone()
@@ -3225,13 +3232,21 @@ class StockInventory(tk.Frame):
 
                 old_qty_in = existing[0] or 0
                 old_qty_out = existing[1] or 0
+                old_comments = existing[2] or ""
+
+                # ✅ Merge comments: Use new remarks if provided, else keep old
+                final_comments = remarks_val if remarks_val else old_comments
 
                 # SCENARIO 1: Surplus (discrepancy > 0)
                 if discrepancy > 0:
                     new_qty_in = old_qty_in + discrepancy
                     if not attempt(
-                        "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
-                        (new_qty_in, unique_id),
+                        """
+                        UPDATE stock_data 
+                        SET qty_in = ?, comments = ? 
+                        WHERE unique_id = ?
+                        """,
+                        (new_qty_in, final_comments, unique_id),
                     ):
                         errors.append(f"Failed to update qty_in for {code}")
                         continue
@@ -3243,8 +3258,8 @@ class StockInventory(tk.Frame):
                         discrepancy=discrepancy,
                         code=code,
                         scen=scenario_id,
-                        kit=kit_for_log,  # ✅ Now uses kit_number
-                        mod=mod_for_log,  # ✅ Now uses module_number
+                        kit=kit_for_log,
+                        mod=mod_for_log,
                         remarks=remarks_val or f"Surplus: +{discrepancy} units",
                     )
                     processed_count += 1
@@ -3253,8 +3268,12 @@ class StockInventory(tk.Frame):
                 elif discrepancy < 0:
                     new_qty_out = old_qty_out + abs(discrepancy)
                     if not attempt(
-                        "UPDATE stock_data SET qty_out = ? WHERE unique_id = ?",
-                        (new_qty_out, unique_id),
+                        """
+                        UPDATE stock_data 
+                        SET qty_out = ?, comments = ? 
+                        WHERE unique_id = ?
+                        """,
+                        (new_qty_out, final_comments, unique_id),
                     ):
                         errors.append(f"Failed to update qty_out for {code}")
                         continue
@@ -3266,24 +3285,29 @@ class StockInventory(tk.Frame):
                         discrepancy=discrepancy,
                         code=code,
                         scen=scenario_id,
-                        kit=kit_for_log,  # ✅ Now uses kit_number
-                        mod=mod_for_log,  # ✅ Now uses module_number
+                        kit=kit_for_log,
+                        mod=mod_for_log,
                         remarks=remarks_val or f"Shortage: {discrepancy} units",
                     )
                     processed_count += 1
 
-                # SCENARIO 4: Match (discrepancy == 0) - No action needed
+                # SCENARIO 4: Match (discrepancy == 0) - Update comments only
                 else:
-                    # Just log if remarks exist
+                    # ✅ Update comments even if no quantity change
                     if remarks_val:
+                        attempt(
+                            "UPDATE stock_data SET comments = ? WHERE unique_id = ?",
+                            (final_comments, unique_id),
+                        )
+
                         log_transaction(
                             unique_id,
                             current_exp,
                             discrepancy=0,
                             code=code,
                             scen=scenario_id,
-                            kit=kit_for_log,  # ✅ Now uses kit_number
-                            mod=mod_for_log,  # ✅ Now uses module_number
+                            kit=kit_for_log,
+                            mod=mod_for_log,
                             remarks=remarks_val,
                         )
                     processed_count += 1
@@ -3312,20 +3336,20 @@ class StockInventory(tk.Frame):
                 # ✅ Construct proper unique_id with ALL original metadata
                 new_uid = construct_unique_id(
                     scenario_id=scenario_id,
-                    kit_code=kit_code,  # ✅ From parent row
-                    module_code=module_code,  # ✅ From parent row
+                    kit_code=kit_code,
+                    module_code=module_code,
                     item_code=item_code,
                     std_qty=std_qty_val,
-                    exp_date=exp_iso,  # ✅ ONLY this changes
+                    exp_date=exp_iso,
                     kit_number=kit_number,
                     module_number=module_number,
                     force_box_format=had_box,
-                    treecode=treecode,  # ✅ From parent row
+                    treecode=treecode,
                 )
 
                 # Check if batch already exists
                 cur.execute(
-                    "SELECT qty_in, qty_out FROM stock_data WHERE unique_id = ?",
+                    "SELECT qty_in, qty_out, comments FROM stock_data WHERE unique_id = ?",
                     (new_uid,),
                 )
                 existing_batch = cur.fetchone()
@@ -3333,35 +3357,43 @@ class StockInventory(tk.Frame):
                 if existing_batch:
                     # Batch exists - add to it
                     new_qty_in = (existing_batch[0] or 0) + physical
+                    old_comments = existing_batch[2] or ""
+                    final_comments = remarks_val if remarks_val else old_comments
+
                     if not attempt(
-                        "UPDATE stock_data SET qty_in = ? WHERE unique_id = ?",
-                        (new_qty_in, new_uid),
+                        """
+                        UPDATE stock_data 
+                        SET qty_in = ?, comments = ? 
+                        WHERE unique_id = ?
+                        """,
+                        (new_qty_in, final_comments, new_uid),
                     ):
                         errors.append(f"Failed to update existing batch for {code}")
                         continue
                 else:
-                    # ✅ Create new batch with ALL original metadata including treecode
+                    # ✅ Create new batch with comments
                     if not attempt(
                         """
                         INSERT INTO stock_data 
                         (unique_id, scenario, kit_number, module_number, kit, module, item, 
-                        std_qty, qty_in, qty_out, exp_date, discrepancy, treecode)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        std_qty, qty_in, qty_out, exp_date, discrepancy, treecode, comments)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             new_uid,
                             scenario_name,
                             kit_number,
                             module_number,
-                            kit_code,  # ✅ From parent
-                            module_code,  # ✅ From parent
+                            kit_code,
+                            module_code,
                             item_code,
                             std_qty_val,
                             physical,
                             0,
                             exp_iso,
                             0,
-                            treecode,  # ✅ From parent
+                            treecode,
+                            remarks_val or "",  # ✅ Save remarks to comments
                         ),
                     ):
                         errors.append(f"Failed to create new batch for {code}")
@@ -3375,8 +3407,8 @@ class StockInventory(tk.Frame):
                     discrepancy=physical,
                     code=item_code,
                     scen=scenario_id,
-                    kit=kit_for_log,  # ✅ Now uses kit_number
-                    mod=mod_for_log,  # ✅ Now uses module_number
+                    kit=kit_for_log,
+                    mod=mod_for_log,
                     remarks=remarks_val
                     or f"New batch: {physical} units, exp: {exp_iso}",
                 )
@@ -3392,15 +3424,16 @@ class StockInventory(tk.Frame):
                     "code": vals[1],
                     "description": vals[2],
                     "type": vals[3],
-                    "scenario": vals[4],
-                    "kit_number": vals[5],
-                    "module_number": vals[6],
-                    "current_stock": vals[7],
-                    "exp_date": vals[8],
-                    "physical_qty": vals[9],
-                    "updated_exp_date": vals[10],
-                    "discrepancy": vals[11],
-                    "remarks": vals[12],
+                    "management_type": vals[4],  # ✅ NEW COLUMN
+                    "scenario": vals[5],
+                    "kit_number": vals[6],
+                    "module_number": vals[7],
+                    "current_stock": vals[8],
+                    "exp_date": vals[9],
+                    "physical_qty": vals[10],
+                    "updated_exp_date": vals[11],
+                    "discrepancy": vals[12],
+                    "remarks": vals[13],
                 }
                 for item in self.tree.get_children()
                 if (vals := self.tree.item(item)["values"])
