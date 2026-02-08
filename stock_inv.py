@@ -1193,11 +1193,9 @@ class StockInventory(tk.Frame):
 
             # ✅ FIXED: Only force 0 if no previous state exists AND in Complete Inventory mode
             if is_complete_inventory and not state:
-                # New item in Complete Inventory - default to 0
                 phys_to_insert = "0"
                 base_ph_to_insert = 0
             else:
-                # Preserve existing data (user may have already entered values)
                 phys_to_insert = phys
                 base_ph_to_insert = base_ph
 
@@ -1205,10 +1203,11 @@ class StockInventory(tk.Frame):
                 item, phys_to_insert, upd, disc, remarks, base_ph_to_insert
             )
 
-            # ✅ REMOVED: Don't update stored state - preserve user input!
-
         # Recompute quantities
         self.recompute_all_physical_quantities()
+
+        # ✅✅✅ NEW: Force reapply tags after tree is fully populated ✅✅✅
+        self._force_reapply_tags()
 
         # Update status with count breakdown
         total = len(items)
@@ -1243,10 +1242,10 @@ class StockInventory(tk.Frame):
         if current_stock > 0 and not remarks:
             remarks = item_dict.get("comments", "")
 
-        # ✅ mgmt_type is ALWAYS English internally ("on-shelf" or "in-box")
+        # mgmt_type is ALWAYS English internally ("on-shelf" or "in-box")
         mgmt_type = item_dict.get("mgmt_type", "on-shelf")
 
-        # ✅ Translate ONLY for display in the tree
+        # Translate ONLY for display in the tree
         mgmt_label = (
             lang.t("stock_inv.on_shelf", "On-Shelf")
             if mgmt_type == "on-shelf"
@@ -1275,8 +1274,9 @@ class StockInventory(tk.Frame):
             ),
         )
 
-        # ✅ Type normalization for highlighting (handles Module/Módulo)
+        # Type normalization for highlighting (handles Module/Módulo/Kit)
         t = normalize_type_text(item_dict["type"] or "")
+
         if t == "KIT":
             self.tree.item(iid, tags=("kit_row",))
         elif t == "MODULE":
@@ -1420,6 +1420,30 @@ class StockInventory(tk.Frame):
 
         # --- Phase 3: Re-apply all visual highlights ---
         self._highlight_missing_required_expiry()
+
+    def _force_reapply_tags(self):
+        """
+        Force reapply color tags to all rows.
+        Called after tree population to ensure tags are properly applied.
+        """
+        # Re-configure tags first
+        self.tree.tag_configure("kit_row", background="#E3F2FD", foreground="#0D47A1")
+        self.tree.tag_configure(
+            "module_row", background="#F3E5F5", foreground="#4A148C"
+        )
+
+        for iid in self.tree.get_children():
+            vals = self.tree.item(iid, "values")
+            if not vals or len(vals) < 4:
+                continue
+
+            type_text = vals[3]  # Type is at index 3
+            normalized = normalize_type_text(type_text or "")
+
+            if normalized == "KIT":
+                self.tree.item(iid, tags=("kit_row",))
+            elif normalized == "MODULE":
+                self.tree.item(iid, tags=("module_row",))
 
     # ---------- Document number generation ----------
     def generate_document_number(self):
