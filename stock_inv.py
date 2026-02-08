@@ -186,8 +186,7 @@ def load_std_quantities_by_scenario(scenario_name=None):
 def aggregate_stock_by_key(scenario_name, mgmt_mode):
     """
     ✅ FIXED: Aggregate stock data by key + EXPIRY DATE + COMMENTS
-    Returns: dict with key = (scenario, key_value, exp_date) containing stock data
-    This ensures SEPARATE rows for each expiry batch!
+    Uses ENGLISH constants for DB queries
     """
     result = {}
 
@@ -213,8 +212,25 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
 
         where_clause = " AND ".join(where_parts)
 
+        # ✅ NEW: Determine which management modes to query (use English)
+        query_onshelf = False
+        query_inbox = False
+
+        # Map translated mgmt_mode to English for DB query
+        if not mgmt_mode or mgmt_mode == "" or mgmt_mode == "All":
+            query_onshelf = True
+            query_inbox = True
+        elif mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
+            query_onshelf = True
+        elif mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box"):
+            query_inbox = True
+        else:
+            # Fallback: try to detect if it's a translated value
+            query_onshelf = True
+            query_inbox = True
+
         # ✅ Query ON-SHELF items (match by item code + EXPIRY + COMMENTS)
-        if mgmt_mode in ("", "All", "On-Shelf"):
+        if query_onshelf:
             onshelf_sql = f"""
                 SELECT
                     CAST(scenario AS TEXT) AS raw_scenario,
@@ -237,7 +253,6 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
 
             for r in onshelf_rows:
                 norm_scen = normalize_scenario(r["raw_scenario"], id_to_name, name_set)
-                # ✅ Key now includes exp_date!
                 key = (norm_scen, r["code"], r["exp_date"] or "")
 
                 result[key] = {
@@ -245,12 +260,12 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     "exp_date": r["exp_date"] or "",
                     "kit_number": "",
                     "module_number": "",
-                    "mgmt_type": "on-shelf",
-                    "comments": r["comments"] or "",  # ✅ NEW
+                    "mgmt_type": "on-shelf",  # Always English
+                    "comments": r["comments"] or "",
                 }
 
         # ✅ Query IN-BOX items (match by treecode + EXPIRY + COMMENTS)
-        if mgmt_mode in ("", "All", "In-Box"):
+        if query_inbox:
             inbox_sql = f"""
                 SELECT
                     CAST(scenario AS TEXT) AS raw_scenario,
@@ -273,7 +288,6 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
 
             for r in inbox_rows:
                 norm_scen = normalize_scenario(r["raw_scenario"], id_to_name, name_set)
-                # ✅ Key now includes exp_date!
                 key = (norm_scen, r["treecode"], r["exp_date"] or "")
 
                 result[key] = {
@@ -281,8 +295,8 @@ def aggregate_stock_by_key(scenario_name, mgmt_mode):
                     "exp_date": r["exp_date"] or "",
                     "kit_number": r["kit_number"] or "",
                     "module_number": r["module_number"] or "",
-                    "mgmt_type": "in-box",
-                    "comments": r["comments"] or "",  # ✅ NEW
+                    "mgmt_type": "in-box",  # Always English
+                    "comments": r["comments"] or "",
                 }
 
     finally:
@@ -892,10 +906,7 @@ class StockInventory(tk.Frame):
     def fetch_inventory_items(self):
         """
         ✅ FIXED: Load ALL items from standard quantities (compositions + kit_items)
-        Then match stock data to show current quantities PER EXPIRY DATE.
-        ✅ STANDALONE: Items with 8-segment unique_id but kit=None/module=None
-        ✅ FILTERS: Kit/Module filters now work correctly
-        Returns: List of items with SEPARATE rows for each expiry batch!
+        Uses ENGLISH constants for backend filtering, translations only for display
         """
         scenario_filter = self.scenario_var.get()
         mgmt_mode = self.mgmt_mode_var.get()
@@ -923,9 +934,17 @@ class StockInventory(tk.Frame):
         standalone_label = lang.t("stock_inv.stand_alone_items", "Stand alone items")
         all_modules_label = lang.t("stock_inv.all_modules", "All Modules")
 
+        # ✅ NEW: Map translated mgmt_mode back to English for DB comparison
+        mgmt_mode_english = None
+        if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
+            mgmt_mode_english = "on-shelf"
+        elif mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box"):
+            mgmt_mode_english = "in-box"
+        # If "All" or empty, leave as None to show all
+
         # First pass: Add rows from EXISTING stock (with actual expiries)
         for stock_key, stock_entry in stock_map.items():
-            scenario_name, key, exp_date = stock_key  # Now includes exp_date!
+            scenario_name, key, exp_date = stock_key
 
             # Find matching std data
             std_data = std_data_by_scenario.get(scenario_name, {})
@@ -935,15 +954,14 @@ class StockInventory(tk.Frame):
                 continue
 
             code = std_info["code"]
-            mgmt_type = std_info["mgmt_type"]
+            mgmt_type = std_info[
+                "mgmt_type"
+            ]  # This is ALWAYS "on-shelf" or "in-box" from DB
             scenario_id = std_info["scenario_id"]
 
-            # Apply management mode filter
-            if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
-                if mgmt_type != "on-shelf":
-                    continue
-            elif mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box"):
-                if mgmt_type != "in-box":
+            # ✅ FIXED: Compare using English constants, NOT translated values
+            if mgmt_mode_english:
+                if mgmt_type != mgmt_mode_english:
                     continue
 
             # Get kit/module numbers from stock
@@ -958,11 +976,9 @@ class StockInventory(tk.Frame):
             # ✅ FIXED: Apply kit number filter
             if kit_filter and kit_filter != all_kits_label:
                 if kit_filter == standalone_label:
-                    # Show only standalone items (no kit/module numbers)
                     if not is_standalone:
                         continue
                 else:
-                    # Show only items WITH specific kit number
                     if kit_num != kit_filter:
                         continue
 
@@ -1003,7 +1019,7 @@ class StockInventory(tk.Frame):
                     "code": code,
                     "description": get_active_designation(code),
                     "type": get_item_type(code),
-                    "mgmt_type": mgmt_type,
+                    "mgmt_type": mgmt_type,  # Keep as English internally
                     "scenario": scenario_name,
                     "kit_number": kit_num if kit_num else "-----",
                     "module_number": mod_num if mod_num else "-----",
@@ -1030,36 +1046,23 @@ class StockInventory(tk.Frame):
                         continue
 
                     code = std_info["code"]
-                    mgmt_type = std_info["mgmt_type"]
+                    mgmt_type = std_info["mgmt_type"]  # English: "on-shelf" or "in-box"
                     scenario_id = std_info["scenario_id"]
 
-                    # Apply management mode filter
-                    if mgmt_mode == lang.t("stock_inv.management_on_shelf", "On-Shelf"):
-                        if mgmt_type != "on-shelf":
-                            continue
-                    elif mgmt_mode == lang.t("stock_inv.management_in_box", "In-Box"):
-                        if mgmt_type != "in-box":
+                    # ✅ FIXED: Compare using English constants
+                    if mgmt_mode_english:
+                        if mgmt_type != mgmt_mode_english:
                             continue
 
                     # ✅ FIXED: For items without stock, apply kit/module filters
-                    # For items without stock (in Complete Inventory):
-                    # - If "Stand alone items" selected: Only show in-box items (potential standalone)
-                    # - If specific kit selected: Skip items without stock (can't filter without kit_number)
-                    # - If specific module selected: Skip items without stock (can't filter without module_number)
-
                     if kit_filter and kit_filter != all_kits_label:
                         if kit_filter == standalone_label:
-                            # Only include if management is in-box (potential standalone)
                             if mgmt_type != "in-box":
                                 continue
                         else:
-                            # Skip items without stock when specific kit is selected
-                            # (we can't know their future kit numbers)
                             continue
 
                     if module_filter and module_filter != all_modules_label:
-                        # Skip items without stock when specific module is selected
-                        # (we can't know their future module numbers)
                         continue
 
                     # ✅ Generate unique_id WITHOUT expiry (blank)
@@ -1094,7 +1097,7 @@ class StockInventory(tk.Frame):
                             "code": code,
                             "description": get_active_designation(code),
                             "type": get_item_type(code),
-                            "mgmt_type": mgmt_type,
+                            "mgmt_type": mgmt_type,  # Keep as English
                             "scenario": scenario_name,
                             "kit_number": "-----",
                             "module_number": "-----",
@@ -1105,18 +1108,16 @@ class StockInventory(tk.Frame):
                         }
                     )
 
-        # ✅ FIXED SORTING: Group by treecode/code, then sort by expiry WITHIN each group
+        # ✅ FIXED SORTING
         def sort_key(item):
             scenario = item["scenario"]
             mgmt_type = item["mgmt_type"]
 
-            # Use treecode for in-box, code for on-shelf
             if mgmt_type == "in-box":
                 group_key = item.get("treecode", item["code"])
             else:
                 group_key = item["code"]
 
-            # Expiry date (blank goes last)
             exp_date = item["exp_date"] or "9999-12-31"
 
             return (scenario, group_key, exp_date)
@@ -1228,27 +1229,24 @@ class StockInventory(tk.Frame):
         phys_str = physical_qty if physical_qty and str(physical_qty).isdigit() else ""
         disc_str = discrepancy if discrepancy not in ("", None) else ""
 
-        # ✅ Auto-fill updated_exp_date for existing rows
         current_stock = item_dict.get("current_stock", 0)
         current_exp = item_dict.get("exp_date", "")
 
         if isinstance(current_stock, str):
             current_stock = int(current_stock) if current_stock.isdigit() else 0
 
-        # If existing row (current_stock > 0), auto-fill updated_exp = current_exp
         if current_stock > 0 and current_exp:
             auto_updated_exp = current_exp
         else:
-            # New row (current_stock = 0), use provided updated_exp or blank
             auto_updated_exp = updated_exp
 
-        # ✅ NEW: Use comments from stock_data for existing rows (if no user remarks yet)
-        # For existing rows (current_stock > 0), pre-populate remarks with comments
         if current_stock > 0 and not remarks:
             remarks = item_dict.get("comments", "")
 
-        # ✅ Get management type label
+        # ✅ mgmt_type is ALWAYS English internally ("on-shelf" or "in-box")
         mgmt_type = item_dict.get("mgmt_type", "on-shelf")
+
+        # ✅ Translate ONLY for display in the tree
         mgmt_label = (
             lang.t("stock_inv.on_shelf", "On-Shelf")
             if mgmt_type == "on-shelf"
@@ -1263,7 +1261,7 @@ class StockInventory(tk.Frame):
                 item_dict["code"],  # 1
                 item_dict["description"],  # 2
                 item_dict["type"],  # 3
-                mgmt_label,  # 4 ✅ MANAGEMENT TYPE
+                mgmt_label,  # 4 ✅ TRANSLATED for display
                 item_dict["scenario"],  # 5
                 item_dict.get("kit_number", "-----"),  # 6
                 item_dict.get("module_number", "-----"),  # 7
@@ -1272,12 +1270,12 @@ class StockInventory(tk.Frame):
                 phys_str,  # 10
                 auto_updated_exp,  # 11
                 disc_str,  # 12
-                remarks,  # 13 ✅ Pre-populated with comments for existing rows
+                remarks,  # 13
                 item_dict["std_qty"],  # 14
             ),
         )
 
-        # ✅ FIXED: Normalize type text before comparison (handles Módulo/Module)
+        # ✅ Type normalization for highlighting (handles Module/Módulo)
         t = normalize_type_text(item_dict["type"] or "")
         if t == "KIT":
             self.tree.item(iid, tags=("kit_row",))
@@ -1294,7 +1292,6 @@ class StockInventory(tk.Frame):
     def recompute_all_physical_quantities(self):
         """
         Universal quantity calculation engine.
-        ✅ FIXED: Handles Module/Módulo/MODULE normalization
         """
         # --- Phase 1: Calculate all final quantities ---
         kit_factors = {}
@@ -1318,15 +1315,15 @@ class StockInventory(tk.Frame):
             base_input = self.base_physical_inputs.get(iid, 0)
 
             if row_type == "KIT":
-                kit_number = vals[6]
+                kit_number = vals[6]  # ✅ Updated index
                 if kit_number and kit_number != "-----":
                     final_qty = 1 if base_input > 0 else 0
                     kit_factors[kit_number] = final_qty
                     self.tree.set(iid, "physical_qty", str(final_qty))
 
             elif row_type == "MODULE":
-                module_number = vals[7]
-                kit_number = vals[6]
+                module_number = vals[7]  # ✅ Updated index
+                kit_number = vals[6]  # ✅ Updated index
                 if module_number and module_number != "-----":
                     parent_kit_factor = kit_factors.get(kit_number, 1)
                     base_factor = 1 if base_input > 0 else 0
@@ -1345,6 +1342,7 @@ class StockInventory(tk.Frame):
                             ).format(code=vals[1], desc=vals[2], kit=kit_number),
                             "info",
                         )
+                        # State Synchronization: Reset base input to prevent repeated popups
                         self.base_physical_inputs[iid] = 0
 
         # Second pass: Calculate quantities for all other rows (ITEMS and non-physical)
@@ -1363,8 +1361,8 @@ class StockInventory(tk.Frame):
             final_qty = base_input  # Default for non-physical rows
 
             if is_physical and row_type == "ITEM":
-                kit_number = vals[6]
-                module_number = vals[7]
+                kit_number = vals[6]  # ✅ Updated index
+                module_number = vals[7]  # ✅ Updated index
 
                 parent_kit_factor = kit_factors.get(kit_number, 1)
                 parent_module_factor = module_factors.get(module_number, 1)
@@ -1395,6 +1393,7 @@ class StockInventory(tk.Frame):
                             ).format(code=vals[1], desc=vals[2], reason=reason),
                             "info",
                         )
+                        # State Synchronization: Reset base input
                         self.base_physical_inputs[iid] = 0
 
             elif not is_physical:
@@ -1406,8 +1405,12 @@ class StockInventory(tk.Frame):
             if not vals:
                 continue
 
-            current_stock = int(vals[8]) if str(vals[8]).isdigit() else 0
-            physical_qty = int(vals[10]) if str(vals[10]).isdigit() else 0
+            current_stock = (
+                int(vals[8]) if str(vals[8]).isdigit() else 0
+            )  # ✅ Updated index
+            physical_qty = (
+                int(vals[10]) if str(vals[10]).isdigit() else 0
+            )  # ✅ Updated index
             discrepancy = physical_qty - current_stock
 
             self.tree.set(
